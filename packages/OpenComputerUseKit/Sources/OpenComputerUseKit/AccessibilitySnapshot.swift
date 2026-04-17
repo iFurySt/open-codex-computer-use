@@ -30,11 +30,44 @@ public struct AppSnapshot {
     public let app: RunningAppDescriptor
     public let windowTitle: String?
     public let windowBounds: CGRect?
-    public let screenshotPath: String?
-    public let renderedText: String
+    public let screenshotPNGData: Data?
     let mode: SnapshotMode
+    let treeLines: [String]
+    let focusedSummary: String?
 
     let elements: [Int: ElementRecord]
+
+    public var renderedText: String {
+        renderedText(style: .fullState)
+    }
+
+    public func renderedText(style: SnapshotTextStyle) -> String {
+        var lines: [String] = []
+
+        if style == .fullState {
+            lines.append("Computer Use state (Open Computer Use 0.1.0)")
+            lines.append("<app_state>")
+        }
+
+        lines.append("App=\(app.bundleIdentifier ?? app.name) (pid \(app.pid))")
+        lines.append("Window: \(quoted(windowTitle ?? "")), App: \(app.name).")
+        lines.append(contentsOf: treeLines)
+
+        if let focusedSummary {
+            lines.append("The focused UI element is \(focusedSummary).")
+        }
+
+        if style == .fullState {
+            lines.append("</app_state>")
+        }
+
+        return lines.joined(separator: "\n")
+    }
+}
+
+public enum SnapshotTextStyle {
+    case fullState
+    case actionResult
 }
 
 enum SnapshotBuilder {
@@ -57,52 +90,21 @@ enum SnapshotBuilder {
 
         let windowCapture = WindowCapture.resolve(for: app.pid, titleHint: windowTitle)
         let windowBounds = windowCapture?.bounds
-        let screenshotPath = try windowCapture?.writePNGIfAvailable()
+        let screenshotPNGData = windowCapture?.pngDataIfAvailable()
         let focusedElement = preferredFocusedElement(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
         let context = RenderContext(windowBounds: windowBounds, focusedElement: focusedElement)
 
         var renderer = TreeRenderer(context: context)
         renderer.render(rootElement)
 
-        var lines: [String] = []
-        lines.append("Computer Use state (OpenComputerUse 0.1.0)")
-        lines.append(permissions.summary)
-
-        if let screenshotPath {
-            lines.append("Screenshot: \(screenshotPath)")
-        } else {
-            lines.append("Screenshot: unavailable")
-        }
-
-        lines.append("<app_state>")
-        lines.append("App=\(app.bundleIdentifier ?? app.name) (pid \(app.pid))")
-
-        if let windowBounds {
-            lines.append("Window: \(quoted(windowTitle ?? app.name)), Bounds: \(format(rect: windowBounds))")
-        }
-
-        lines.append(contentsOf: renderer.lines)
-        lines.append("</app_state>")
-
-        if !renderer.identifierIndex.isEmpty {
-            lines.append("<element_index>")
-            for entry in renderer.identifierIndex.sorted(by: { $0.key < $1.key }) {
-                lines.append(entry.value)
-            }
-            lines.append("</element_index>")
-        }
-
-        if let focusedSummary = renderer.focusedSummary {
-            lines.append("The focused UI element is \(focusedSummary).")
-        }
-
         return AppSnapshot(
             app: app,
             windowTitle: windowTitle,
             windowBounds: windowBounds,
-            screenshotPath: screenshotPath,
-            renderedText: lines.joined(separator: "\n"),
+            screenshotPNGData: screenshotPNGData,
             mode: .accessibility,
+            treeLines: renderer.lines,
+            focusedSummary: renderer.focusedSummary,
             elements: renderer.records
         )
     }
@@ -139,15 +141,8 @@ enum SnapshotBuilder {
 
     private static func buildFixtureSnapshot(app: RunningAppDescriptor, state: FixtureAppState) -> AppSnapshot {
         var lines: [String] = []
-        lines.append("Computer Use state (OpenComputerUse 0.1.0)")
-        lines.append(PermissionDiagnostics.current().summary)
-        lines.append("Screenshot: unavailable (fixture synthetic state)")
-        lines.append("<app_state>")
-        lines.append("App=\(app.name) (pid \(app.pid))")
-        lines.append("Window: \"\(state.windowTitle)\", Bounds: \(format(rect: state.windowBounds.cgRect))")
 
         var records: [Int: ElementRecord] = [:]
-        var identifierLines: [String] = []
         let focusedIdentifier = state.focusedIdentifier
         var focusedSummary: String?
 
@@ -167,36 +162,26 @@ enum SnapshotBuilder {
                 prettyActions: element.actions
             )
             records[element.index] = record
-            identifierLines.append("\(element.identifier) -> \(element.index) @ \(element.frame.cgRect.renderedLocalFrame)")
 
             if focusedIdentifier == element.identifier {
                 focusedSummary = "\(element.index) \(element.role)"
             }
         }
 
-        lines.append("</app_state>")
-        lines.append("<element_index>")
-        lines.append(contentsOf: identifierLines.sorted())
-        lines.append("</element_index>")
-
-        if let focusedSummary {
-            lines.append("The focused UI element is \(focusedSummary).")
-        }
-
         return AppSnapshot(
             app: app,
             windowTitle: state.windowTitle,
             windowBounds: state.windowBounds.cgRect,
-            screenshotPath: nil,
-            renderedText: lines.joined(separator: "\n"),
+            screenshotPNGData: nil,
             mode: .fixture,
+            treeLines: lines,
+            focusedSummary: focusedSummary,
             elements: records
         )
     }
 }
 
 private struct WindowCapture {
-    let windowID: CGWindowID
     let bounds: CGRect
     let image: CGImage?
 
@@ -246,26 +231,16 @@ private struct WindowCapture {
             [.bestResolution, .boundsIgnoreFraming]
         )
 
-        return WindowCapture(windowID: best.0, bounds: best.1, image: image)
+        return WindowCapture(bounds: best.1, image: image)
     }
 
-    func writePNGIfAvailable() throws -> String? {
+    func pngDataIfAvailable() -> Data? {
         guard let image else {
             return nil
         }
 
-        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("open-computer-use", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-
-        let fileURL = directory.appendingPathComponent("window-\(windowID)-\(Int(Date().timeIntervalSince1970 * 1000)).png")
         let bitmap = NSBitmapImageRep(cgImage: image)
-        guard let data = bitmap.representation(using: .png, properties: [:]) else {
-            return nil
-        }
-
-        try data.write(to: fileURL)
-        return fileURL.path
+        return bitmap.representation(using: .png, properties: [:])
     }
 }
 

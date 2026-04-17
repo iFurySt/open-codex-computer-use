@@ -30,12 +30,27 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(windowRelativeFrame(elementFrame: textFieldGlobal, windowBounds: window), textField)
     }
 
-    func testToolDescriptionsExposeIntrusionHints() {
-        let tools = Dictionary(uniqueKeysWithValues: ToolDefinitions.all.map { ($0.name, $0.description) })
+    func testToolDescriptionsMatchOfficialComputerUseSurface() {
+        let tools = Dictionary(uniqueKeysWithValues: ToolDefinitions.all.map { ($0.name, $0) })
 
-        XCTAssertTrue(tools["get_app_state"]?.contains("without activating") == true)
-        XCTAssertTrue(tools["press_key"]?.contains("super+n") == true)
-        XCTAssertTrue(tools["type_text"]?.contains("target app PID") == true)
-        XCTAssertTrue(tools["drag"]?.contains("moves the real pointer") == true)
+        XCTAssertEqual(
+            tools["get_app_state"]?.description,
+            "Start an app use session if needed, then get the state of the app's key window and return a screenshot and accessibility tree. This must be called once per assistant turn before interacting with the app."
+        )
+        XCTAssertTrue(tools["press_key"]?.description.contains("xdotool") == true)
+        XCTAssertEqual(
+            (tools["click"]?.inputSchema["properties"] as? [String: [String: Any]])?["mouse_button"]?["default"] as? String,
+            "left"
+        )
+        XCTAssertEqual(
+            (tools["click"]?.inputSchema["properties"] as? [String: [String: Any]])?["click_count"]?["default"] as? Int,
+            1
+        )
+    }
+
+    func testComputerUseErrorsFormatLikeToolText() {
+        XCTAssertEqual(ComputerUseError.appNotFound("Sublime Text").errorDescription, #"appNotFound("Sublime Text")"#)
+        XCTAssertFalse(ComputerUseError.appNotFound("Sublime Text").toolResultIsError)
+        XCTAssertTrue(ComputerUseError.invalidArguments("bad").toolResultIsError)
     }
 }

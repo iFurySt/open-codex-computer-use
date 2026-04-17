@@ -13,15 +13,24 @@ public enum ComputerUseError: Error, LocalizedError {
         case .message(let value):
             return value
         case .unsupportedTool(let name):
-            return "unsupportedTool(\(name))"
+            return "unsupportedTool(\"\(name)\")"
         case .invalidArguments(let message):
-            return "invalidArguments(\(message))"
+            return "invalidArguments(\"\(message)\")"
         case .appNotFound(let app):
-            return "appNotFound(\(app))"
+            return "appNotFound(\"\(app)\")"
         case .permissionDenied(let message):
             return message
         case .stateUnavailable(let message):
             return message
+        }
+    }
+
+    var toolResultIsError: Bool {
+        switch self {
+        case .unsupportedTool, .invalidArguments:
+            return true
+        case .message, .appNotFound, .permissionDenied, .stateUnavailable:
+            return false
         }
     }
 }

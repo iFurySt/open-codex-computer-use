@@ -103,15 +103,28 @@ public enum FixtureBridge {
             return nil
         }
 
-        let data = try Data(contentsOf: url)
-        return try JSONDecoder().decode(FixtureAppState.self, from: data)
+        var lastError: Error?
+
+        for attempt in 0..<5 {
+            do {
+                let data = try Data(contentsOf: url)
+                return try JSONDecoder().decode(FixtureAppState.self, from: data)
+            } catch {
+                lastError = error
+                if attempt < 4 {
+                    Thread.sleep(forTimeInterval: 0.05)
+                }
+            }
+        }
+
+        throw lastError ?? ComputerUseError.message("Failed to read fixture state")
     }
 
     public static func writeState(_ state: FixtureAppState) throws {
         let directory = stateFileURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let data = try JSONEncoder().encode(state)
-        try data.write(to: stateFileURL)
+        try data.write(to: stateFileURL, options: .atomic)
     }
 
     public static func post(_ command: FixtureCommand) throws {

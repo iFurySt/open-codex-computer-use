@@ -15,12 +15,12 @@ enum OpenComputerUseMain {
             let permissions = PermissionDiagnostics.current()
             print(permissions.summary)
         case "list-apps":
-            print(service.listApps())
+            print(service.listApps().primaryText ?? "")
         case "snapshot":
             guard arguments.count >= 2 else {
                 throw ComputerUseError.invalidArguments("snapshot requires an app name or bundle identifier")
             }
-            print(try service.getAppState(app: arguments[1]))
+            print(try service.getAppState(app: arguments[1]).primaryText ?? "")
         case "turn-ended":
             print("turn-ended acknowledged")
         default:

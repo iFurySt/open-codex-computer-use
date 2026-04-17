@@ -1,5 +1,7 @@
+import AppKit
 import CoreGraphics
 import Foundation
+import OpenComputerUseKit
 
 struct MCPResponse {
     let id: Int?
@@ -157,6 +159,10 @@ enum OpenComputerUseSmokeSuite {
         let productsDirectory = try locateProductsDirectory()
         let fixtureURL = productsDirectory.appendingPathComponent("OpenComputerUseFixture")
         let serverURL = productsDirectory.appendingPathComponent("OpenComputerUse")
+        let appName = "OpenComputerUseFixture"
+
+        terminateExistingFixtures(named: appName)
+        try? FileManager.default.removeItem(at: FixtureBridge.stateFileURL)
 
         let fixture = Process()
         fixture.executableURL = fixtureURL
@@ -182,8 +188,6 @@ enum OpenComputerUseSmokeSuite {
             throw SmokeError.message("Expected 9 tools, got \(tools.count)")
         }
 
-        let appName = "OpenComputerUseFixture"
-
         print("1. list_apps")
         let apps = try client.callTool("list_apps", arguments: [:])
         try expect(apps.contains(appName), "Fixture app should appear in list_apps output.")
@@ -194,13 +198,14 @@ enum OpenComputerUseSmokeSuite {
         ])
         var index = parseElementIndex(state)
         try expect(index.keys.contains("fixture-increment"), "fixture button should be indexed")
+        let initialCounter = parseCounterValue(state)
 
         print("3. click element_index")
         state = try client.callTool("click", arguments: [
             "app": appName,
             "element_index": index["fixture-increment"]!.index,
         ])
-        try expect(state.contains("Counter: 1"), "click should increment the counter")
+        try expect(parseCounterValue(state) == initialCounter + 1, "click should increment the counter")
 
         print("4. click coordinate")
         index = parseElementIndex(state)
@@ -210,7 +215,7 @@ enum OpenComputerUseSmokeSuite {
             "x": buttonFrame.midX,
             "y": buttonFrame.midY,
         ])
-        try expect(state.contains("Counter: 2"), "coordinate click should increment the counter again")
+        try expect(parseCounterValue(state) == initialCounter + 2, "coordinate click should increment the counter again")
 
         print("5. perform_secondary_action")
         let windowIndex = index["fixture-window"]?.index ?? "0"
@@ -293,30 +298,53 @@ enum OpenComputerUseSmokeSuite {
         }
     }
 
-    private static func parseElementIndex(_ state: String) -> [String: (index: String, frame: CGRect)] {
-        guard let start = state.range(of: "<element_index>"), let end = state.range(of: "</element_index>") else {
-            return [:]
+    private static func terminateExistingFixtures(named name: String) {
+        let candidates = NSWorkspace.shared.runningApplications.filter { app in
+            if app.localizedName == name {
+                return true
+            }
+
+            return app.executableURL?.deletingPathExtension().lastPathComponent == name
         }
 
-        let block = state[start.upperBound..<end.lowerBound]
+        for app in candidates {
+            _ = app.terminate()
+        }
+
+        for app in candidates where !app.isTerminated {
+            _ = app.forceTerminate()
+        }
+
+        if !candidates.isEmpty {
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+    }
+
+    private static func parseElementIndex(_ state: String) -> [String: (index: String, frame: CGRect)] {
         var result: [String: (String, CGRect)] = [:]
 
-        for rawLine in block.split(separator: "\n") {
+        for rawLine in state.split(separator: "\n") {
             let line = String(rawLine)
-            let parts = line.components(separatedBy: " -> ")
-            guard parts.count == 2 else {
+            guard
+                let identifierRange = line.range(of: " ID: "),
+                let frameRange = line.range(of: " Frame: ")
+            else {
                 continue
             }
 
-            let identifier = parts[0]
-            let remainder = parts[1]
-            let chunks = remainder.components(separatedBy: " @ ")
-            guard chunks.count == 2 else {
+            let prefix = line[..<identifierRange.lowerBound].trimmingCharacters(in: .whitespaces)
+            guard let index = prefix.split(separator: " ").first.map(String.init) else {
                 continue
             }
 
-            let index = chunks[0]
-            let frame = parseFrame(chunks[1])
+            let identifierSlice = line[identifierRange.upperBound..<frameRange.lowerBound]
+            let identifier = identifierSlice
+                .components(separatedBy: " Value:")
+                .first?
+                .components(separatedBy: " Secondary Actions:")
+                .first?
+                .trimmingCharacters(in: .whitespaces) ?? ""
+            let frame = parseFrame(String(line[frameRange.upperBound...]))
             result[identifier] = (index, frame)
         }
 
@@ -335,5 +363,17 @@ enum OpenComputerUseSmokeSuite {
         }
 
         return CGRect(x: values[0], y: values[1], width: values[2], height: values[3])
+    }
+
+    private static func parseCounterValue(_ state: String) -> Int {
+        guard
+            let range = state.range(of: "Counter: "),
+            let value = state[range.upperBound...].split(whereSeparator: { !$0.isNumber }).first,
+            let counter = Int(value)
+        else {
+            return -1
+        }
+
+        return counter
     }
 }

@@ -60,18 +60,10 @@ public final class StdioMCPServer {
             case "tools/call":
                 let name = params["name"] as? String ?? ""
                 let arguments = params["arguments"] as? [String: Any] ?? [:]
-                let text = try callTool(name: name, arguments: arguments)
+                let result = try callTool(name: name, arguments: arguments)
                 return try encodeJSONRPCResult(
                     id: id,
-                    result: [
-                        "content": [
-                            [
-                                "type": "text",
-                                "text": text,
-                            ],
-                        ],
-                        "isError": false,
-                    ]
+                    result: result.asDictionary
                 )
             default:
                 if method == nil {
@@ -80,6 +72,11 @@ public final class StdioMCPServer {
 
                 return try encodeJSONRPCError(id: id, code: -32601, message: "Method not found: \(method ?? "")")
             }
+        } catch let error as ComputerUseError {
+            let payload = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+            let id = payload?["id"]
+            let result = ToolCallResult.text(error.errorDescription ?? String(describing: error), isError: error.toolResultIsError)
+            return try? encodeJSONRPCResult(id: id, result: result.asDictionary)
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             let payload = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
@@ -99,7 +96,7 @@ public final class StdioMCPServer {
         }
     }
 
-    private func callTool(name: String, arguments: [String: Any]) throws -> String {
+    private func callTool(name: String, arguments: [String: Any]) throws -> ToolCallResult {
         switch name {
         case "list_apps":
             return service.listApps()

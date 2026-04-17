@@ -48,6 +48,7 @@
 - `ComputerUseService` 负责把 MCP tool 请求映射到本地能力。
 - `list_apps` 通过 `NSWorkspace` 枚举运行中的 app。
 - `get_app_state` 优先走真实 AX / 窗口截图，但不再为了读状态而显式 `activate` 目标 app；当目标是仓库内 fixture app 时，回退到 fixture 导出的合成状态。
+- MCP `tools/list` 的 description / input schema 当前按官方 `computer-use` 的 9 个 tools 文案和参数面收敛，尽量减少 host 侧提示词和 tool surface 偏差。
 - 普通 app 的 element frame 当前按“窗口左上角为原点”的 window-relative 坐标输出，便于后续把 `element_index` 和截图坐标统一到同一套参考系。
 - 动作型 tools 对普通 app 采用“非侵入优先，HID 兜底”策略：
   - `AXUIElementPerformAction`
@@ -68,7 +69,7 @@
 - 开源版当前不复刻官方闭源实现里的 caller signing、私有 IPC、overlay UI 和 plugin 自安装逻辑。
 - 因为官方 `SkyComputerUseClient` 带有宿主侧 launch constraints，普通 stdio MCP client 在本机上可能被系统直接杀掉；如果要探测官方 bundled `computer-use`，默认应通过 `scripts/computer-use-cli` 的 app-server 模式走已签名的 Codex 宿主。
 - 当前权限引导已经具备可运行 app、深链和拖拽辅助，但还没有完全复刻官方那套嵌入式 choreography / overlay 体验。
-- screenshot 当前使用系统窗口截图 API，结果写入临时目录，不做长期持久化。
+- screenshot 当前使用系统窗口截图 API，但默认直接以 MCP `image` content block 的 base64 PNG 返回，不再把普通 app 截图落盘到仓库或临时目录。
 - 会话状态现在是进程内内存态，保存每个 app 最近一次 snapshot 和 element index 映射。
 
 ## 主要验证路径

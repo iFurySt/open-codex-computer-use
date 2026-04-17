@@ -8,8 +8,8 @@
 
 ## 数据处理
 
-- screenshot 只写到临时目录 `TMPDIR/open-computer-use/`，默认不长期持久化。
-- fixture app 的合成状态只写到本地临时 JSON 文件，目的是支撑 deterministic smoke test。
+- 普通 app 的 screenshot 默认只在内存中编码成 PNG，并通过 MCP `image` content block 直接回传；默认不长期持久化。
+- fixture app 的合成状态只写到本地临时 JSON 文件，目的是支撑 deterministic smoke test；当前写入走原子替换，减少测试期间的读写竞争。
 - 当前仓库不引入第三方服务，也不上传截图、AX tree 或输入内容。
 
 ## 授权与最小权限
