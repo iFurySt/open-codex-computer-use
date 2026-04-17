@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 import OpenComputerUseKit
 
@@ -6,10 +7,18 @@ import OpenComputerUseKit
 enum OpenComputerUseMain {
     static func main() throws {
         let arguments = Array(CommandLine.arguments.dropFirst())
-        let service = ComputerUseService()
+        let command: OpenComputerUseCLICommand
 
-        switch arguments.first {
-        case "mcp":
+        do {
+            command = try parseOpenComputerUseCLI(arguments: arguments)
+        } catch let error as OpenComputerUseCLIError {
+            writeToStandardError(error.errorDescription ?? error.message)
+            exit(EXIT_FAILURE)
+        }
+
+        switch command {
+        case .mcp:
+            let service = ComputerUseService()
             let server = StdioMCPServer(service: service)
             if VisualCursorSupport.isEnabled {
                 try MainActor.assumeIsolated {
@@ -18,39 +27,34 @@ enum OpenComputerUseMain {
             } else {
                 try server.run()
             }
-        case "doctor":
+        case .doctor:
             let permissions = PermissionDiagnostics.current()
             print(permissions.summary)
             if !permissions.missingPermissions.isEmpty {
                 PermissionOnboardingApp.launch()
             }
-        case "list-apps":
+        case .listApps:
+            let service = ComputerUseService()
             print(service.listApps().primaryText ?? "")
-        case "snapshot":
-            guard arguments.count >= 2 else {
-                throw ComputerUseError.invalidArguments("snapshot requires an app name or bundle identifier")
-            }
-            print(try service.getAppState(app: arguments[1]).primaryText ?? "")
-        case "turn-ended":
+        case let .snapshot(app):
+            let service = ComputerUseService()
+            print(try service.getAppState(app: app).primaryText ?? "")
+        case .turnEnded:
             print("turn-ended acknowledged")
-        default:
-            if arguments.first == "help" || arguments.first == "--help" || arguments.first == "-h" {
-                print(
-                    """
-                    OpenComputerUse
-
-                    Usage:
-                      OpenComputerUse
-                      OpenComputerUse mcp
-                      OpenComputerUse doctor
-                      OpenComputerUse list-apps
-                      OpenComputerUse snapshot <app>
-                      OpenComputerUse turn-ended
-                    """
-                )
-            } else {
-                PermissionOnboardingApp.launch()
-            }
+        case let .help(command):
+            print(openComputerUseHelpText(command: command))
+        case .version:
+            print(resolvedOpenComputerUseVersion())
+        case .launchOnboarding:
+            PermissionOnboardingApp.launch()
         }
+    }
+
+    private static func writeToStandardError(_ message: String) {
+        guard let data = (message + "\n").data(using: .utf8) else {
+            return
+        }
+
+        FileHandle.standardError.write(data)
     }
 }

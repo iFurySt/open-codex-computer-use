@@ -38,6 +38,11 @@ npm install -g open-computer-use
 安装任意一个后，都会同时提供这三个命令别名：
 
 ```bash
+# 查看 CLI 版本和完整命令帮助
+open-computer-use --version
+open-computer-use --help
+open-computer-use help snapshot
+
 # 检查当前权限状态；如果有缺失会直接拉起权限 onboarding 窗口
 open-computer-use doctor
 
@@ -48,6 +53,14 @@ open-computer-use mcp
 open-computer-use install-codex-plugin
 ```
 
+安装完成后，建议先做这一条：
+
+```bash
+open-computer-use doctor
+```
+
+先确认并授权宿主终端或 MCP client 的 macOS `Accessibility` 和 `Screen Recording` 权限；缺权限时会直接拉起权限 onboarding 窗口。
+
 如果你是把它当普通 stdio MCP server 配到自己的 client 里，用法基本就是：
 
 1. 全局安装一个包：
@@ -56,7 +69,7 @@ open-computer-use install-codex-plugin
 npm install -g open-computer-use
 ```
 
-2. 在你的 MCP client 配置里加一段 JSON：
+2. 在支持 MCP 的 client 配置里加一段 JSON：
 
 ```json
 {
@@ -110,6 +123,8 @@ npm install -g open-computer-use
 
 ```bash
 swift build
+.build/debug/OpenComputerUse --version
+.build/debug/OpenComputerUse --help
 # 缺权限时会打开权限 onboarding 窗口
 .build/debug/OpenComputerUse doctor
 .build/debug/OpenComputerUse list-apps
@@ -179,6 +194,7 @@ go run . call list_apps
 ```
 
 如果直接运行 `OpenComputerUse` 而不带子命令，默认会进入 app 模式并显示权限 onboarding 窗口；该窗口以 agent-style app 方式运行，不会在 Dock 常驻显示图标。
+如果想看某个子命令的参数说明，可以直接用 `OpenComputerUse help <command>` 或 `<command> --help`。
 
 ## 抓 Codex 上游流量
 
@@ -276,7 +292,7 @@ node ./scripts/npm/publish-packages.mjs
 
 - `build-packages.mjs` 会构建 universal app 并 stage 三个 npm 包目录到 `dist/npm/`。
 - `release-package.sh` 会额外把它们打成 `dist/release/npm/*.tgz`，并生成 `dist/release/release-manifest.json`。
-- `.github/workflows/release.yml` 支持通过 push `0.1.5` / `v0.1.5` 这类 git tag 自动发布，也保留手动触发作为兜底；默认兼容 npm Trusted Publishing，同时也支持通过仓库 `NPM_TOKEN` secret 兜底发布。
+- `.github/workflows/release.yml` 支持通过 push `0.1.6` / `v0.1.6` 这类 git tag 自动发布，也保留手动触发作为兜底；默认兼容 npm Trusted Publishing，同时也支持通过仓库 `NPM_TOKEN` secret 兜底发布。
 
 ## 许可证
 

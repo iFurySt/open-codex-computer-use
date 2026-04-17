@@ -141,6 +141,34 @@ function renderLauncher() {
   return `#!/usr/bin/env bash
 set -euo pipefail
 
+print_launcher_help() {
+  cat <<'EOF'
+Open Computer Use
+
+Usage:
+  open-computer-use [command] [options]
+  open-computer-use
+
+Commands:
+  mcp                  Start the stdio MCP server.
+  doctor               Print permission status and launch onboarding if needed.
+  list-apps            Print running or recently used apps.
+  snapshot <app>       Print the current accessibility snapshot for an app.
+  turn-ended           Acknowledge the host turn boundary.
+  install-codex-plugin Install this npm package into the local Codex plugin cache.
+  help [command]       Show general or command-specific help.
+  version              Print the CLI version.
+
+Global options:
+  -h, --help           Show help.
+  -v, --version        Show version.
+
+Notes:
+  Running without a command launches the permission onboarding app.
+  Use \`open-computer-use help <command>\` for command-specific help.
+EOF
+}
+
 script_path="\${BASH_SOURCE[0]}"
 while [[ -L "\${script_path}" ]]; do
   script_dir="$(cd "$(dirname "\${script_path}")" && pwd)"
@@ -158,6 +186,26 @@ if [[ "\${1:-}" == "install-codex-plugin" ]]; then
   exec "\${install_script}" "$@"
 fi
 
+if [[ "\${1:-}" == "-h" || "\${1:-}" == "--help" ]]; then
+  print_launcher_help
+  exit 0
+fi
+
+if [[ "\${1:-}" == "help" && $# -le 1 ]]; then
+  print_launcher_help
+  exit 0
+fi
+
+if [[ "\${1:-}" == "help" && "\${2:-}" == "install-codex-plugin" ]]; then
+  cat <<'EOF'
+Usage:
+  open-computer-use install-codex-plugin
+
+Install this npm package into the local Codex plugin cache.
+EOF
+  exit 0
+fi
+
 if [[ ! -x "\${app_binary}" ]]; then
   echo "open-computer-use could not find a runnable app bundle at \${app_binary}." >&2
   exit 1
@@ -167,15 +215,29 @@ exec "\${app_binary}" "$@"
 `;
 }
 
-function renderPostinstall(packageName) {
+function renderPostinstall(packageName, version) {
   return `#!/usr/bin/env node
+const mcpConfig = ${JSON.stringify({
+  mcpServers: {
+    "open-computer-use": {
+      command: "open-computer-use",
+      args: ["mcp"],
+    },
+  },
+}, null, 2)};
 const lines = [
   "",
-  "Installed ${packageName}.",
+  "Installed ${packageName}@${version}.",
+  "Package: https://www.npmjs.com/package/${packageName}",
   "Commands: open-computer-use, open-computer-use-mcp, open-codex-computer-use-mcp",
-  "Start MCP: open-computer-use mcp",
-  "Grant permissions / diagnose: open-computer-use doctor",
-  "Install into Codex plugin cache: open-computer-use install-codex-plugin",
+  "",
+  "Next:",
+  "1. Run open-computer-use doctor",
+  "2. In macOS System Settings, grant Accessibility and Screen Recording to your host terminal or MCP client",
+  "3. Start the MCP server with open-computer-use mcp, or install into Codex with open-computer-use install-codex-plugin",
+  "",
+  "You can add this to any MCP-capable client:",
+  JSON.stringify(mcpConfig, null, 2),
   "",
 ];
 for (const line of lines) {
@@ -201,6 +263,8 @@ This package bundles a ready-to-run \`${appBundleName}\`, the Codex plugin metad
 npm install -g ${packageName}
 \`\`\`
 
+After install, run \`open-computer-use doctor\` first. If macOS \`Accessibility\` or \`Screen Recording\` permission is missing, it will open the permission onboarding window and tell you what still needs to be granted.
+
 ## MCP config
 
 If your MCP client accepts a stdio-style \`mcpServers\` JSON config, this is the default setup:
@@ -218,10 +282,17 @@ If your MCP client accepts a stdio-style \`mcpServers\` JSON config, this is the
 
 In practice, using this package as MCP is: global install, add the JSON config, then grant macOS \`Accessibility\` and \`Screen Recording\` permission to the host terminal or app on first use.
 
+Package page: https://www.npmjs.com/package/${packageName}
+
 ## Use
 
 \`\`\`bash
-# Check permissions; if Accessibility / Screen Recording is missing, open the permission onboarding window
+# Show global help, command help, and version
+open-computer-use --help
+open-computer-use help snapshot
+open-computer-use --version
+
+# Check permissions first; if Accessibility / Screen Recording is missing, open the permission onboarding window
 open-computer-use doctor
 
 # Start the stdio MCP server for Claude Desktop, Cursor, Cline, or another MCP client
@@ -246,7 +317,7 @@ function renderPackageJson(packageName, version) {
   return {
     name: packageName,
     version,
-    description: "Prebuilt macOS Computer Use MCP server with Codex plugin installer.",
+    description: "Prebuilt macOS Computer Use MCP server. After install, run open-computer-use doctor.",
     license: "MIT",
     homepage: "https://github.com/iFurySt/open-codex-computer-use",
     repository: {
@@ -316,7 +387,7 @@ function stagePackage(packageName, version, outDir) {
   writeExecutable(path.join(packageRoot, "bin", "open-computer-use"), renderLauncher());
   writeExecutable(path.join(packageRoot, "bin", "open-computer-use-mcp"), renderLauncher());
   writeExecutable(path.join(packageRoot, "bin", "open-codex-computer-use-mcp"), renderLauncher());
-  writeFileSync(path.join(packageRoot, "scripts", "postinstall.mjs"), renderPostinstall(packageName), "utf-8");
+  writeFileSync(path.join(packageRoot, "scripts", "postinstall.mjs"), renderPostinstall(packageName, version), "utf-8");
   writeFileSync(path.join(packageRoot, "README.md"), renderReadme(packageName, version), "utf-8");
   writeFileSync(path.join(packageRoot, "package.json"), `${JSON.stringify(renderPackageJson(packageName, version), null, 2)}\n`, "utf-8");
 

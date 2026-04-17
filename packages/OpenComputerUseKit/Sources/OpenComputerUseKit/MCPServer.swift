@@ -54,7 +54,7 @@ public final class StdioMCPServer {
                         "protocolVersion": "2025-03-26",
                         "serverInfo": [
                             "name": "open-computer-use",
-                            "version": "0.1.5",
+                            "version": openComputerUseVersion,
                         ],
                         "capabilities": [
                             "tools": [
