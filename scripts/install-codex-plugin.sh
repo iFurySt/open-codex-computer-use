@@ -9,6 +9,7 @@ marketplace_name="open-computer-use-local"
 plugin_name="open-computer-use"
 plugin_source_root="${repo_root}/plugins/${plugin_name}"
 plugin_manifest="${plugin_source_root}/.codex-plugin/plugin.json"
+build_script="${repo_root}/scripts/build-open-computer-use-app.sh"
 configuration="debug"
 rebuild="false"
 
@@ -34,10 +35,16 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-app_binary="${repo_root}/dist/OpenComputerUse.app/Contents/MacOS/OpenComputerUse"
+app_bundle="${repo_root}/dist/Open Computer Use.app"
+app_binary="${app_bundle}/Contents/MacOS/OpenComputerUse"
 
 if [[ "${rebuild}" == "true" || ! -x "${app_binary}" ]]; then
-  "${repo_root}/scripts/build-open-computer-use-app.sh" "${configuration}"
+  if [[ -x "${build_script}" ]]; then
+    "${build_script}" "${configuration}"
+  else
+    echo "Missing runnable app bundle at ${app_binary} and no local build script is available." >&2
+    exit 1
+  fi
 fi
 
 if [[ ! -f "${repo_root}/.agents/plugins/marketplace.json" ]]; then
@@ -80,7 +87,7 @@ rm -rf "${plugin_install_root}"
 mkdir -p "${plugin_install_root}"
 
 rsync -a "${plugin_source_root}/" "${plugin_install_root}/"
-rsync -a "${repo_root}/dist/OpenComputerUse.app" "${plugin_install_root}/"
+rsync -a "${app_bundle}" "${plugin_install_root}/"
 
 python3 - "${config_path}" "${repo_root}" "${marketplace_name}" "${plugin_name}" <<'PY'
 import json

@@ -3,23 +3,29 @@
 set -euo pipefail
 
 plugin_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-bundled_app_binary="${plugin_root}/OpenComputerUse.app/Contents/MacOS/OpenComputerUse"
 repo_root="$(cd "${plugin_root}/../.." && pwd)"
-repo_app_binary="${repo_root}/dist/OpenComputerUse.app/Contents/MacOS/OpenComputerUse"
+candidate_binaries=(
+  "${plugin_root}/Open Computer Use.app/Contents/MacOS/OpenComputerUse"
+  "${plugin_root}/OpenComputerUse.app/Contents/MacOS/OpenComputerUse"
+  "${repo_root}/dist/Open Computer Use.app/Contents/MacOS/OpenComputerUse"
+  "${repo_root}/dist/OpenComputerUse.app/Contents/MacOS/OpenComputerUse"
+)
 
-if [[ -x "${bundled_app_binary}" ]]; then
-  cd "${plugin_root}"
-  exec "${bundled_app_binary}" mcp
-fi
-
-if [[ -x "${repo_app_binary}" ]]; then
-  cd "${repo_root}"
-  exec "${repo_app_binary}" mcp
-fi
+for app_binary in "${candidate_binaries[@]}"; do
+  if [[ -x "${app_binary}" ]]; then
+    if [[ "${app_binary}" == "${plugin_root}"/* ]]; then
+      cd "${plugin_root}"
+    else
+      cd "${repo_root}"
+    fi
+    exec "${app_binary}" mcp
+  fi
+done
 
 echo "open-computer-use could not find a runnable app bundle." >&2
 echo "Checked:" >&2
-echo "  - ${bundled_app_binary}" >&2
-echo "  - ${repo_app_binary}" >&2
+for app_binary in "${candidate_binaries[@]}"; do
+  echo "  - ${app_binary}" >&2
+done
 echo "Run ./scripts/install-codex-plugin.sh to populate the Codex plugin cache." >&2
 exit 1

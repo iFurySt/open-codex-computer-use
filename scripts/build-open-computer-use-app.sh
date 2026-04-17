@@ -3,25 +3,144 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-configuration="${1:-debug}"
+configuration="debug"
+arch_mode="native"
+
+usage() {
+  cat <<'EOF'
+Usage: ./scripts/build-open-computer-use-app.sh [debug|release] [--configuration debug|release] [--arch native|arm64|x86_64|universal]
+
+Examples:
+  ./scripts/build-open-computer-use-app.sh debug
+  ./scripts/build-open-computer-use-app.sh --configuration release --arch universal
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    debug|release)
+      configuration="$1"
+      shift
+      ;;
+    --configuration)
+      configuration="${2:-}"
+      if [[ -z "${configuration}" ]]; then
+        echo "--configuration requires a value" >&2
+        exit 1
+      fi
+      shift 2
+      ;;
+    --arch)
+      arch_mode="${2:-}"
+      if [[ -z "${arch_mode}" ]]; then
+        echo "--arch requires a value" >&2
+        exit 1
+      fi
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ "${configuration}" != "debug" && "${configuration}" != "release" ]]; then
+  echo "Unsupported configuration: ${configuration}" >&2
+  exit 1
+fi
+
+if [[ "${arch_mode}" != "native" && "${arch_mode}" != "arm64" && "${arch_mode}" != "x86_64" && "${arch_mode}" != "universal" ]]; then
+  echo "Unsupported arch mode: ${arch_mode}" >&2
+  exit 1
+fi
+
+read_package_version() {
+  python3 - "${repo_root}/plugins/open-computer-use/.codex-plugin/plugin.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as fh:
+    manifest = json.load(fh)
+
+print(manifest["version"])
+PY
+}
+
+build_binary() {
+  local triple="${1:-}"
+  local scratch_path="${2:-}"
+  local -a args=(-c "${configuration}")
+
+  if [[ -n "${triple}" ]]; then
+    args+=(--triple "${triple}")
+  fi
+
+  if [[ -n "${scratch_path}" ]]; then
+    args+=(--scratch-path "${scratch_path}")
+  fi
+
+  local binary_dir
+  binary_dir="$(swift build "${args[@]}" --show-bin-path)"
+  swift build "${args[@]}" --product OpenComputerUse >&2
+  printf '%s/OpenComputerUse\n' "${binary_dir}"
+}
 
 cd "${repo_root}"
 
-binary_dir="$(swift build -c "${configuration}" --show-bin-path)"
-swift build -c "${configuration}" --product OpenComputerUse
+package_version="$(read_package_version)"
+bundle_version="${OPEN_COMPUTER_USE_BUNDLE_VERSION:-$(git -C "${repo_root}" rev-list --count HEAD 2>/dev/null || echo 1)}"
+app_bundle_name="Open Computer Use.app"
+legacy_app_bundle_name="OpenComputerUse.app"
+bundle_icon_name="OpenComputerUse.icns"
+icon_render_script="${repo_root}/scripts/render-open-computer-use-icon.swift"
 
-app_root="${repo_root}/dist/OpenComputerUse.app"
+app_root="${repo_root}/dist/${app_bundle_name}"
+legacy_app_root="${repo_root}/dist/${legacy_app_bundle_name}"
 contents_dir="${app_root}/Contents"
 macos_dir="${contents_dir}/MacOS"
 resources_dir="${contents_dir}/Resources"
 
-rm -rf "${app_root}"
+rm -rf "${app_root}" "${legacy_app_root}"
 mkdir -p "${macos_dir}" "${resources_dir}"
 
-cp "${binary_dir}/OpenComputerUse" "${macos_dir}/OpenComputerUse"
+case "${arch_mode}" in
+  native)
+    cp "$(build_binary "" "")" "${macos_dir}/OpenComputerUse"
+    ;;
+  arm64)
+    cp "$(build_binary "arm64-apple-macosx14.0" ".build/arm64-${configuration}")" "${macos_dir}/OpenComputerUse"
+    ;;
+  x86_64)
+    cp "$(build_binary "x86_64-apple-macosx14.0" ".build/x86_64-${configuration}")" "${macos_dir}/OpenComputerUse"
+    ;;
+  universal)
+    arm_binary="$(build_binary "arm64-apple-macosx14.0" ".build/arm64-${configuration}")"
+    x86_binary="$(build_binary "x86_64-apple-macosx14.0" ".build/x86_64-${configuration}")"
+    lipo -create -output "${macos_dir}/OpenComputerUse" "${arm_binary}" "${x86_binary}"
+    ;;
+esac
+
 chmod +x "${macos_dir}/OpenComputerUse"
 
-cat > "${contents_dir}/Info.plist" <<'PLIST'
+icon_work_dir="$(mktemp -d "${TMPDIR:-/tmp}/open-computer-use-icon.XXXXXX")"
+cleanup() {
+  if [[ -n "${icon_work_dir:-}" ]]; then
+    rm -rf "${icon_work_dir}"
+  fi
+}
+trap cleanup EXIT
+iconset_dir="${icon_work_dir}/OpenComputerUse.iconset"
+mkdir -p "${iconset_dir}"
+swift "${icon_render_script}" "${iconset_dir}"
+iconutil -c icns "${iconset_dir}" -o "${resources_dir}/${bundle_icon_name}"
+
+cat > "${contents_dir}/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -30,6 +149,8 @@ cat > "${contents_dir}/Info.plist" <<'PLIST'
   <string>en</string>
   <key>CFBundleExecutable</key>
   <string>OpenComputerUse</string>
+  <key>CFBundleIconFile</key>
+  <string>${bundle_icon_name}</string>
   <key>CFBundleIdentifier</key>
   <string>dev.opencodex.OpenComputerUse</string>
   <key>CFBundleInfoDictionaryVersion</key>
@@ -41,9 +162,9 @@ cat > "${contents_dir}/Info.plist" <<'PLIST'
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.1.2</string>
+  <string>${package_version}</string>
   <key>CFBundleVersion</key>
-  <string>3</string>
+  <string>${bundle_version}</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <key>LSUIElement</key>
@@ -56,4 +177,4 @@ PLIST
 
 plutil -lint "${contents_dir}/Info.plist" >/dev/null
 
-echo "Built ${app_root}"
+echo "Built ${app_root} (${arch_mode}, ${configuration})"
