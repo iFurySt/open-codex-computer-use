@@ -30,7 +30,7 @@
 - `OpenComputerUse` 默认 app 模式会拉起 `PermissionOnboardingApp`。
 - app bundle 以 `LSUIElement` agent-style 形态运行，默认不在 Dock 暴露常驻图标，但仍可按需显示权限窗口。
 - 主窗口负责渲染 `Accessibility` / `Screen & System Audio Recording` 两类权限卡片、`Allow` / `Done` 状态和 relaunch 后的状态收敛。
-- 辅助 drag panel 会跳转到对应的 `System Settings` 页面，并把 app bundle 拖拽 tile 锚到该窗口右侧内容区的底边；它不再跟随 `Accessibility` 列表里的 `Add` / `Remove` 控件，避免页面局部布局变化导致 panel 漂移。
+- 辅助 drag panel 会跳转到对应的 `System Settings` 页面；默认保持在窗口右侧内容区下方居中，并优先跟随当前权限页 `+ / -` 控制行的垂直位置，只有拿不到控件几何时才回退到窗口底边，避免在不同权限页里掉到屏幕最下方。
 - 权限状态优先基于 TCC 持久授权记录判断，避免 CLI 子进程与 GUI app 对授权状态看到不一致的结果。
 
 ### 2. MCP 层

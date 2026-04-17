@@ -12,13 +12,14 @@
 **Scope:** `apps/OpenComputerUse`, `docs/`
 
 **Key Actions:**
-- **[改掉控件级锚点]**: 删除基于 `Accessibility` 页 `Add` / `Remove` 按钮区域的定位逻辑，不再用局部控件驱动辅助 panel 的位置。
-- **[改成窗口级跟随]**: 辅助 panel 现在改为跟随 `System Settings` 主窗口右侧内容区的底边，并继续按可见屏幕范围做 clamp。
-- **[同步文档]**: 更新架构说明和权限 onboarding execution plan，移除“锚到 `Add` / `Remove`”的过时描述。
+- **[补回控件级垂直锚点]**: 通过 `System Settings` 的 Accessibility 树扫描 `+ / -` 按钮行，优先用该控制行作为 panel 的垂直跟随目标。
+- **[保留内容区水平对齐]**: panel 仍然按 `System Settings` 右侧内容区居中，只有在拿不到 `+ / -` 控件几何时才回退到窗口底边。
+- **[同步文档]**: 更新架构说明和权限 onboarding execution plan，反映“优先跟随 `+ / -` 行、失败再回退”的最新行为。
 
 ### 🧠 Design Intent (Why)
-这次修复的重点不是简单把 panel 换个坐标，而是把定位源从“页面里最脆弱的局部控件”切回“稳定的窗口级几何信息”。这样即使 `Accessibility` 页列表滚动、布局细节变化，拖拽辅助 panel 也会继续贴着 `System Settings` 主窗口走，而不是显得像被 `+ / -` 区域绑住。
+这次修复的重点不是单纯继续拉大窗口级容错，而是把水平和垂直锚点拆开处理。panel 继续维持内容区居中，避免随着局部布局左右漂移；但垂直位置重新跟随 `+ / -` 控制行，这样在 `Screen & System Audio Recording` 这类长页面里也不会被错误钳到底部。
 
 ### 📁 Files Modified
 - `apps/OpenComputerUse/Sources/OpenComputerUse/PermissionOnboardingApp.swift`
+- `docs/ARCHITECTURE.md`
 - `docs/exec-plans/active/20260417-permission-onboarding-app.md`

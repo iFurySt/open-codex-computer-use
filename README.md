@@ -43,6 +43,12 @@ open-computer-use --version
 open-computer-use --help
 open-computer-use help snapshot
 
+# 直接写入 Codex 的 MCP 配置；重复执行会自动幂等跳过
+open-computer-use install-codex-mcp
+
+# 直接写入 Claude Code 当前项目的 MCP 配置；重复执行会自动幂等跳过
+open-computer-use install-claude-mcp
+
 # 检查当前权限状态；如果有缺失会直接拉起权限 onboarding 窗口
 open-computer-use doctor
 
@@ -109,6 +115,8 @@ npm install -g open-computer-use
 - npm 包内已经携带预编译的 `Open Computer Use.app`，当前面向 macOS 14+。
 - 包内 `.app` 是 universal binary，同时支持 Apple Silicon 与 Intel Mac。
 - 真正执行前，宿主终端或 app 仍然需要被授予 `Accessibility` 与 `Screen Recording` 权限。
+- `open-computer-use install-claude-mcp` 会按 Claude 官方 MCP 文档的 local scope 结构，把当前仓库写到 `~/.claude.json` 的 `projects."<repo-path>".mcpServers` 下；写入前会先校验现有 JSON，重复执行会 no-op。
+- `open-computer-use install-codex-mcp` 会把 `[mcp_servers."open-computer-use"]` 幂等写入 `~/.codex/config.toml`；写入前会先用 TOML 解析校验现有配置，避免重复追加同一项。
 - `open-computer-use install-codex-plugin` 会把 npm 包自身注册到本机 Codex 插件系统，不需要源码仓库路径。
 
 ## 从源码运行
@@ -129,6 +137,22 @@ swift build
 .build/debug/OpenComputerUse doctor
 .build/debug/OpenComputerUse list-apps
 ```
+
+如果你只是想把它作为 Codex 的普通 stdio MCP server 写进本机配置，不走 plugin marketplace，可以直接执行：
+
+```bash
+./scripts/install-codex-mcp.sh
+```
+
+这个脚本只会更新 `~/.codex/config.toml` 里的 `[mcp_servers."open-computer-use"]`，并在写入前先验证现有文件仍是合法 TOML；如果同一条配置已经存在，会直接 no-op，不会重复写入。
+
+如果你想把它安装到 Claude Code 当前项目的 `~/.claude.json`，可以直接执行：
+
+```bash
+./scripts/install-claude-mcp.sh
+```
+
+它会按 Claude 官方 MCP 文档里的 local scope 结构，把当前仓库路径写到 `projects."<repo-path>".mcpServers."open-computer-use"`；如果同一条配置已经存在，也会直接 no-op。
 
 打包 app 并打开权限引导窗口：
 
@@ -268,6 +292,10 @@ https://chatgpt.com/backend-api/codex/responses
   一个独立 Go 模块，用来探测官方 bundled `computer-use` 和普通 stdio MCP server；默认会对官方 Sky client 走 `codex app-server` 代理，避免 caller signing / launch constraint 问题。
 - `plugins/open-computer-use`
   repo-local Codex plugin 包装层，包含 plugin manifest、MCP 启动脚本和展示资源。
+- `scripts/install-codex-mcp.sh`
+  把 `open-computer-use mcp` 作为普通 stdio MCP server 幂等写入 `~/.codex/config.toml`。
+- `scripts/install-claude-mcp.sh`
+  把 `open-computer-use mcp` 作为 Claude Code 当前项目的 local-scope MCP server 幂等写入 `~/.claude.json`。
 - `scripts/install-codex-plugin.sh`
   把当前仓库注册到本机 Codex 的本地 marketplace，安装插件缓存包，并启用 `open-computer-use` 插件。
 
@@ -292,7 +320,7 @@ node ./scripts/npm/publish-packages.mjs
 
 - `build-packages.mjs` 会构建 universal app 并 stage 三个 npm 包目录到 `dist/npm/`。
 - `release-package.sh` 会额外把它们打成 `dist/release/npm/*.tgz`，并生成 `dist/release/release-manifest.json`。
-- `.github/workflows/release.yml` 支持通过 push `0.1.6` / `v0.1.6` 这类 git tag 自动发布，也保留手动触发作为兜底；默认兼容 npm Trusted Publishing，同时也支持通过仓库 `NPM_TOKEN` secret 兜底发布。
+- `.github/workflows/release.yml` 支持通过 push `0.1.7` / `v0.1.7` 这类 git tag 自动发布，也保留手动触发作为兜底；默认兼容 npm Trusted Publishing，同时也支持通过仓库 `NPM_TOKEN` secret 兜底发布。
 
 ## 许可证
 

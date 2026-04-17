@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import OpenComputerUseKit
 
 @MainActor
@@ -418,11 +419,18 @@ final class PermissionAccessoryPanelController {
         static let screenHorizontalInset: CGFloat = 16
         static let screenBottomInset: CGFloat = 12
         static let windowBottomOverlap: CGFloat = 6
+        static let controlsBottomGap: CGFloat = 12
         static let contentLeadingInset: CGFloat = 26
         static let contentTrailingInset: CGFloat = 28
         static let sidebarWidthRatio: CGFloat = 0.29
         static let sidebarWidthMin: CGFloat = 214
         static let sidebarWidthMax: CGFloat = 272
+    }
+
+    private struct PanelAnchor {
+        let windowBounds: CGRect
+        let contentTrackRect: CGRect
+        let accessoryAnchorRect: CGRect?
     }
 
     func show(for permission: SystemPermissionKind) {
@@ -559,27 +567,47 @@ final class PermissionAccessoryPanelController {
     }
 
     private func preferredPanelOrigin(for panelSize: CGSize) -> CGPoint? {
-        guard let referenceRect = systemSettingsWindowBounds() ?? NSScreen.main?.visibleFrame else {
+        guard let anchor = preferredPanelAnchor() else {
             return nil
         }
 
+        let referenceRect = anchor.windowBounds
         let visibleFrame = targetVisibleScreenFrame(for: referenceRect) ?? referenceRect
-        let trackRect = systemSettingsContentTrackRect(in: referenceRect)
+        let trackRect = anchor.contentTrackRect
         let x = clamp(
             trackRect.midX - (panelSize.width / 2),
             lower: visibleFrame.minX + Layout.screenHorizontalInset,
             upper: visibleFrame.maxX - panelSize.width - Layout.screenHorizontalInset
         )
+        let anchorMinY = anchor.accessoryAnchorRect?.minY ?? referenceRect.minY
+        let desiredY = if anchor.accessoryAnchorRect != nil {
+            anchorMinY - panelSize.height - Layout.controlsBottomGap
+        } else {
+            anchorMinY - panelSize.height + Layout.windowBottomOverlap
+        }
         let y = max(
             visibleFrame.minY + Layout.screenBottomInset,
-            referenceRect.minY - panelSize.height + Layout.windowBottomOverlap
+            desiredY
         )
         return CGPoint(x: x, y: y)
     }
 
+    private func preferredPanelAnchor() -> PanelAnchor? {
+        let referenceRect = systemSettingsWindowBounds() ?? NSScreen.main?.visibleFrame
+        guard let referenceRect else {
+            return nil
+        }
+
+        return PanelAnchor(
+            windowBounds: referenceRect,
+            contentTrackRect: systemSettingsContentTrackRect(in: referenceRect),
+            accessoryAnchorRect: systemSettingsControlsRowRect(in: referenceRect)
+        )
+    }
+
     private func systemSettingsContentTrackRect(in windowBounds: CGRect) -> CGRect {
-        // Track the System Settings window itself instead of the +/- controls so
-        // the accessory panel stays stable while the page contents relayout.
+        // Keep the panel centered under the content area even when the
+        // vertical anchor comes from a specific controls row.
         let sidebarWidth = clamp(
             windowBounds.width * Layout.sidebarWidthRatio,
             lower: Layout.sidebarWidthMin,
@@ -639,6 +667,169 @@ final class PermissionAccessoryPanelController {
         }
 
         return windows.sorted(by: { $0.1 > $1.1 }).first?.0
+    }
+
+    private func systemSettingsControlsRowRect(in windowBounds: CGRect) -> CGRect? {
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == "com.apple.systempreferences" }) else {
+            return nil
+        }
+
+        let appElement = AXUIElementCreateApplication(runningApp.processIdentifier)
+        guard let windowElement = preferredAXWindow(for: appElement) else {
+            return nil
+        }
+
+        let candidates = collectControlsRowCandidates(in: windowElement, windowBounds: windowBounds)
+        guard !candidates.isEmpty else {
+            return nil
+        }
+
+        switch currentPermission {
+        case .screenRecording:
+            return candidates.max(by: { $0.midY < $1.midY })
+        default:
+            return candidates.min(by: { $0.minY < $1.minY })
+        }
+    }
+
+    private func preferredAXWindow(for appElement: AXUIElement) -> AXUIElement? {
+        copyAXElement(appElement, attribute: kAXFocusedWindowAttribute)
+            ?? copyAXElement(appElement, attribute: kAXMainWindowAttribute)
+            ?? copyAXArray(appElement, attribute: kAXWindowsAttribute)?.first
+    }
+
+    private func collectControlsRowCandidates(in root: AXUIElement, windowBounds: CGRect) -> [CGRect] {
+        let elements = flattenedAXDescendants(of: root, maxDepth: 8, maxNodes: 400)
+        let symbolButtons = elements.compactMap { symbolButtonDescriptor(for: $0) }
+        guard !symbolButtons.isEmpty else {
+            return []
+        }
+
+        let contentTrackRect = systemSettingsContentTrackRect(in: windowBounds)
+        let controlButtons = symbolButtons.filter { descriptor in
+            let frame = descriptor.frame
+            return frame.intersects(windowBounds) &&
+                frame.midX >= contentTrackRect.minX - 24 &&
+                frame.midX <= contentTrackRect.maxX &&
+                frame.width <= 40 &&
+                frame.height <= 40
+        }
+
+        let plusButtons = controlButtons.filter { $0.symbol == "+" }
+        let minusButtons = controlButtons.filter { $0.symbol == "-" }
+
+        return plusButtons.compactMap { plusButton in
+            let matchingMinusButtons = minusButtons.filter { minusButton in
+                abs(minusButton.frame.midY - plusButton.frame.midY) <= 10 &&
+                    minusButton.frame.minX >= plusButton.frame.maxX - 4 &&
+                    minusButton.frame.minX - plusButton.frame.maxX <= 28
+            }
+
+            guard let minusButton = matchingMinusButtons.min(by: {
+                abs($0.frame.midY - plusButton.frame.midY) < abs($1.frame.midY - plusButton.frame.midY)
+            }) else {
+                return nil
+            }
+
+            return plusButton.frame.union(minusButton.frame)
+        }
+    }
+
+    private func flattenedAXDescendants(of root: AXUIElement, maxDepth: Int, maxNodes: Int) -> [AXUIElement] {
+        var results: [AXUIElement] = []
+        var queue: [(AXUIElement, Int)] = [(root, 0)]
+
+        while !queue.isEmpty, results.count < maxNodes {
+            let (element, depth) = queue.removeFirst()
+            results.append(element)
+
+            guard depth < maxDepth else {
+                continue
+            }
+
+            for child in copyAXArray(element, attribute: kAXChildrenAttribute) ?? [] {
+                queue.append((child, depth + 1))
+            }
+        }
+
+        return results
+    }
+
+    private func symbolButtonDescriptor(for element: AXUIElement) -> (symbol: String, frame: CGRect)? {
+        guard stringAXAttribute(element, attribute: kAXRoleAttribute) == kAXButtonRole as String else {
+            return nil
+        }
+
+        guard let frame = frame(of: element) else {
+            return nil
+        }
+
+        let rawLabels = [
+            stringAXAttribute(element, attribute: kAXTitleAttribute),
+            stringAXAttribute(element, attribute: kAXDescriptionAttribute),
+            stringAXAttribute(element, attribute: kAXValueAttribute)
+        ]
+        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+
+        guard let symbol = rawLabels.first(where: { $0 == "+" || $0 == "-" }) else {
+            return nil
+        }
+
+        return (symbol, frame)
+    }
+
+    private func frame(of element: AXUIElement) -> CGRect? {
+        var positionValue: CFTypeRef?
+        var sizeValue: CFTypeRef?
+        guard
+            AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionValue) == .success,
+            AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeValue) == .success,
+            let positionValue,
+            let sizeValue
+        else {
+            return nil
+        }
+
+        let positionAXValue = positionValue as! AXValue
+        let sizeAXValue = sizeValue as! AXValue
+        var position = CGPoint.zero
+        var size = CGSize.zero
+        guard
+            AXValueGetValue(positionAXValue, .cgPoint, &position),
+            AXValueGetValue(sizeAXValue, .cgSize, &size)
+        else {
+            return nil
+        }
+
+        return CGRect(origin: position, size: size)
+    }
+
+    private func copyAXElement(_ element: AXUIElement, attribute: String) -> AXUIElement? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else {
+            return nil
+        }
+
+        return value as? AXUIElement
+    }
+
+    private func copyAXArray(_ element: AXUIElement, attribute: String) -> [AXUIElement]? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else {
+            return nil
+        }
+
+        return value as? [AXUIElement]
+    }
+
+    private func stringAXAttribute(_ element: AXUIElement, attribute: String) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else {
+            return nil
+        }
+
+        return value as? String
     }
 }
 

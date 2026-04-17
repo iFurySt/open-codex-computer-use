@@ -155,6 +155,8 @@ Commands:
   list-apps            Print running or recently used apps.
   snapshot <app>       Print the current accessibility snapshot for an app.
   turn-ended           Acknowledge the host turn boundary.
+  install-claude-mcp   Install the MCP server into ~/.claude.json for this project.
+  install-codex-mcp    Install the MCP server into ~/.codex/config.toml.
   install-codex-plugin Install this npm package into the local Codex plugin cache.
   help [command]       Show general or command-specific help.
   version              Print the CLI version.
@@ -179,7 +181,19 @@ while [[ -L "\${script_path}" ]]; do
 done
 package_root="$(cd "$(dirname "\${script_path}")/.." && pwd)"
 app_binary="\${package_root}/dist/${appBundleName}/Contents/MacOS/${appExecutableName}"
+install_claude_mcp_script="\${package_root}/scripts/install-claude-mcp.sh"
+install_mcp_script="\${package_root}/scripts/install-codex-mcp.sh"
 install_script="\${package_root}/scripts/install-codex-plugin.sh"
+
+if [[ "\${1:-}" == "install-claude-mcp" || "\${1:-}" == "install-clauce-mcp" ]]; then
+  shift
+  exec "\${install_claude_mcp_script}" "$@"
+fi
+
+if [[ "\${1:-}" == "install-codex-mcp" ]]; then
+  shift
+  exec "\${install_mcp_script}" "$@"
+fi
 
 if [[ "\${1:-}" == "install-codex-plugin" ]]; then
   shift
@@ -202,6 +216,27 @@ Usage:
   open-computer-use install-codex-plugin
 
 Install this npm package into the local Codex plugin cache.
+EOF
+  exit 0
+fi
+
+if [[ "\${1:-}" == "help" && "\${2:-}" == "install-codex-mcp" ]]; then
+  cat <<'EOF'
+Usage:
+  open-computer-use install-codex-mcp
+
+Install the open-computer-use MCP server into ~/.codex/config.toml.
+EOF
+  exit 0
+fi
+
+if [[ "\${1:-}" == "help" && ( "\${2:-}" == "install-claude-mcp" || "\${2:-}" == "install-clauce-mcp" ) ]]; then
+  cat <<'EOF'
+Usage:
+  open-computer-use install-claude-mcp
+  open-computer-use install-clauce-mcp
+
+Install the open-computer-use MCP server into ~/.claude.json for the current project.
 EOF
   exit 0
 fi
@@ -234,7 +269,7 @@ const lines = [
   "Next:",
   "1. Run open-computer-use doctor",
   "2. In macOS System Settings, grant Accessibility and Screen Recording to your host terminal or MCP client",
-  "3. Start the MCP server with open-computer-use mcp, or install into Codex with open-computer-use install-codex-plugin",
+  "3. Run open-computer-use install-claude-mcp for Claude Code, open-computer-use install-codex-mcp for Codex, or open-computer-use install-codex-plugin for the local plugin cache",
   "",
   "You can add this to any MCP-capable client:",
   JSON.stringify(mcpConfig, null, 2),
@@ -291,6 +326,12 @@ Package page: https://www.npmjs.com/package/${packageName}
 open-computer-use --help
 open-computer-use help snapshot
 open-computer-use --version
+
+# Install into Claude Code for the current project
+open-computer-use install-claude-mcp
+
+# Install into Codex as a plain MCP entry in ~/.codex/config.toml
+open-computer-use install-codex-mcp
 
 # Check permissions first; if Accessibility / Screen Recording is missing, open the permission onboarding window
 open-computer-use doctor
@@ -356,6 +397,8 @@ function renderPackageJson(packageName, version) {
       "plugins/open-computer-use/.mcp.json",
       "plugins/open-computer-use/assets/",
       "plugins/open-computer-use/scripts/",
+      "scripts/install-claude-mcp.sh",
+      "scripts/install-codex-mcp.sh",
       "scripts/install-codex-plugin.sh",
       "scripts/postinstall.mjs",
       "README.md",
@@ -381,6 +424,8 @@ function stagePackage(packageName, version, outDir) {
   cpSync(path.join(repoRoot, "plugins", "open-computer-use"), path.join(packageRoot, "plugins", "open-computer-use"), {
     recursive: true,
   });
+  cpSync(path.join(repoRoot, "scripts", "install-claude-mcp.sh"), path.join(packageRoot, "scripts", "install-claude-mcp.sh"));
+  cpSync(path.join(repoRoot, "scripts", "install-codex-mcp.sh"), path.join(packageRoot, "scripts", "install-codex-mcp.sh"));
   cpSync(path.join(repoRoot, "scripts", "install-codex-plugin.sh"), path.join(packageRoot, "scripts", "install-codex-plugin.sh"));
   cpSync(path.join(repoRoot, "LICENSE"), path.join(packageRoot, "LICENSE"));
 
@@ -391,6 +436,8 @@ function stagePackage(packageName, version, outDir) {
   writeFileSync(path.join(packageRoot, "README.md"), renderReadme(packageName, version), "utf-8");
   writeFileSync(path.join(packageRoot, "package.json"), `${JSON.stringify(renderPackageJson(packageName, version), null, 2)}\n`, "utf-8");
 
+  chmodSync(path.join(packageRoot, "scripts", "install-claude-mcp.sh"), 0o755);
+  chmodSync(path.join(packageRoot, "scripts", "install-codex-mcp.sh"), 0o755);
   chmodSync(path.join(packageRoot, "scripts", "install-codex-plugin.sh"), 0o755);
   removeJunkFiles(packageRoot);
 }
