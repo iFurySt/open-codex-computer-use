@@ -17,3 +17,5 @@
   - 官方 `Codex Computer Use.app` / `SkyComputerUseClient` 的持续逆向分析资料。
 - `codex-network-capture.md`
   - 用 `mitmdump` + `scripts/codex_dump.py` 抓 Codex 上游 HTTP / WebSocket 流量，并把样本沉淀到 `artifacts/codex-dumps/` 做持续分析。
+- `codex-local-runtime-logs.md`
+  - 当上游 LLM dump 不足以解释本地 tool / MCP 行为时，补查 Codex 本地 `logs_2.sqlite`；默认顺序仍然是先看上游抓包，再看本地日志。

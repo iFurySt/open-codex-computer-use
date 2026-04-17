@@ -2,6 +2,13 @@
 
 这份文档描述如何用 `mitmdump` + 仓库内的 `scripts/codex_dump.py` 抓取 Codex 到上游的 HTTP / WebSocket 流量，并把样本沉淀到仓库内的 `artifacts/codex-dumps/` 目录做后续分析和 eval。
 
+默认排查顺序里，这份文档应该优先于 `docs/references/codex-local-runtime-logs.md`：
+
+- 先看上游 LLM call dump。
+- 只有当上游样本不足以解释本地 tool / MCP 行为时，才补查 Codex 自己的本地日志。
+
+尤其是官方 `computer-use` 这类本地 `stdio` MCP，网络抓包通常只能回答“模型侧发生了什么”，不能完整回答“本地 tool 最终收到了什么参数、回了什么结果”；这类问题再切到本地日志路径更合适。
+
 ## 适用场景
 
 - 观察 Codex 实际发往上游的请求形态。
