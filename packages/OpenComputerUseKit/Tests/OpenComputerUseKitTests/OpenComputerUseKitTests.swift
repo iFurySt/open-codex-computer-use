@@ -1,7 +1,7 @@
 import XCTest
-@testable import OpenCodexComputerUseKit
+@testable import OpenComputerUseKit
 
-final class OpenCodexComputerUseKitTests: XCTestCase {
+final class OpenComputerUseKitTests: XCTestCase {
     func testToolDefinitionCount() {
         XCTAssertEqual(ToolDefinitions.all.count, 9)
     }
@@ -16,6 +16,7 @@ final class OpenCodexComputerUseKitTests: XCTestCase {
         let server = StdioMCPServer(service: ComputerUseService())
         let response = server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"0.1.0"},"capabilities":{}}}"#)
         XCTAssertNotNil(response)
+        XCTAssertTrue(response!.contains(#""name":"open-computer-use""#))
         XCTAssertTrue(response!.contains(#""tools":{"listChanged":false}"#))
     }
 

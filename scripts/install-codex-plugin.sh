@@ -34,10 +34,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-app_binary="${repo_root}/dist/OpenCodexComputerUse.app/Contents/MacOS/OpenCodexComputerUse"
+app_binary="${repo_root}/dist/OpenComputerUse.app/Contents/MacOS/OpenComputerUse"
 
 if [[ "${rebuild}" == "true" || ! -x "${app_binary}" ]]; then
-  "${repo_root}/scripts/build-open-codex-app.sh" "${configuration}"
+  "${repo_root}/scripts/build-open-computer-use-app.sh" "${configuration}"
 fi
 
 if [[ ! -f "${repo_root}/.agents/plugins/marketplace.json" ]]; then
@@ -80,7 +80,7 @@ rm -rf "${plugin_install_root}"
 mkdir -p "${plugin_install_root}"
 
 rsync -a "${plugin_source_root}/" "${plugin_install_root}/"
-rsync -a "${repo_root}/dist/OpenCodexComputerUse.app" "${plugin_install_root}/"
+rsync -a "${repo_root}/dist/OpenComputerUse.app" "${plugin_install_root}/"
 
 python3 - "${config_path}" "${repo_root}" "${marketplace_name}" "${plugin_name}" <<'PY'
 import json

@@ -1,6 +1,6 @@
 import ApplicationServices
 import AppKit
-import OpenCodexComputerUseKit
+import OpenComputerUseKit
 
 @MainActor
 enum PermissionOnboardingApp {
@@ -114,8 +114,8 @@ final class PermissionContentController: NSViewController {
     private let backgroundView = GradientBackgroundView()
     private let stackView = NSStackView()
     private let iconView = AppGlyphView()
-    private let titleLabel = NSTextField(labelWithString: "Enable Open Codex Computer Use")
-    private let subtitleLabel = NSTextField(wrappingLabelWithString: "Open Codex Computer Use needs these permissions to use apps on your Mac.\nThese permissions are only used when you ask it to perform tasks.")
+    private let titleLabel = NSTextField(labelWithString: "Enable Open Computer Use")
+    private let subtitleLabel = NSTextField(wrappingLabelWithString: "Open Computer Use needs these permissions to use apps on your Mac.\nThese permissions are only used when you ask it to perform tasks.")
     private let cardsContainer = NSStackView()
     private let completionLabel = NSTextField(labelWithString: "All required permissions are enabled.")
     private let refreshTimerInterval: TimeInterval = 0.25

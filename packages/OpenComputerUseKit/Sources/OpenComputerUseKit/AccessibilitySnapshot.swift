@@ -45,7 +45,7 @@ enum SnapshotBuilder {
 
         let permissions = PermissionDiagnostics.current()
         guard permissions.accessibilityTrusted else {
-            throw ComputerUseError.permissionDenied("Accessibility permission is required. Run `OpenCodexComputerUse doctor` and grant access to the host terminal or app.")
+            throw ComputerUseError.permissionDenied("Accessibility permission is required. Run `OpenComputerUse doctor` and grant access to the host terminal or app.")
         }
 
         let appElement = AXUIElementCreateApplication(app.pid)
@@ -65,7 +65,7 @@ enum SnapshotBuilder {
         renderer.render(rootElement)
 
         var lines: [String] = []
-        lines.append("Computer Use state (OpenCodexComputerUse 0.1.0)")
+        lines.append("Computer Use state (OpenComputerUse 0.1.0)")
         lines.append(permissions.summary)
 
         if let screenshotPath {
@@ -139,7 +139,7 @@ enum SnapshotBuilder {
 
     private static func buildFixtureSnapshot(app: RunningAppDescriptor, state: FixtureAppState) -> AppSnapshot {
         var lines: [String] = []
-        lines.append("Computer Use state (OpenCodexComputerUse 0.1.0)")
+        lines.append("Computer Use state (OpenComputerUse 0.1.0)")
         lines.append(PermissionDiagnostics.current().summary)
         lines.append("Screenshot: unavailable (fixture synthetic state)")
         lines.append("<app_state>")
@@ -255,7 +255,7 @@ private struct WindowCapture {
         }
 
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("open-codex-computer-use", isDirectory: true)
+            .appendingPathComponent("open-computer-use", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
         let fileURL = directory.appendingPathComponent("window-\(windowID)-\(Int(Date().timeIntervalSince1970 * 1000)).png")

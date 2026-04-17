@@ -20,7 +20,7 @@
   "interface": {
     "displayName": "Open Computer Use",
     "shortDescription": "Control macOS apps from Codex with the open local server",
-    "longDescription": "Open Computer Use packages this repository's open-source macOS automation server as a Codex plugin. It exposes the same nine desktop-control MCP tools through the locally built OpenCodexComputerUse app bundle.",
+    "longDescription": "Open Computer Use packages this repository's open-source macOS automation server as a Codex plugin. It exposes the same nine desktop-control MCP tools through the locally built OpenComputerUse app bundle.",
     "developerName": "Leo",
     "category": "Productivity",
     "capabilities": [

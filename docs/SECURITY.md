@@ -8,7 +8,7 @@
 
 ## 数据处理
 
-- screenshot 只写到临时目录 `TMPDIR/open-codex-computer-use/`，默认不长期持久化。
+- screenshot 只写到临时目录 `TMPDIR/open-computer-use/`，默认不长期持久化。
 - fixture app 的合成状态只写到本地临时 JSON 文件，目的是支撑 deterministic smoke test。
 - 当前仓库不引入第三方服务，也不上传截图、AX tree 或输入内容。
 

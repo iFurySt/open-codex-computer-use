@@ -166,7 +166,7 @@ Bounds: X=1949 Y=796 Width=126 Height=126
 
 ## 对开源实现的启发
 
-如果后续要做 `open-codex-computer-use` 的可用体验，这条发现很有价值：
+如果后续要做 `open-computer-use` 的可用体验，这条发现很有价值：
 
 - 可以把“真实输入注入”和“软件光标可视化”明确拆开。
 - 软件光标可以做成独立 overlay window，而不是强依赖真实鼠标位置。

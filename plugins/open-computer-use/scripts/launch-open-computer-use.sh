@@ -3,9 +3,9 @@
 set -euo pipefail
 
 plugin_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-bundled_app_binary="${plugin_root}/OpenCodexComputerUse.app/Contents/MacOS/OpenCodexComputerUse"
+bundled_app_binary="${plugin_root}/OpenComputerUse.app/Contents/MacOS/OpenComputerUse"
 repo_root="$(cd "${plugin_root}/../.." && pwd)"
-repo_app_binary="${repo_root}/dist/OpenCodexComputerUse.app/Contents/MacOS/OpenCodexComputerUse"
+repo_app_binary="${repo_root}/dist/OpenComputerUse.app/Contents/MacOS/OpenComputerUse"
 
 if [[ -x "${bundled_app_binary}" ]]; then
   cd "${plugin_root}"

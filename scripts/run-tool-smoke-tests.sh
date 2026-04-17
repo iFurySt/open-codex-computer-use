@@ -7,4 +7,4 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo_root}"
 
 swift build
-".build/debug/OpenCodexComputerUseSmokeSuite"
+".build/debug/OpenComputerUseSmokeSuite"

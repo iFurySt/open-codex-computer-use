@@ -36,7 +36,7 @@ public final class StdioMCPServer {
                     result: [
                         "protocolVersion": "2025-03-26",
                         "serverInfo": [
-                            "name": "open-codex-computer-use",
+                            "name": "open-computer-use",
                             "version": "0.1.0",
                         ],
                         "capabilities": [

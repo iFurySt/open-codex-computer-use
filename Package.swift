@@ -3,52 +3,52 @@
 import PackageDescription
 
 let package = Package(
-    name: "OpenCodexComputerUse",
+    name: "OpenComputerUse",
     platforms: [
         .macOS(.v14),
     ],
     products: [
         .library(
-            name: "OpenCodexComputerUseKit",
-            targets: ["OpenCodexComputerUseKit"]
+            name: "OpenComputerUseKit",
+            targets: ["OpenComputerUseKit"]
         ),
         .executable(
-            name: "OpenCodexComputerUse",
-            targets: ["OpenCodexComputerUse"]
+            name: "OpenComputerUse",
+            targets: ["OpenComputerUse"]
         ),
         .executable(
-            name: "OpenCodexComputerUseFixture",
-            targets: ["OpenCodexComputerUseFixture"]
+            name: "OpenComputerUseFixture",
+            targets: ["OpenComputerUseFixture"]
         ),
         .executable(
-            name: "OpenCodexComputerUseSmokeSuite",
-            targets: ["OpenCodexComputerUseSmokeSuite"]
+            name: "OpenComputerUseSmokeSuite",
+            targets: ["OpenComputerUseSmokeSuite"]
         ),
     ],
     targets: [
         .target(
-            name: "OpenCodexComputerUseKit",
-            path: "packages/OpenCodexComputerUseKit/Sources/OpenCodexComputerUseKit"
+            name: "OpenComputerUseKit",
+            path: "packages/OpenComputerUseKit/Sources/OpenComputerUseKit"
         ),
         .executableTarget(
-            name: "OpenCodexComputerUse",
-            dependencies: ["OpenCodexComputerUseKit"],
-            path: "apps/OpenCodexComputerUse/Sources/OpenCodexComputerUse"
+            name: "OpenComputerUse",
+            dependencies: ["OpenComputerUseKit"],
+            path: "apps/OpenComputerUse/Sources/OpenComputerUse"
         ),
         .executableTarget(
-            name: "OpenCodexComputerUseFixture",
-            dependencies: ["OpenCodexComputerUseKit"],
-            path: "apps/OpenCodexComputerUseFixture/Sources/OpenCodexComputerUseFixture"
+            name: "OpenComputerUseFixture",
+            dependencies: ["OpenComputerUseKit"],
+            path: "apps/OpenComputerUseFixture/Sources/OpenComputerUseFixture"
         ),
         .executableTarget(
-            name: "OpenCodexComputerUseSmokeSuite",
-            dependencies: ["OpenCodexComputerUseKit"],
-            path: "apps/OpenCodexComputerUseSmokeSuite/Sources/OpenCodexComputerUseSmokeSuite"
+            name: "OpenComputerUseSmokeSuite",
+            dependencies: ["OpenComputerUseKit"],
+            path: "apps/OpenComputerUseSmokeSuite/Sources/OpenComputerUseSmokeSuite"
         ),
         .testTarget(
-            name: "OpenCodexComputerUseKitTests",
-            dependencies: ["OpenCodexComputerUseKit"],
-            path: "packages/OpenCodexComputerUseKit/Tests/OpenCodexComputerUseKitTests"
+            name: "OpenComputerUseKitTests",
+            dependencies: ["OpenComputerUseKit"],
+            path: "packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests"
         ),
     ]
 )

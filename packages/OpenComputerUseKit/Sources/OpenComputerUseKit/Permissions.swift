@@ -19,9 +19,9 @@ public enum SystemPermissionKind: String, CaseIterable, Sendable {
     public var subtitle: String {
         switch self {
         case .accessibility:
-            return "Allows Open Codex to access app interfaces"
+            return "Allows Open Computer Use to access app interfaces"
         case .screenRecording:
-            return "Open Codex uses screenshots to know where to click"
+            return "Open Computer Use uses screenshots to know where to click"
         }
     }
 
@@ -37,9 +37,9 @@ public enum SystemPermissionKind: String, CaseIterable, Sendable {
     public var dragInstruction: String {
         switch self {
         case .accessibility:
-            return "Drag Open Codex Computer Use above to allow Accessibility"
+            return "Drag Open Computer Use above to allow Accessibility"
         case .screenRecording:
-            return "Drag Open Codex Computer Use above to allow Screenshots"
+            return "Drag Open Computer Use above to allow Screenshots"
         }
     }
 
@@ -94,8 +94,8 @@ public struct PermissionDiagnostics: Sendable {
 }
 
 public enum PermissionSupport {
-    public static let bundleDisplayName = "Open Codex Computer Use"
-    public static let bundleIdentifier = "dev.opencodex.OpenCodexComputerUse"
+    public static let bundleDisplayName = "Open Computer Use"
+    public static let bundleIdentifier = "dev.opencodex.OpenComputerUse"
 
     public static func currentAppBundleURL() -> URL? {
         let bundleURL = Bundle.main.bundleURL

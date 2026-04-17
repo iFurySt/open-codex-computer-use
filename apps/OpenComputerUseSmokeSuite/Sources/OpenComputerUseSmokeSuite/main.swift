@@ -31,7 +31,7 @@ final class MCPClient {
     func initialize() throws {
         _ = try request(method: "initialize", params: [
             "clientInfo": [
-                "name": "OpenCodexComputerUseSmokeSuite",
+                "name": "OpenComputerUseSmokeSuite",
                 "version": "0.1.0",
             ],
             "capabilities": [:],
@@ -152,11 +152,11 @@ enum SmokeError: Error {
 }
 
 @main
-enum OpenCodexComputerUseSmokeSuite {
+enum OpenComputerUseSmokeSuite {
     static func main() throws {
         let productsDirectory = try locateProductsDirectory()
-        let fixtureURL = productsDirectory.appendingPathComponent("OpenCodexComputerUseFixture")
-        let serverURL = productsDirectory.appendingPathComponent("OpenCodexComputerUse")
+        let fixtureURL = productsDirectory.appendingPathComponent("OpenComputerUseFixture")
+        let serverURL = productsDirectory.appendingPathComponent("OpenComputerUse")
 
         let fixture = Process()
         fixture.executableURL = fixtureURL
@@ -182,7 +182,7 @@ enum OpenCodexComputerUseSmokeSuite {
             throw SmokeError.message("Expected 9 tools, got \(tools.count)")
         }
 
-        let appName = "OpenCodexComputerUseFixture"
+        let appName = "OpenComputerUseFixture"
 
         print("1. list_apps")
         let apps = try client.callTool("list_apps", arguments: [:])

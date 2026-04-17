@@ -4,13 +4,13 @@
 
 ## 当前目录结构
 
-- `apps/OpenCodexComputerUse`
+- `apps/OpenComputerUse`
   主入口，负责 `mcp`、`doctor`、`list-apps`、`snapshot` 等 CLI 命令；不带参数启动时默认进入无 Dock 图标的 app 模式权限引导窗口。
-- `apps/OpenCodexComputerUseFixture`
+- `apps/OpenComputerUseFixture`
   本地 GUI fixture app，用来承载低风险、可预测的点击/输入/滚动/拖拽验证路径。
-- `apps/OpenCodexComputerUseSmokeSuite`
+- `apps/OpenComputerUseSmokeSuite`
   端到端 smoke runner，会拉起 fixture 和 MCP server，并通过 JSON-RPC 真实调用 9 个 tools。
-- `packages/OpenCodexComputerUseKit`
+- `packages/OpenComputerUseKit`
   核心库，包含：
   - MCP stdio transport 与 tool registry
   - app discovery
@@ -26,7 +26,7 @@
 
 ### 1. App Mode 层
 
-- `OpenCodexComputerUse` 默认 app 模式会拉起 `PermissionOnboardingApp`。
+- `OpenComputerUse` 默认 app 模式会拉起 `PermissionOnboardingApp`。
 - app bundle 以 `LSUIElement` agent-style 形态运行，默认不在 Dock 暴露常驻图标，但仍可按需显示权限窗口。
 - 主窗口负责渲染 `Accessibility` / `Screen & System Audio Recording` 两类权限卡片、`Allow` / `Done` 状态和 relaunch 后的状态收敛。
 - 辅助 drag panel 会跳转到对应的 `System Settings` 页面，并提供 app bundle 拖拽 tile。
@@ -58,7 +58,7 @@
 
 ### 4. Fixture Bridge
 
-- `OpenCodexComputerUseFixture` 会把自己的窗口与元素状态写到临时 JSON 文件。
+- `OpenComputerUseFixture` 会把自己的窗口与元素状态写到临时 JSON 文件。
 - 对 fixture 的 `get_app_state` 和少量测试专用动作，会通过 `FixtureBridge` 走显式 command 通道。
 - 这个 bridge 只服务于仓库内 deterministic smoke path，不是面向真实第三方 app 的能力边界。
 
@@ -73,8 +73,8 @@
 
 - 单元测试：`swift test`
 - 端到端 smoke：`./scripts/run-tool-smoke-tests.sh`
-- app 打包：`./scripts/build-open-codex-app.sh debug`
+- app 打包：`./scripts/build-open-computer-use-app.sh debug`
 - 对比样本：`artifacts/tool-comparisons/20260417-focus-behavior/`
 - 手工诊断：
-  - `.build/debug/OpenCodexComputerUse doctor`
-  - `.build/debug/OpenCodexComputerUse snapshot <app>`
+  - `.build/debug/OpenComputerUse doctor`
+  - `.build/debug/OpenComputerUse snapshot <app>`

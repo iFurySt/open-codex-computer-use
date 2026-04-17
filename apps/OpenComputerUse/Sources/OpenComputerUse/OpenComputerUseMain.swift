@@ -1,9 +1,9 @@
 import AppKit
 import Foundation
-import OpenCodexComputerUseKit
+import OpenComputerUseKit
 
 @main
-enum OpenCodexComputerUseMain {
+enum OpenComputerUseMain {
     static func main() throws {
         let arguments = Array(CommandLine.arguments.dropFirst())
         let service = ComputerUseService()
@@ -27,15 +27,15 @@ enum OpenCodexComputerUseMain {
             if arguments.first == "help" || arguments.first == "--help" || arguments.first == "-h" {
                 print(
                     """
-                    OpenCodexComputerUse
+                    OpenComputerUse
 
                     Usage:
-                      OpenCodexComputerUse
-                      OpenCodexComputerUse mcp
-                      OpenCodexComputerUse doctor
-                      OpenCodexComputerUse list-apps
-                      OpenCodexComputerUse snapshot <app>
-                      OpenCodexComputerUse turn-ended
+                      OpenComputerUse
+                      OpenComputerUse mcp
+                      OpenComputerUse doctor
+                      OpenComputerUse list-apps
+                      OpenComputerUse snapshot <app>
+                      OpenComputerUse turn-ended
                     """
                 )
             } else {

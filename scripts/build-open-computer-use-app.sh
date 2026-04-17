@@ -8,19 +8,18 @@ configuration="${1:-debug}"
 cd "${repo_root}"
 
 binary_dir="$(swift build -c "${configuration}" --show-bin-path)"
-swift build -c "${configuration}" --product OpenCodexComputerUse
+swift build -c "${configuration}" --product OpenComputerUse
 
-display_app_root="${repo_root}/dist/Open Codex Computer Use.app"
-app_root="${repo_root}/dist/OpenCodexComputerUse.app"
+app_root="${repo_root}/dist/OpenComputerUse.app"
 contents_dir="${app_root}/Contents"
 macos_dir="${contents_dir}/MacOS"
 resources_dir="${contents_dir}/Resources"
 
-rm -rf "${display_app_root}" "${app_root}"
+rm -rf "${app_root}"
 mkdir -p "${macos_dir}" "${resources_dir}"
 
-cp "${binary_dir}/OpenCodexComputerUse" "${macos_dir}/OpenCodexComputerUse"
-chmod +x "${macos_dir}/OpenCodexComputerUse"
+cp "${binary_dir}/OpenComputerUse" "${macos_dir}/OpenComputerUse"
+chmod +x "${macos_dir}/OpenComputerUse"
 
 cat > "${contents_dir}/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -30,15 +29,15 @@ cat > "${contents_dir}/Info.plist" <<'PLIST'
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
   <key>CFBundleExecutable</key>
-  <string>OpenCodexComputerUse</string>
+  <string>OpenComputerUse</string>
   <key>CFBundleIdentifier</key>
-  <string>dev.opencodex.OpenCodexComputerUse</string>
+  <string>dev.opencodex.OpenComputerUse</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>Open Codex Computer Use</string>
+  <string>Open Computer Use</string>
   <key>CFBundleDisplayName</key>
-  <string>Open Codex Computer Use</string>
+  <string>Open Computer Use</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>

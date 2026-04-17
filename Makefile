@@ -11,7 +11,7 @@ build:
 	swift build
 
 app:
-	./scripts/build-open-codex-app.sh debug
+	./scripts/build-open-computer-use-app.sh debug
 
 test:
 	swift test

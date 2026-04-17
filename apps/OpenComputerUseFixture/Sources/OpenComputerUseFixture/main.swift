@@ -1,7 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import Foundation
-import OpenCodexComputerUseKit
+import OpenComputerUseKit
 
 @MainActor
 final class KeyCaptureView: NSView {
@@ -111,7 +111,7 @@ final class FixtureAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
             backing: .buffered,
             defer: false
         )
-        window.title = "OpenCodexComputerUseFixture"
+        window.title = "OpenComputerUseFixture"
         window.setAccessibilityIdentifier("fixture-window")
         window.delegate = self
 
@@ -415,7 +415,7 @@ private func debugKeyName(for event: NSEvent) -> String {
 }
 
 @main
-enum OpenCodexComputerUseFixtureMain {
+enum OpenComputerUseFixtureMain {
     @MainActor
     static func main() {
         let application = NSApplication.shared

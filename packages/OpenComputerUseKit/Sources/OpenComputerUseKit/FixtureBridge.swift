@@ -88,12 +88,12 @@ public struct FixtureCommand: Codable, Sendable {
 }
 
 public enum FixtureBridge {
-    public static let appName = "OpenCodexComputerUseFixture"
-    public static let distributedNotificationName = Notification.Name("dev.opencodex.fixture.command")
+    public static let appName = "OpenComputerUseFixture"
+    public static let distributedNotificationName = Notification.Name("dev.opencodex.opencomputeruse.fixture.command")
 
     public static var stateFileURL: URL {
         URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("open-codex-computer-use-fixture", isDirectory: true)
+            .appendingPathComponent("open-computer-use-fixture", isDirectory: true)
             .appendingPathComponent("state.json")
     }
 

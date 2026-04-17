@@ -1,6 +1,6 @@
 # Codex Computer Use Reverse Engineering
 
-这个目录用于持续沉淀官方闭源 `Codex Computer Use.app` 和 `SkyComputerUseClient` 的逆向分析结果，目标是为 `open-codex-computer-use` 的开源实现提供可追溯输入，而不是把关键上下文留在聊天记录里。
+这个目录用于持续沉淀官方闭源 `Codex Computer Use.app` 和 `SkyComputerUseClient` 的逆向分析结果，目标是为 `open-computer-use` 的开源实现提供可追溯输入，而不是把关键上下文留在聊天记录里。
 
 ## 当前文档
 
