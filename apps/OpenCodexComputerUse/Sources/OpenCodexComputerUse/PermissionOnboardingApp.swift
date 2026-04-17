@@ -6,7 +6,7 @@ import OpenCodexComputerUseKit
 enum PermissionOnboardingApp {
     static func launch() {
         let application = NSApplication.shared
-        application.setActivationPolicy(.regular)
+        application.setActivationPolicy(.accessory)
         application.applicationIconImage = Branding.makeAppIconImage(size: 256)
 
         let delegate = PermissionOnboardingAppDelegate()

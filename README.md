@@ -7,7 +7,7 @@
 当前版本聚焦两件事：
 
 - 通过 `stdio` MCP 暴露 9 个和官方 `computer-use` 同名的 tools。
-- 在仓库内自带一个 GUI fixture app、smoke suite 和 app 模式权限引导，保证这 9 个 tools 有稳定可回归的本地验证路径。
+- 在仓库内自带一个 GUI fixture app、smoke suite 和无 Dock 图标的 app 模式权限引导，保证这 9 个 tools 有稳定可回归的本地验证路径。
 
 当前实现的 9 个 tools：
 
@@ -63,12 +63,12 @@ swift test
 .build/debug/OpenCodexComputerUse snapshot Finder
 ```
 
-如果直接运行 `OpenCodexComputerUse` 而不带子命令，默认会进入 app 模式并显示权限 onboarding 窗口。
+如果直接运行 `OpenCodexComputerUse` 而不带子命令，默认会进入 app 模式并显示权限 onboarding 窗口；该窗口以 agent-style app 方式运行，不会在 Dock 常驻显示图标。
 
 ## 工程结构
 
 - `apps/OpenCodexComputerUse`
-  `stdio` MCP server、本地诊断入口和默认 app 模式权限引导。
+  `stdio` MCP server、本地诊断入口和默认 app 模式权限引导；默认 bundle 以 agent-style 运行，避免在执行过程中额外暴露 Dock 图标。
 - `packages/OpenCodexComputerUseKit`
   MCP transport、tool registry、app discovery、snapshot、输入模拟和 fixture bridge。
 - `apps/OpenCodexComputerUseFixture`

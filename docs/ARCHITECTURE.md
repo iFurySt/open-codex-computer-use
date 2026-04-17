@@ -5,7 +5,7 @@
 ## 当前目录结构
 
 - `apps/OpenCodexComputerUse`
-  主入口，负责 `mcp`、`doctor`、`list-apps`、`snapshot` 等 CLI 命令；不带参数启动时默认进入 app 模式权限引导窗口。
+  主入口，负责 `mcp`、`doctor`、`list-apps`、`snapshot` 等 CLI 命令；不带参数启动时默认进入无 Dock 图标的 app 模式权限引导窗口。
 - `apps/OpenCodexComputerUseFixture`
   本地 GUI fixture app，用来承载低风险、可预测的点击/输入/滚动/拖拽验证路径。
 - `apps/OpenCodexComputerUseSmokeSuite`
@@ -27,6 +27,7 @@
 ### 1. App Mode 层
 
 - `OpenCodexComputerUse` 默认 app 模式会拉起 `PermissionOnboardingApp`。
+- app bundle 以 `LSUIElement` agent-style 形态运行，默认不在 Dock 暴露常驻图标，但仍可按需显示权限窗口。
 - 主窗口负责渲染 `Accessibility` / `Screen & System Audio Recording` 两类权限卡片、`Allow` / `Done` 状态和 relaunch 后的状态收敛。
 - 辅助 drag panel 会跳转到对应的 `System Settings` 页面，并提供 app bundle 拖拽 tile。
 - 权限状态优先基于 TCC 持久授权记录判断，避免 CLI 子进程与 GUI app 对授权状态看到不一致的结果。
