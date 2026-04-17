@@ -15,3 +15,5 @@
 
 - `codex-computer-use-reverse-engineering/`
   - 官方 `Codex Computer Use.app` / `SkyComputerUseClient` 的持续逆向分析资料。
+- `codex-network-capture.md`
+  - 用 `mitmdump` + `scripts/codex_dump.py` 抓 Codex 上游 HTTP / WebSocket 流量，并把样本沉淀到 `artifacts/codex-dumps/` 做持续分析。

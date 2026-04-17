@@ -75,6 +75,54 @@ swift test
 
 如果直接运行 `OpenComputerUse` 而不带子命令，默认会进入 app 模式并显示权限 onboarding 窗口；该窗口以 agent-style app 方式运行，不会在 Dock 常驻显示图标。
 
+## 抓 Codex 上游流量
+
+如果你想用 `mitmproxy` / `mitmweb` 观察 Codex 自己打到上游的请求，仓库内提供了一个默认脱敏的 addon：
+
+详细的长期复用方法、后台启动方式和样本沉淀约定，见 [docs/references/codex-network-capture.md](/Users/bytedance/projects/github/open-codex-computer-use/docs/references/codex-network-capture.md)。
+
+如果你只是想快速后台启动一份抓包并让后续 Agent 复用，优先直接用：
+
+```bash
+./scripts/start-codex-mitm-dump.sh basic-ok
+```
+
+```bash
+mitmdump \
+  --listen-host 127.0.0.1 \
+  --listen-port 8082 \
+  -s scripts/codex_dump.py
+```
+
+默认输出目录会落到系统临时目录下的 `codex-dumps/<timestamp>/`。如果你想把抓包结果长期留在仓库里做分析，推荐显式指定到被 Git 忽略的 `artifacts/codex-dumps/`：
+
+```bash
+mitmdump \
+  --listen-host 127.0.0.1 \
+  --listen-port 8082 \
+  -s scripts/codex_dump.py \
+  --set codex_dump_dir=artifacts/codex-dumps/session-001
+```
+
+然后让 Codex 走这个 HTTPS 代理：
+
+```bash
+HTTPS_PROXY=http://127.0.0.1:8082 \
+NO_PROXY=127.0.0.1,localhost \
+SSL_CERT_FILE=$HOME/.mitmproxy/mitmproxy-ca-cert.pem \
+codex exec --skip-git-repo-check -C /tmp 'reply with one word: ok'
+```
+
+当前主模型流量通常会出现在：
+
+```text
+https://chatgpt.com/backend-api/codex/responses
+```
+
+它会先做 `101 Switching Protocols`，随后在 WebSocket 帧里承载 `response.create`、`response.output_text.delta` 等消息。`scripts/codex_dump.py` 会把这些帧按 JSONL 持久化到 `websocket/` 目录里，同时把匹配到的 HTTP 请求写到 `http/` 目录。
+
+仓库默认已经把 `artifacts/codex-dumps/` 加进 `.gitignore`，适合把真实抓包样本留在 repo 目录里反复分析，而不误提交到 Git。
+
 ## 工程结构
 
 - `apps/OpenComputerUse`
