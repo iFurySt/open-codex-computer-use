@@ -1,5 +1,7 @@
 # open-computer-use
 
+中文说明见 [README.zh-CN.md](./README.zh-CN.md)。
+
 `open-computer-use` is an open-source `Computer Use` service exposed over `MCP`, so any AI agent or MCP client can call it directly and use computer interaction capabilities on macOS.
 
 This project was inspired by OpenAI's recently released [Codex Computer Use](https://openai.com/index/codex-for-almost-everything/). It showed that non-intrusive CUA can be built on top of macOS Accessibility, which is why I decided to build an open-source version.
@@ -17,7 +19,7 @@ npm i -g open-computer-use
 Before first use, grant macOS `Accessibility` and `Screen Recording` permission to the `Open Computer Use.app` installed by `npm install -g open-computer-use`. That global npm install location should be treated as the long-term stable permission target. The development copy at `dist/Open Computer Use.app` should only be used as a local debugging fallback, not as the long-term app identity. If you are not sure about the current state, run:
 
 ```bash
-open-computer-use doctor
+open-computer-use
 ```
 
 Then add it to your MCP client:

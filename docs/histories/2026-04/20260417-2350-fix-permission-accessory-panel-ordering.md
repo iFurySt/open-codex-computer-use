@@ -22,6 +22,7 @@
 - **[Permission Identity Alignment]**: 权限状态查询不再只看 `Bundle.main.bundleIdentifier`；当 onboarding 实际引导用户拖入仓库内打包好的 `.app` 时，TCC 查询会改用那个真实 app bundle 的 identifier，避免列表里已经出现 `Open Computer Use` 但 UI 仍然不显示 `Done`。
 - **[Valid Bundle Guard]**: 回退到 `dist/Open Computer Use.app` 时会先验证它是否包含 `Info.plist`、可执行文件且 bundle id 正确，避免把空壳目录拖进系统设置后出现无图标、拖拽角标异常和权限状态不收敛的问题。
 - **[Path-Based TCC Detection]**: 适配 macOS TCC 把 `Open Computer Use.app` 授权记录存成 `client_type=1` 路径项的情况；权限查询现在会同时检查 app 路径和 bundle identifier，不再因为系统设置里已授权但数据库 key 不是 bundle id 而卡在 `Allow`。
+- **[Cold Launch Bootstrap Retry]**: 当 `Allow` 会首次冷启动 `System Settings` 时，辅助 panel 现在会在短时间内重试挂载，直到系统设置窗口真正 ready；避免“第一次拉起系统设置看不到浮窗，切走再切回才出现”的时序问题。
 - **[Docs Sync]**: 更新架构文档，补充这块权限引导面板现在会保持在 `System Settings` 窗口之上的行为说明。
 
 ### 🧠 Design Intent (Why)

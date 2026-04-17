@@ -425,12 +425,16 @@ final class GuidancePlaceholderView: NSView {
 
 @MainActor
 final class PermissionAccessoryPanelController {
+    private let bootstrapRetryInterval: TimeInterval = 0.15
+    private let bootstrapRetryLimit = 24
     private var panel: NSPanel?
     private var currentPermission: SystemPermissionKind?
     private var workspaceObserver: NSObjectProtocol?
     private var globalDragMonitor: Any?
     private var localDragMonitor: Any?
     private var orderedWindowNumber: Int?
+    private var bootstrapRetryTimer: Timer?
+    private var bootstrapRetriesRemaining = 0
 
     private enum Layout {
         static let screenHorizontalInset: CGFloat = 16
@@ -466,9 +470,11 @@ final class PermissionAccessoryPanelController {
         installObserversIfNeeded()
         position(panel: panel)
         updatePanelVisibility()
+        startBootstrapRetries()
     }
 
     func hide() {
+        stopBootstrapRetries()
         removeObservers()
         panel?.orderOut(nil)
         currentPermission = nil
@@ -540,6 +546,35 @@ final class PermissionAccessoryPanelController {
         }
     }
 
+    private func startBootstrapRetries() {
+        stopBootstrapRetries()
+        bootstrapRetriesRemaining = bootstrapRetryLimit
+        bootstrapRetryTimer = Timer.scheduledTimer(withTimeInterval: bootstrapRetryInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleBootstrapRetryTick()
+            }
+        }
+        bootstrapRetryTimer?.tolerance = 0.03
+    }
+
+    private func stopBootstrapRetries() {
+        bootstrapRetryTimer?.invalidate()
+        bootstrapRetryTimer = nil
+        bootstrapRetriesRemaining = 0
+    }
+
+    private func handleBootstrapRetryTick() {
+        updatePanelVisibility()
+        refreshPosition()
+
+        let shouldStop = bootstrapRetriesRemaining <= 0 || (panel?.isVisible ?? false)
+        bootstrapRetriesRemaining -= 1
+
+        if shouldStop {
+            stopBootstrapRetries()
+        }
+    }
+
     private func refreshPosition() {
         guard let panel, currentPermission != nil, panel.isVisible else {
             return
@@ -561,6 +596,10 @@ final class PermissionAccessoryPanelController {
         if orderedWindowNumber != windowContext.windowNumber || panel.isVisible == false {
             panel.order(.above, relativeTo: windowContext.windowNumber)
             orderedWindowNumber = windowContext.windowNumber
+        }
+
+        if panel.isVisible {
+            stopBootstrapRetries()
         }
     }
 
