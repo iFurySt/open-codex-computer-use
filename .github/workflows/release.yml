@@ -48,6 +48,14 @@ jobs:
             dist/release/release-manifest.json
           if-no-files-found: error
 
+      - name: Configure npm token fallback
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "${NPM_TOKEN}" ]; then
+            echo "NODE_AUTH_TOKEN=${NPM_TOKEN}" >> "${GITHUB_ENV}"
+          fi
+
       - name: Publish packages to npm
         if: ${{ github.event_name == 'push' || inputs.publish_to_npm }}
         env:

@@ -276,7 +276,7 @@ node ./scripts/npm/publish-packages.mjs
 
 - `build-packages.mjs` 会构建 universal app 并 stage 三个 npm 包目录到 `dist/npm/`。
 - `release-package.sh` 会额外把它们打成 `dist/release/npm/*.tgz`，并生成 `dist/release/release-manifest.json`。
-- `.github/workflows/release.yml` 支持通过 push `0.1.5` / `v0.1.5` 这类 git tag 自动发布，也保留手动触发作为兜底；发布走 npm Trusted Publishing，不再依赖长期 `NPM_TOKEN` secret。
+- `.github/workflows/release.yml` 支持通过 push `0.1.5` / `v0.1.5` 这类 git tag 自动发布，也保留手动触发作为兜底；默认兼容 npm Trusted Publishing，同时也支持通过仓库 `NPM_TOKEN` secret 兜底发布。
 
 ## 许可证
 

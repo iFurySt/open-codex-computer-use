@@ -5,7 +5,7 @@
 ## 当前 release 入口
 
 - `scripts/release-package.sh`：构建 universal `Open Computer Use.app`，stage 三个 npm 包目录，并产出 `dist/release/npm/*.tgz` 与 `dist/release/release-manifest.json`。
-- `.github/workflows/release.yml`：支持 push semver tag 自动发布，也支持手动触发；它会调用仓库内的 npm release 打包逻辑，并通过 GitHub Actions OIDC / npm Trusted Publishing 直接发布到 npm。
+- `.github/workflows/release.yml`：支持 push semver tag 自动发布，也支持手动触发；它会调用仓库内的 npm release 打包逻辑，并优先兼容 GitHub Actions OIDC / npm Trusted Publishing，同时支持仓库 `NPM_TOKEN` secret 作为发布兜底。
 
 ## 设计原则
 

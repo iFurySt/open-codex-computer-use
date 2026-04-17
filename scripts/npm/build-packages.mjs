@@ -216,22 +216,6 @@ If your MCP client accepts a stdio-style \`mcpServers\` JSON config, this is the
 }
 \`\`\`
 
-If you want the server without the visual cursor overlay:
-
-\`\`\`json
-{
-  "mcpServers": {
-    "open-computer-use": {
-      "command": "open-computer-use",
-      "args": ["mcp"],
-      "env": {
-        "OPEN_COMPUTER_USE_VISUAL_CURSOR": "0"
-      }
-    }
-  }
-}
-\`\`\`
-
 In practice, using this package as MCP is: global install, add the JSON config, then grant macOS \`Accessibility\` and \`Screen Recording\` permission to the host terminal or app on first use.
 
 ## Use
