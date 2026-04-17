@@ -47,7 +47,7 @@ public final class ComputerUseService {
             if try performPreferredClick(on: record, button: button, clickCount: clickCount) {
                 Thread.sleep(forTimeInterval: 0.15)
             } else if let point = try globalPoint(for: record, snapshot: snapshot) {
-                InputSimulation.bringAppToFrontForGlobalPointerInput(snapshot.app)
+                InputSimulation.prepareAppForGlobalPointerInput(snapshot.app)
                 try InputSimulation.clickGlobally(at: point, button: button, clickCount: clickCount)
             } else {
                 throw ComputerUseError.stateUnavailable("element \(elementIndex) has no clickable frame")
@@ -59,7 +59,7 @@ public final class ComputerUseService {
                try performPreferredClick(on: record, button: button, clickCount: clickCount) {
                 Thread.sleep(forTimeInterval: 0.15)
             } else {
-                InputSimulation.bringAppToFrontForGlobalPointerInput(snapshot.app)
+                InputSimulation.prepareAppForGlobalPointerInput(snapshot.app)
                 try InputSimulation.clickGlobally(at: try screenshotToGlobalPoint(snapshot: snapshot, x: x, y: y), button: button, clickCount: clickCount)
             }
         } else {
@@ -78,7 +78,7 @@ public final class ComputerUseService {
                 throw ComputerUseError.invalidArguments("fixture mode only supports the Raise secondary action")
             }
 
-            InputSimulation.bringAppToFrontForGlobalPointerInput(snapshot.app)
+            InputSimulation.prepareAppForGlobalPointerInput(snapshot.app)
             return try refreshSnapshot(for: query).renderedText
         }
 
@@ -123,7 +123,7 @@ public final class ComputerUseService {
                 Thread.sleep(forTimeInterval: 0.05)
             }
         } else if let point = try globalPoint(for: record, snapshot: snapshot) {
-            InputSimulation.bringAppToFrontForGlobalPointerInput(snapshot.app)
+            InputSimulation.prepareAppForGlobalPointerInput(snapshot.app)
             try InputSimulation.scrollGlobally(at: point, direction: normalized, pages: pages)
         } else {
             throw ComputerUseError.stateUnavailable("element \(elementIndex) has no scrollable frame")
@@ -140,7 +140,7 @@ public final class ComputerUseService {
             return try refreshSnapshot(for: query).renderedText
         }
 
-        InputSimulation.bringAppToFrontForGlobalPointerInput(snapshot.app)
+        InputSimulation.prepareAppForGlobalPointerInput(snapshot.app)
         try InputSimulation.dragGlobally(
             from: try screenshotToGlobalPoint(snapshot: snapshot, x: fromX, y: fromY),
             to: try screenshotToGlobalPoint(snapshot: snapshot, x: toX, y: toY)

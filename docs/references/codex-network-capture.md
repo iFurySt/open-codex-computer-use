@@ -227,3 +227,43 @@ artifacts/codex-dumps/<session-name>/
 ### 3. 为什么默认不建议用 `ALL_PROXY`
 
 `ALL_PROXY` 可能把本地 `127.0.0.1` 的 MCP 流量也一起代理走，容易干扰本地调试链路。默认只设 `HTTPS_PROXY` 更稳。
+
+### 4. prompt 里写 `computer-use` 和 `open-computer-use`，为什么调用路径不一样
+
+在 2026-04-17 这台机器上的真实样本里，prompt 文案本身会明显影响模型优先尝试的 tool namespace：
+
+- prompt 直接写 `computer-use`
+  模型会先尝试官方 bundled `mcp__computer_use__*`。
+- prompt 直接写 `open-computer-use`
+  模型会优先尝试仓库插件的 `mcp__open_computer_use__*`。
+
+这意味着做 A/B 调试时，prompt 命名本身就是一个变量，不能忽略。想稳定比较两套实现时，建议：
+
+1. 对两组 case 使用几乎相同的任务语义。
+2. 只替换 tool 名称锚点，例如 `computer-use` vs `open-computer-use`。
+3. 给每次实验加唯一标记，便于从 `websocket/*.jsonl` 和本地日志里精确过滤。
+
+### 5. `open-computer-use` 调用失败时，怎么判断是插件宿主取消还是 MCP server 本身坏了
+
+推荐先把问题拆成两层：
+
+1. 用 MITM 或本地日志看 Codex 宿主是否真的发起了 `mcp__open_computer_use__*` 调用。
+2. 直接对插件 launcher 做最小 JSON-RPC 探测，验证 server 本身能否 `initialize`、`tools/list`、`tools/call`。
+
+例如：
+
+```bash
+printf '%s\n%s\n%s\n' \
+'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+'{"jsonrpc":"2.0","id":2,"method":"notifications/initialized","params":{}}' \
+'{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_apps","arguments":{}}}' \
+| ./plugins/open-computer-use/scripts/launch-open-computer-use.sh
+```
+
+如果 direct JSON-RPC 能正常返回，而 Codex 会话里仍然显示 tool 被取消或根本没有继续执行，优先怀疑：
+
+- Codex host / plugin gate
+- 当前会话对第三方插件的策略
+- 插件缓存或安装态没有同步到最新
+
+不要一开始就假设是 MCP server 逻辑本身坏了。先把“宿主问题”和“server 问题”分开，排查成本会低很多。

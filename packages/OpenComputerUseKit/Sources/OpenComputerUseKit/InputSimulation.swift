@@ -43,8 +43,13 @@ enum MouseButtonKind: String {
 }
 
 enum InputSimulation {
-    static func bringAppToFrontForGlobalPointerInput(_ app: RunningAppDescriptor) {
-        app.runningApplication.activate()
+    static func prepareAppForGlobalPointerInput(_ app: RunningAppDescriptor) {
+        if raiseAppWindowViaAccessibility(pid: app.pid) {
+            Thread.sleep(forTimeInterval: 0.12)
+            return
+        }
+
+        _ = app.runningApplication.activate(options: [.activateAllWindows])
         Thread.sleep(forTimeInterval: 0.25)
     }
 
@@ -151,6 +156,84 @@ enum InputSimulation {
         event.setIntegerValueField(.mouseEventClickState, value: Int64(clickState))
         event.post(tap: .cghidEventTap)
         Thread.sleep(forTimeInterval: 0.03)
+    }
+
+    private static func raiseAppWindowViaAccessibility(pid: pid_t) -> Bool {
+        let appElement = AXUIElementCreateApplication(pid)
+        guard let window = preferredWindow(for: appElement) else {
+            return false
+        }
+
+        if performAction(named: kAXRaiseAction as String, on: window) {
+            return true
+        }
+
+        if setBoolAttribute(named: kAXMainAttribute as String, on: window) {
+            return true
+        }
+
+        if setBoolAttribute(named: kAXFocusedAttribute as String, on: window) {
+            return true
+        }
+
+        return false
+    }
+
+    private static func preferredWindow(for appElement: AXUIElement) -> AXUIElement? {
+        copyElement(appElement, attribute: kAXFocusedWindowAttribute)
+            ?? copyArray(appElement, attribute: kAXWindowsAttribute)?.first
+    }
+
+    private static func performAction(named action: String, on element: AXUIElement) -> Bool {
+        guard availableActions(for: element).contains(where: { $0.caseInsensitiveCompare(action) == .orderedSame }) else {
+            return false
+        }
+
+        return AXUIElementPerformAction(element, action as CFString) == .success
+    }
+
+    private static func setBoolAttribute(named attribute: String, on element: AXUIElement) -> Bool {
+        guard isSettable(element: element, attribute: attribute) else {
+            return false
+        }
+
+        return AXUIElementSetAttributeValue(element, attribute as CFString, kCFBooleanTrue) == .success
+    }
+
+    private static func isSettable(element: AXUIElement, attribute: String) -> Bool {
+        var settable: DarwinBoolean = false
+        let result = AXUIElementIsAttributeSettable(element, attribute as CFString, &settable)
+        return result == .success && settable.boolValue
+    }
+
+    private static func availableActions(for element: AXUIElement) -> [String] {
+        var actions: CFArray?
+        let result = AXUIElementCopyActionNames(element, &actions)
+        guard result == .success, let actions else {
+            return []
+        }
+
+        return actions as? [String] ?? []
+    }
+
+    private static func copyElement(_ element: AXUIElement, attribute: String) -> AXUIElement? {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+        guard result == .success, let value else {
+            return nil
+        }
+
+        return (value as! AXUIElement)
+    }
+
+    private static func copyArray(_ element: AXUIElement, attribute: String) -> [AXUIElement]? {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+        guard result == .success, let value else {
+            return nil
+        }
+
+        return value as? [AXUIElement]
     }
 
     private static func wheel1(direction: String, pages: Int) -> Int32 {

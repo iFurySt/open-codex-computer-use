@@ -54,7 +54,8 @@
   - `AXUIElementSetAttributeValue`
   - `AXUIElementCopyElementAtPosition` 做坐标命中，尽量把 coordinate click 反解成可操作 AX 元素
   - `CGEvent.postToPid` 定向发送键盘事件，避免为了 `type_text` / `press_key` 抢前台
-  - 只有 drag 或无法命中 AX 元素的鼠标路径，才退回全局 `CGEvent` 键鼠事件并显式前置目标 app
+  - 当必须退回全局鼠标路径时，先尝试对目标窗口做 `AXRaise` / main-window 聚焦，只有这些 AX 提升失败后才调用 `NSRunningApplication.activate`
+  - 只有 drag 或无法命中 AX 元素的鼠标路径，才退回全局 `CGEvent` 键鼠事件并尽量缩小对用户当前焦点的影响
 
 ### 4. Fixture Bridge
 

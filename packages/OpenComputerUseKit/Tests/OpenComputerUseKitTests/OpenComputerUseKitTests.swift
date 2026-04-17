@@ -29,4 +29,13 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(windowRelativeFrame(elementFrame: child, windowBounds: window), CGRect(x: 0, y: 0, width: 919, height: 644))
         XCTAssertEqual(windowRelativeFrame(elementFrame: textFieldGlobal, windowBounds: window), textField)
     }
+
+    func testToolDescriptionsExposeIntrusionHints() {
+        let tools = Dictionary(uniqueKeysWithValues: ToolDefinitions.all.map { ($0.name, $0.description) })
+
+        XCTAssertTrue(tools["get_app_state"]?.contains("without activating") == true)
+        XCTAssertTrue(tools["press_key"]?.contains("super+n") == true)
+        XCTAssertTrue(tools["type_text"]?.contains("target app PID") == true)
+        XCTAssertTrue(tools["drag"]?.contains("moves the real pointer") == true)
+    }
 }

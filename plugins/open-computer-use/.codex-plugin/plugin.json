@@ -20,7 +20,7 @@
   "interface": {
     "displayName": "Open Computer Use",
     "shortDescription": "Control macOS apps from Codex with the open local server",
-    "longDescription": "Open Computer Use packages this repository's open-source macOS automation server as a Codex plugin. It exposes the same nine desktop-control MCP tools through the locally built OpenComputerUse app bundle.",
+    "longDescription": "Open Computer Use packages this repository's open-source macOS automation server as a Codex plugin. It exposes the same nine desktop-control MCP tools through the locally built OpenComputerUse app bundle, with an AX-first and keyboard-first strategy that tries to avoid stealing focus until global pointer input is truly required.",
     "developerName": "Leo",
     "category": "Productivity",
     "capabilities": [
@@ -33,7 +33,7 @@
     "termsOfServiceURL": "https://github.com/iFurySt/open-codex-computer-use/blob/main/LICENSE",
     "defaultPrompt": [
       "Inspect the current UI state of this Mac app without stealing focus when possible",
-      "Click through a local macOS workflow and summarize what changed",
+      "Open a new local document with keyboard shortcuts first, then type content without moving my real pointer unless required",
       "Drive the fixture app and verify the nine computer-use tools still behave correctly"
     ],
     "brandColor": "#0E7490",

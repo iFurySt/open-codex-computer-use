@@ -18,12 +18,12 @@ public enum ToolDefinitions {
     public static let all: [ToolDefinition] = [
         ToolDefinition(
             name: "list_apps",
-            description: "List running or recently visible macOS applications.",
+            description: "List running or recently visible macOS applications. Read-only and low intrusion.",
             inputSchema: objectSchema(properties: [:], required: [])
         ),
         ToolDefinition(
             name: "get_app_state",
-            description: "Capture the current accessibility tree and screenshot metadata for an app.",
+            description: "Capture the current accessibility tree and screenshot metadata for an app without activating it when possible. Usually call this first before deciding on an action tool.",
             inputSchema: objectSchema(
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier."),
@@ -33,7 +33,7 @@ public enum ToolDefinitions {
         ),
         ToolDefinition(
             name: "click",
-            description: "Click an accessibility element or a screenshot-relative coordinate.",
+            description: "Click an accessibility element or a screenshot-relative coordinate. Prefer this only when a direct AX action is required; coordinate fallback may bring the app forward and use the real pointer.",
             inputSchema: objectSchema(
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier."),
@@ -52,7 +52,7 @@ public enum ToolDefinitions {
         ),
         ToolDefinition(
             name: "perform_secondary_action",
-            description: "Invoke an accessibility secondary action exposed by an element.",
+            description: "Invoke a listed accessibility secondary action such as Raise or Show menu. Prefer this over coordinate clicks when get_app_state already exposed the desired AX action.",
             inputSchema: objectSchema(
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier."),
@@ -64,7 +64,7 @@ public enum ToolDefinitions {
         ),
         ToolDefinition(
             name: "scroll",
-            description: "Scroll an accessibility element in a direction by pages.",
+            description: "Scroll an accessibility element in a direction by pages. Prefers AX page-scroll actions and only falls back to global wheel events when AX scrolling is unavailable.",
             inputSchema: objectSchema(
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier."),
@@ -77,7 +77,7 @@ public enum ToolDefinitions {
         ),
         ToolDefinition(
             name: "drag",
-            description: "Drag from one screenshot-relative coordinate to another.",
+            description: "Drag from one screenshot-relative coordinate to another. This uses global mouse events, moves the real pointer, and may need to bring the target app forward.",
             inputSchema: objectSchema(
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier."),
@@ -91,7 +91,7 @@ public enum ToolDefinitions {
         ),
         ToolDefinition(
             name: "type_text",
-            description: "Type literal text into the focused control of an app.",
+            description: "Type literal text into the focused control of an app. Sends keyboard events directly to the target app PID, which usually avoids moving the real pointer or activating the app first.",
             inputSchema: objectSchema(
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier."),
@@ -102,7 +102,7 @@ public enum ToolDefinitions {
         ),
         ToolDefinition(
             name: "press_key",
-            description: "Press a key or key combination using xdotool-style syntax.",
+            description: "Press a key or key combination using xdotool-style syntax. Prefer keyboard shortcuts like super+n when available; events are sent directly to the target app PID.",
             inputSchema: objectSchema(
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier."),
@@ -113,7 +113,7 @@ public enum ToolDefinitions {
         ),
         ToolDefinition(
             name: "set_value",
-            description: "Set the value of a settable accessibility element.",
+            description: "Set the value of a settable accessibility element. Prefer this over click plus type_text when the target control already exposes an AX value.",
             inputSchema: objectSchema(
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier."),

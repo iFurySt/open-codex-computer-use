@@ -31,3 +31,22 @@
 - `artifacts/tool-comparisons/20260417-focus-behavior/computer-use/get_app_state-activity-monitor.json`
 - `artifacts/tool-comparisons/20260417-focus-behavior/open-codex-computer-use/get_app_state-activity-monitor.json`
 - `artifacts/tool-comparisons/20260417-focus-behavior/open-codex-computer-use/click-activity-monitor-coordinate.json`
+
+### 🔁 Follow-up (2026-04-17 17:02)
+
+同一任务在后续 MITM 调试里继续推进，新增两类收敛：
+
+- **[全局鼠标前的 AX 提升]**: `InputSimulation` 不再把“需要全局 pointer”直接等价成 `activate()`；现在会先尝试 `AXRaise`、`kAXMainAttribute` 和 `kAXFocusedAttribute`，只有这些都失败后才回退到 `NSRunningApplication.activate`。
+- **[Tool Intrusion Hints]**: 把 9 个 tools 的侵入性偏好直接写进 `ToolDefinitions` 和 plugin manifest，让模型更容易优先选择 `get_app_state` / `press_key` / `type_text` / `set_value` / `perform_secondary_action`，减少不必要的坐标点击和 drag。
+- **[MITM 调试方法沉淀]**: 在 `docs/references/codex-network-capture.md` 增补 prompt 锚定差异和“宿主取消 vs MCP server 故障”的排查顺序，避免后续做 A/B 或 eval 时重复踩坑。
+
+这次 follow-up 的重点不是再加一层复杂抽象，而是把“模型侧偏好”和“运行时兜底策略”一起往同一个方向推。仅靠运行时优化，模型仍可能频繁选到高副作用 tool；仅靠文案提示，真正退化到全局 pointer 时又仍会过早抢焦点。两边同时收口，才能更稳定地逼近官方 `computer-use` 那种“键盘优先、AX 优先、全局鼠标最后”的行为。
+
+**Follow-up Files:**
+- `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/InputSimulation.swift`
+- `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ComputerUseService.swift`
+- `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ToolDefinitions.swift`
+- `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/OpenComputerUseKitTests.swift`
+- `plugins/open-computer-use/.codex-plugin/plugin.json`
+- `docs/ARCHITECTURE.md`
+- `docs/references/codex-network-capture.md`
