@@ -57,10 +57,13 @@
 - MCP `tools/list` 的 description / input schema 当前按官方 `computer-use` 的 9 个 tools 文案和参数面收敛，尽量减少 host 侧提示词和 tool surface 偏差。
 - 对真实 app 的 `get_app_state` / action tool 入口，当前新增了一层官方风格的高风险 bundle denylist：bundle-id 直传时直接返回 safety denial；名称匹配时默认不解析到这些 app，尽量贴近官方对终端、密码管理器、Chrome 与少量系统敏感组件的防护行为。
 - 普通 app 的 element frame 当前按“窗口左上角为原点”的 window-relative 坐标输出，便于后续把 `element_index` 和截图坐标统一到同一套参考系。
-- `click` 在执行真实动作前后，会额外驱动一层透明 `SoftwareCursorOverlay` window：移动阶段走曲线动画，点击阶段做 pulse，动作结束后只保留一小段停驻与轻微 sway，随后自动淡出。
+- `click` 在执行真实动作前后，会额外驱动一层透明 `SoftwareCursorOverlay` window：移动阶段现在走一条 heading-driven 的官方风格 motion 内核，显式把“当前 cursor 朝向”和“最终 resting pose”一起喂给选路器，优先生成需要时先掉头、再沿车头方向推进的 C 形/单侧大弧轨迹；真正显示出来的 cursor 不再直接等于 path sample，而是经过一层独立的 visual dynamics 状态，把 visible tip、velocity、angle 和 fog/offset 持续推进，再衔接 click pulse、idle sway 和自动淡出。
 - overlay 的 visual style 优先在运行时从本机官方 `Codex Computer Use.app` 的 `Package_ComputerUse.bundle` / `Package_SlimCore.bundle` 读取 `SoftwareCursor` 资产并做一次本地处理；如果本机没有这份 bundle，则回退到仓库内的矢量样式。
 - overlay 的层级不再固定 `.floating`；现在会跟随 snapshot 命中的目标 window id / layer，把自己排到该目标 window 之上，而不是粗暴压到所有前台 app 最上层。
-- overlay 的曲线路径不再只按固定 Bezier 模板生成；当 snapshot 带有目标 `windowID` 时，会对多组控制点候选做窗口命中采样，优先选“采样点仍落在目标 window 上”的路径，并在动画/idle 期间持续校验目标 window 是否还存在。
+- overlay 的曲线路径不再只按固定 Bezier 模板生成；当前主线采用 reverse-engineering 约束下的 heading-driven candidate 族，候选只保留 `direct` / `turn` / `brake` / `orbit` 这些能稳定产出单侧主弧的 family，并继续保留 target-window 命中策略作为同类候选间的 tie-break。原始 binary lift 恢复出来的 `20` 条路径和 score 仍然保留在独立的 `StandaloneCursor` viewer / Python 重建脚本里，用于对照分析，不再直接作为 runtime 默认 chooser。
+- overlay 的 progress 曲线也不再是固定 `easeInOut`；主线现在复用官方 `response=1.4`、`dampingFraction=0.9`、`dt=1/240` 的 spring/`VelocityVerlet` 形状，但 wall-clock duration 仍做本地校准，因为官方 transaction-level 时长映射还没有完全恢复。
+- overlay 不再依赖临时 `terminal settle` 补丁来修尾；主线现在统一改成“路径层给目标点，visual dynamics 层给可见姿态”的双层模型，所以 move 末段、pulse 和 idle 共用同一套状态，不会再出现 endpoint 锁住后只剩原地翻角的收尾。
+- overlay 的渲染输入也从单一 `rotation` 扩展成 `rotation + cursorBodyOffset + fogOffset + fogScale`，让速度滞后能真正体现在画面上，而不是只存在于主循环内部状态；其中 `rotation` 现在按二进制里 `SoftwareCursorStyle.angle + CursorView._animatedAngleOffsetDegrees` 的分层去近似，不再把“跟随运动方向的主朝向”和“小幅 wiggle offset”压成同一个受限小角度。
 - 动作型 tools 对普通 app 采用“非侵入优先，HID 兜底”策略：
   - `AXUIElementPerformAction`
   - `AXUIElementSetAttributeValue`
@@ -81,7 +84,7 @@
 - 这条线优先验证 Python 重建脚本已经收敛出来的核心：`20` 条候选路径、`measure + score`、`prefer in-bounds then lowest-score` 选路，以及 `response=1.4` / `dampingFraction=0.9` / `dt=1/240` 的 raw spring timeline。
 - 当前它刻意不引入 speculative 的 wall-clock duration 映射，也不复用 `StandaloneCursorLab` 里更偏视觉手感试验的 pose dynamics。
 - `StandaloneCursorLab` 是一个单独的 SwiftUI demo target，可通过 `swift run StandaloneCursorLab` 本地启动。
-- 这条线优先验证 motion model 本身：参数层、路径层、spring/timing 模拟和 debug UI。
+- 这条线优先验证 motion model 本身：当前主线是 heading-driven 的 turn / brake / orbit / direct candidate 族、spring progress、独立 visual dynamics 和 debug UI；显式保留“主朝向跟随速度方向、额外角度 offset 单独叠加”的姿态结构，并把当前可见朝向与最终 resting pose 一起参与选路，避免出现与官方视频不符的原地翻转或 S 形扭曲回环。
 - 当前它不接真实 tool call，也不回写主 `SoftwareCursorOverlay`，目的是把实验噪音与产品行为边界隔离开。
 
 ## 关键边界

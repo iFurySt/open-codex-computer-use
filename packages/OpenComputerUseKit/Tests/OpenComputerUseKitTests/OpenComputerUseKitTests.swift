@@ -242,12 +242,89 @@ final class OpenComputerUseKitTests: XCTestCase {
 
         let chosen = OfficialCursorMotionModel.chooseBestCandidate(from: candidates)
 
-        XCTAssertEqual(chosen?.identifier, "base-scaled-guide")
-        XCTAssertEqual(chosen?.kind, .base)
+        XCTAssertEqual(chosen?.identifier, "a1.05-b1.00-positive")
+        XCTAssertEqual(chosen?.kind, .arched)
+    }
+
+    func testOfficialCursorMotionGuideProjectionFollowsPathBasisInsteadOfFixedScreenBias() throws {
+        let rightUpCandidates = OfficialCursorMotionModel.makeCandidates(
+            start: CGPoint(x: 120, y: 620),
+            end: CGPoint(x: 960, y: 140),
+            bounds: CGRect(x: 0, y: 0, width: 1280, height: 800)
+        )
+        let leftUpCandidates = OfficialCursorMotionModel.makeCandidates(
+            start: CGPoint(x: 960, y: 620),
+            end: CGPoint(x: 120, y: 140),
+            bounds: CGRect(x: 0, y: 0, width: 1280, height: 800)
+        )
+
+        let rightUpStartControl = try XCTUnwrap(
+            rightUpCandidates.first(where: { $0.identifier == "base-full-guide" })?.path.startControl
+        )
+        let leftUpStartControl = try XCTUnwrap(
+            leftUpCandidates.first(where: { $0.identifier == "base-full-guide" })?.path.startControl
+        )
+
+        XCTAssertLessThan(rightUpStartControl.x, 120)
+        XCTAssertGreaterThan(leftUpStartControl.x, 960)
     }
 
     func testOfficialCursorMotionSpringCloseEnoughTimeMatchesRecoveredReference() {
         XCTAssertEqual(OfficialCursorMotionModel.closeEnoughTime, 1.429166666666663, accuracy: 0.000_001)
+    }
+
+    func testHeadingDrivenMotionPrefersNearDirectPathWhenHeadingsAlreadyAlign() throws {
+        let start = CGPoint(x: 120, y: 120)
+        let end = CGPoint(x: 920, y: 320)
+        let direction = normalizedVector(from: start, to: end)
+
+        let candidates = HeadingDrivenCursorMotionModel.makeCandidates(
+            start: start,
+            end: end,
+            bounds: CGRect(x: 0, y: 0, width: 1280, height: 800),
+            startForward: direction,
+            endForward: direction
+        )
+        let chosen = try XCTUnwrap(HeadingDrivenCursorMotionModel.chooseBestCandidate(from: candidates))
+        let directDistance = hypot(end.x - start.x, end.y - start.y)
+
+        XCTAssertEqual(chosen.side, 0)
+        XCTAssertLessThan(chosen.measurement.totalTurn, 0.45)
+        XCTAssertLessThan(chosen.measurement.length, directDistance * 1.03)
+    }
+
+    func testHeadingDrivenMotionPrefersTurnaroundArcWhenStartHeadingOpposesTravel() throws {
+        let start = CGPoint(x: 220, y: 520)
+        let end = CGPoint(x: 900, y: 280)
+        let direction = normalizedVector(from: start, to: end)
+        let opposite = CGVector(dx: -direction.dx, dy: -direction.dy)
+
+        let directReference = try XCTUnwrap(
+            HeadingDrivenCursorMotionModel.chooseBestCandidate(
+                from: HeadingDrivenCursorMotionModel.makeCandidates(
+                    start: start,
+                    end: end,
+                    bounds: CGRect(x: 0, y: 0, width: 1280, height: 800),
+                    startForward: direction,
+                    endForward: direction
+                )
+            )
+        )
+        let turnaround = try XCTUnwrap(
+            HeadingDrivenCursorMotionModel.chooseBestCandidate(
+                from: HeadingDrivenCursorMotionModel.makeCandidates(
+                    start: start,
+                    end: end,
+                    bounds: CGRect(x: 0, y: 0, width: 1280, height: 800),
+                    startForward: opposite,
+                    endForward: direction
+                )
+            )
+        )
+
+        XCTAssertNotEqual(turnaround.side, 0)
+        XCTAssertGreaterThan(turnaround.measurement.totalTurn, directReference.measurement.totalTurn + 0.8)
+        XCTAssertGreaterThan(turnaround.measurement.length, directReference.measurement.length * 1.04)
     }
 
     func testCursorVisualDynamicsOvershootsAfterTargetStops() {
@@ -338,5 +415,12 @@ final class OpenComputerUseKitTests: XCTestCase {
         }
 
         return samples
+    }
+
+    private func normalizedVector(from start: CGPoint, to end: CGPoint) -> CGVector {
+        let dx = end.x - start.x
+        let dy = end.y - start.y
+        let length = max(hypot(dx, dy), 0.001)
+        return CGVector(dx: dx / length, dy: dy / length)
     }
 }

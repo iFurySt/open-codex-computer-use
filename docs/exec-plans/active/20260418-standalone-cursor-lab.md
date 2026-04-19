@@ -36,7 +36,7 @@
 1. 建立独立目录与 README，明确模块边界。
 2. 实现纯参数化路径生成与可视化。
 3. 补 spring/timing 模拟。
-4. 视效果再决定是否回灌主 overlay。
+4. 在独立 lab 中完成一版按最新逆向结果重构的官方风格路径/姿态模型。
 
 ## 验证方式
 
@@ -49,7 +49,7 @@
 - [x] 里程碑 1
 - [x] 里程碑 2
 - [x] 里程碑 3
-- [ ] 里程碑 4
+- [x] 里程碑 4
 
 ## 最新进展
 
@@ -60,9 +60,17 @@
 - 2026-04-18：已把 timing 从 spring + `easeInOut` 改为 minimum-jerk bell-shaped profile，并移除位置层末端 overshoot；cursor 在运动中持续跟随切线朝向，到点阶段再平滑回正。
 - 2026-04-19：已为路径建立 curvature / heading-change 加权的 effort lookup，进度推进不再直接绑定 Bezier 参数 `t`，从而让高曲率转向段更慢、直线段更快。
 - 2026-04-19：已把 standalone lab 的 cursor 切到资源化 PNG asset，并改成 tip-anchor 驱动的命中点对齐；静止姿态与运动姿态共用一套 heading calibration，运动中持续朝向当前切线方向。
+- 2026-04-19：已新增更偏“launch/甩头”的候选路径族，并引入 path quality 评分，显式衡量起步朝向贴合度、早段转头力度、末段切线对齐和 terminal straightness。
+- 2026-04-19：已把 timing edge weighting 拆成 start/end 两侧，分别加重起步掉头和末段刹车阶段，从而让速度分配更接近官方视频里“先甩头、后收束”的节奏。
+- 2026-04-19：已把 lab 从 speculative slider 驱动的曲线/收尾模型，重构为 recovered 的 `20` candidate path + 官方风格 spring progress + 独立 visual dynamics；收尾不再靠 endpoint 锁住后原地翻角。
+- 2026-04-19：在对照官方视频后发现 guide/arc 相关常量不能直接按屏幕坐标向量使用；当前已改成先投到 start→end 的局部基底，再生成候选路径，默认样例和反向斜移都不再出现起点附近打结式的扭曲回环。
+- 2026-04-19：继续对照官方视频后，确认 lab 主线不能直接拿 raw reverse-engineered `20` candidates 当 chooser；当前已改成 heading-driven 选路，把当前可见朝向和最终 resting pose 一起参与选路，主路径重新收敛到“需要掉头时走单侧 C 形，不需要掉头时近直线”的分布。
 
 ## 决策记录
 
 - 2026-04-18：先把这项工作定义为 standalone lab，而不是继续直接堆进 `OpenComputerUseKit`.
 - 2026-04-18：参数命名优先采用视频 UI 与官方字符串的交集：`start/end handle`、`arc size/flow`、`spring`。
 - 2026-04-18：第一版 demo 先用独立 SwiftUI target + `CVDisplayLink` 驱动模拟，优先验证参数语义和轨迹手感，再考虑与主 overlay 合流。
+- 2026-04-19：在拿到更完整的 binary-backed 路径与视觉层实现后，lab 改为直接演示 recovered 结构，不再把未经确认的 slider 语义继续当成主实现。
+- 2026-04-19：对 `swift_once` 恢复出的 guide 系数，当前默认采用“常量已确认、世界坐标解释不成立、局部基底投影更贴近官方视频”的实现策略；后续如果拿到更强的二进制级证据，再继续下沉这层解释。
+- 2026-04-19：raw binary lift 的 `20` candidate pool 保留在 `StandaloneCursor` 这条分析线；`StandaloneCursorLab` 和主 runtime overlay 则统一切到 heading-driven 主线，实现上优先保证“朝向约束 + 单侧转弯”这个更贴近官方视频的结构行为。

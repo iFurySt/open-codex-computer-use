@@ -3,7 +3,6 @@ import QuartzCore
 import SwiftUI
 
 struct CursorLabRootView: View {
-    @State private var parameters = CursorMotionParameters.default
     @State private var start = CGPoint(x: 220, y: 440)
     @State private var end = CGPoint(x: 860, y: 260)
     @State private var debugEnabled = true
@@ -24,21 +23,18 @@ struct CursorLabRootView: View {
                     model: model
                 )
                 .onAppear {
-                    model.configure(start: start, end: end, parameters: parameters)
-                    model.restart()
+                    model.configure(start: start, end: end, canvasSize: proxy.size)
+                    model.replay(from: start, to: end)
                 }
                 .onChange(of: proxy.size) { _, newSize in
                     clampPoints(to: newSize)
-                    model.configure(start: start, end: end, parameters: parameters)
+                    model.configure(start: start, end: end, canvasSize: newSize)
                 }
                 .onChange(of: start) { _, newValue in
                     model.updateStart(newValue)
                 }
                 .onChange(of: end) { _, newValue in
                     model.queueMove(to: newValue)
-                }
-                .onChange(of: parameters) { _, newValue in
-                    model.updateParameters(newValue)
                 }
             }
             .overlay(alignment: .topLeading) {
@@ -54,14 +50,22 @@ struct CursorLabRootView: View {
 
     private var controlPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
-            CursorSliderRow(title: "START HANDLE", value: $parameters.startHandle)
-            CursorSliderRow(title: "END HANDLE", value: $parameters.endHandle)
-            CursorSliderRow(title: "ARC SIZE", value: $parameters.arcSize)
-            CursorSliderRow(title: "ARC FLOW", value: $parameters.arcFlow, accent: Color(red: 0.92, green: 0.22, blue: 0.58))
-            CursorSliderRow(title: "SPRING", value: $parameters.spring)
+            Text("HEADING-DRIVEN MOTION")
+                .font(.system(size: 10, weight: .black, design: .rounded))
+                .foregroundStyle(Color.white.opacity(0.82))
+                .tracking(0.8)
+
+            Text(model.selectionLabel)
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .foregroundStyle(Color.white.opacity(0.72))
+                .tracking(0.6)
+
+            Text(model.selectionMetricsLabel)
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .foregroundStyle(Color.white.opacity(0.58))
 
             Button("REPLAY") {
-                model.replayCurrentSelection()
+                model.replay(from: start, to: end)
             }
             .buttonStyle(CursorActionButtonStyle())
             .padding(.top, 6)
@@ -87,18 +91,21 @@ struct CursorLabRootView: View {
 
 @MainActor
 final class CursorLabViewModel: ObservableObject {
-    @Published private(set) var path = CursorMotionPathBuilder.makePath(
-        from: CGPoint(x: 220, y: 440),
-        to: CGPoint(x: 860, y: 260),
-        parameters: .default
+    @Published private(set) var path = CursorMotionPath(
+        start: CGPoint(x: 220, y: 440),
+        end: CGPoint(x: 860, y: 260)
     )
     @Published private(set) var candidates: [CursorMotionCandidate] = []
     @Published private(set) var selectedCandidateID: String?
     @Published private(set) var currentState = CursorMotionState(
         point: CGPoint(x: 220, y: 440),
         rotation: CursorGlyphCalibration.restingRotation,
+        cursorBodyOffset: .zero,
+        fogOffset: .zero,
+        fogOpacity: CursorVisualDynamicsConfiguration.officialInspired.fogOpacityBase,
+        fogScale: 1,
         trailProgress: 0,
-        isSettled: false
+        isSettled: true
     )
     @Published private(set) var clickPulse: CGFloat = 0
 
@@ -110,84 +117,92 @@ final class CursorLabViewModel: ObservableObject {
     private var displayLink: CVDisplayLink?
     private var lastTimestamp: CFTimeInterval?
     private var previewRemaining: CGFloat = 0
-    private var queuedTarget: CGPoint?
+    private var queuedTarget = CGPoint(x: 860, y: 260)
+    private var canvasBounds = CGRect(x: 0, y: 0, width: 1080, height: 720)
 
-    func configure(start: CGPoint, end: CGPoint, parameters: CursorMotionParameters) {
-        simulator.reset(start: start, end: end, parameters: parameters)
-        path = simulator.path
-        candidates = CursorMotionPathBuilder.makeCandidatePaths(
+    var selectionLabel: String {
+        guard let selectedCandidate else {
+            return "\(candidates.count) HEADING-DRIVEN CANDIDATES"
+        }
+
+        let family = selectedCandidate.kind.rawValue.uppercased()
+        return "\(candidates.count) CANDIDATES • \(family) • \(selectedCandidate.id.uppercased())"
+    }
+
+    var selectionMetricsLabel: String {
+        guard let selectedCandidate else {
+            return "heading-aware turn / brake / orbit / direct families"
+        }
+
+        let measurement = selectedCandidate.measurement
+        return String(
+            format: "score %.2f • len %.1f • turn %.2f",
+            Double(selectedCandidate.score),
+            Double(measurement.length),
+            Double(measurement.totalTurn)
+        )
+    }
+
+    private var selectedCandidate: CursorMotionCandidate? {
+        candidates.first(where: { $0.id == selectedCandidateID }) ?? candidates.first
+    }
+
+    func configure(start: CGPoint, end: CGPoint, canvasSize: CGSize) {
+        queuedTarget = end
+        canvasBounds = CGRect(origin: .zero, size: canvasSize)
+        let selection = bestSelection(
             from: start,
             to: end,
-            parameters: parameters,
-            startRotation: currentState.rotation
+            startRotation: CursorGlyphCalibration.restingRotation
         )
-        selectedCandidateID = candidates.first?.id
-        currentState = CursorMotionState(point: start, rotation: CursorGlyphCalibration.restingRotation, trailProgress: 0, isSettled: false)
+        candidates = selection.candidates
+        selectedCandidateID = selection.selected.id
+        path = selection.selected.path
+        currentState = simulator.snap(to: start, path: selection.selected.path)
         clickPulse = 0
-    }
-
-    func updateStart(_ value: CGPoint) {
-        simulator.reset(start: value)
-        path = simulator.path
-        candidates = CursorMotionPathBuilder.makeCandidatePaths(
-            from: value,
-            to: simulator.end,
-            parameters: simulator.parameters,
-            startRotation: currentState.rotation
-        )
-        selectedCandidateID = candidates.first?.id
-        currentState = CursorMotionState(point: value, rotation: currentState.rotation, trailProgress: 0, isSettled: false)
-    }
-
-    func queueMove(to value: CGPoint) {
-        queuedTarget = value
-        let origin = currentAnchorPoint
-        let startRotation = currentState.rotation
-        candidates = CursorMotionPathBuilder.makeCandidatePaths(
-            from: origin,
-            to: value,
-            parameters: simulator.parameters,
-            startRotation: startRotation
-        )
-        selectedCandidateID = candidates.first?.id
-        path = candidates.first?.path ?? CursorMotionPathBuilder.makePath(
-            from: origin,
-            to: value,
-            parameters: simulator.parameters,
-            startRotation: startRotation
-        )
-        currentState = CursorMotionState(point: origin, rotation: currentState.rotation, trailProgress: 0, isSettled: false)
-        clickPulse = 0
-        previewRemaining = 0.24
+        previewRemaining = 0
         lastTimestamp = nil
         ensureDisplayLink()
     }
 
-    func updateParameters(_ value: CursorMotionParameters) {
-        simulator.reset(parameters: value)
-        if let queuedTarget {
-            queueMove(to: queuedTarget)
-        } else {
-            candidates = CursorMotionPathBuilder.makeCandidatePaths(
-                from: currentAnchorPoint,
-                to: simulator.end,
-                parameters: value,
-                startRotation: currentState.rotation
-            )
-            selectedCandidateID = candidates.first?.id
-            path = candidates.first?.path ?? simulator.path
-            currentState = CursorMotionState(point: currentAnchorPoint, rotation: currentState.rotation, trailProgress: 0, isSettled: false)
-            clickPulse = 0
+    func updateStart(_ value: CGPoint) {
+        let selection = bestSelection(
+            from: value,
+            to: queuedTarget,
+            startRotation: currentState.rotation
+        )
+        candidates = selection.candidates
+        selectedCandidateID = selection.selected.id
+        path = selection.selected.path
+        currentState = simulator.snap(to: value, path: selection.selected.path)
+        clickPulse = 0
+    }
+
+    func queueMove(to value: CGPoint) {
+        scheduleMove(from: currentState.point, to: value, snapOrigin: false)
+    }
+
+    func replay(from origin: CGPoint, to target: CGPoint) {
+        scheduleMove(from: origin, to: target, snapOrigin: true)
+    }
+
+    private func scheduleMove(from origin: CGPoint, to target: CGPoint, snapOrigin: Bool) {
+        queuedTarget = target
+        let startRotation = snapOrigin ? CursorGlyphCalibration.restingRotation : currentState.rotation
+
+        let selection = bestSelection(from: origin, to: target, startRotation: startRotation)
+        candidates = selection.candidates
+        selectedCandidateID = selection.selected.id
+        path = selection.selected.path
+
+        if snapOrigin {
+            currentState = simulator.snap(to: origin, path: selection.selected.path)
         }
-    }
 
-    func restart() {
-        replayCurrentSelection()
-    }
-
-    func replayCurrentSelection() {
-        let target = queuedTarget ?? simulator.end
-        queueMove(to: target)
+        clickPulse = 0
+        previewRemaining = 0.24
+        lastTimestamp = nil
+        ensureDisplayLink()
     }
 
     private func ensureDisplayLink() {
@@ -218,14 +233,6 @@ final class CursorLabViewModel: ObservableObject {
         CVDisplayLinkStart(link)
     }
 
-    private func stop() {
-        guard let displayLink else {
-            return
-        }
-        CVDisplayLinkStop(displayLink)
-        self.displayLink = nil
-    }
-
     private func tick() {
         let now = CACurrentMediaTime()
         let dt = CGFloat(lastTimestamp.map { now - $0 } ?? (1.0 / 60.0))
@@ -242,34 +249,76 @@ final class CursorLabViewModel: ObservableObject {
         currentState = simulator.step(deltaTime: dt)
         path = simulator.path
 
-        if currentState.trailProgress > 0.94 {
+        if currentState.trailProgress > 0.94, currentState.isSettled == false {
             let pulseProgress = min(max((currentState.trailProgress - 0.94) / 0.06, 0), 1)
             clickPulse = sin(pulseProgress * .pi)
         } else {
             clickPulse = 0
         }
-
-        if currentState.isSettled {
-            stop()
-        }
     }
 
     private func startSelectedCandidateAnimation() {
-        guard let selectedPath = candidates.first(where: { $0.id == selectedCandidateID })?.path ?? candidates.first?.path else {
-            stop()
+        guard let selectedCandidate else {
             return
         }
 
-        simulator.reset(path: selectedPath)
-        path = selectedPath
-        currentState = CursorMotionState(point: selectedPath.start, rotation: CursorGlyphCalibration.restingRotation, trailProgress: 0, isSettled: false)
+        path = selectedCandidate.path
+        simulator.begin(path: selectedCandidate.path, measurement: selectedCandidate.measurement)
     }
 
-    private var currentAnchorPoint: CGPoint {
-        if previewRemaining > 0 {
-            return currentState.point
+    private func bestSelection(
+        from start: CGPoint,
+        to end: CGPoint,
+        startRotation: CGFloat
+    ) -> (candidates: [CursorMotionCandidate], selected: CursorMotionCandidate) {
+        let selectionBounds = syntheticMotionBounds(from: start, to: end)
+        let candidates = HeadingDrivenCursorMotionModel.makeCandidates(
+            start: start,
+            end: end,
+            bounds: selectionBounds,
+            startForward: headingVector(rotation: startRotation),
+            endForward: headingVector(rotation: CursorGlyphCalibration.restingRotation)
+        )
+        let defaultCandidate = HeadingDrivenCursorMotionModel.chooseBestCandidate(from: candidates)
+            ?? CursorMotionCandidate(
+                id: "fallback-direct",
+                kind: .base,
+                side: 0,
+                tableAScale: nil,
+                tableBScale: nil,
+                path: CursorMotionPath(start: start, end: end, curveScale: 0),
+                measurement: CursorMotionPath(start: start, end: end, curveScale: 0).measure(bounds: selectionBounds),
+                score: 0
+            )
+
+        return (candidates, defaultCandidate)
+    }
+
+    private func syntheticMotionBounds(from start: CGPoint, to end: CGPoint) -> CGRect? {
+        guard canvasBounds.isNull == false else {
+            return nil
         }
-        return currentState.isSettled ? simulator.end : currentState.point
+
+        let distance = hypot(end.x - start.x, end.y - start.y)
+        let margin = min(max(distance * 0.14, 90), 180)
+        let corridorBounds = CGRect(
+            x: min(start.x, end.x),
+            y: min(start.y, end.y),
+            width: abs(end.x - start.x),
+            height: abs(end.y - start.y)
+        ).insetBy(dx: -margin, dy: -margin)
+
+        let resolved = canvasBounds.intersection(corridorBounds)
+        if resolved.isNull || resolved.isEmpty {
+            return canvasBounds
+        }
+
+        return resolved
+    }
+
+    private func headingVector(rotation: CGFloat) -> CGVector {
+        let angle = CursorGlyphCalibration.neutralHeading + rotation
+        return CGVector(dx: cos(angle), dy: sin(angle))
     }
 }
 
@@ -302,10 +351,16 @@ private struct CursorLabCanvas: View {
                 .position(end)
                 .allowsHitTesting(false)
 
-            CursorGlyph(rotation: model.currentState.rotation, clickPulse: showClickPulse ? model.clickPulse : 0)
-                .position(model.currentState.point)
-                .shadow(color: Color.black.opacity(0.14), radius: 8, x: 0, y: 4)
-                .allowsHitTesting(false)
+            CursorGlyph(
+                rotation: model.currentState.rotation,
+                cursorBodyOffset: model.currentState.cursorBodyOffset,
+                fogOffset: model.currentState.fogOffset,
+                fogOpacity: model.currentState.fogOpacity,
+                fogScale: model.currentState.fogScale,
+                clickPulse: showClickPulse ? model.clickPulse : 0
+            )
+            .position(model.currentState.point)
+            .allowsHitTesting(false)
 
             CanvasClickCapture { location in
                 end = location
@@ -360,16 +415,16 @@ private struct CursorLabCanvas: View {
 
             let handleStroke = StrokeStyle(lineWidth: 1.0, dash: [4, 6])
             let handleColor = Color.white.opacity(0.22)
-            context.stroke(Path { path in
-                path.move(to: model.path.start)
-                path.addLine(to: model.path.control1)
-                path.move(to: model.path.end)
-                path.addLine(to: model.path.control2)
-            }, with: .color(handleColor), style: handleStroke)
+            context.stroke(handlePath, with: .color(handleColor), style: handleStroke)
 
-            for point in [model.path.control1, model.path.control2] {
+            for point in debugPoints {
                 let rect = CGRect(x: point.x - 4, y: point.y - 4, width: 8, height: 8)
                 context.fill(Path(ellipseIn: rect), with: .color(.white.opacity(0.55)))
+            }
+
+            if let arc = model.path.arc {
+                let rect = CGRect(x: arc.x - 5, y: arc.y - 5, width: 10, height: 10)
+                context.fill(Path(ellipseIn: rect), with: .color(Color(red: 0.98, green: 0.45, blue: 0.68).opacity(0.78)))
             }
 
             if let selectedCandidate = model.candidates.first(where: { $0.id == model.selectedCandidateID }) {
@@ -384,6 +439,40 @@ private struct CursorLabCanvas: View {
             }
         }
         .allowsHitTesting(false)
+    }
+
+    private var handlePath: Path {
+        Path { path in
+            if let startControl = model.path.startControl {
+                path.move(to: model.path.start)
+                path.addLine(to: startControl)
+            }
+
+            if let arc = model.path.arc {
+                if let arcIn = model.path.arcIn {
+                    path.move(to: arc)
+                    path.addLine(to: arcIn)
+                }
+                if let arcOut = model.path.arcOut {
+                    path.move(to: arc)
+                    path.addLine(to: arcOut)
+                }
+            }
+
+            if let endControl = model.path.endControl {
+                path.move(to: model.path.end)
+                path.addLine(to: endControl)
+            }
+        }
+    }
+
+    private var debugPoints: [CGPoint] {
+        [
+            model.path.startControl,
+            model.path.arcIn,
+            model.path.arcOut,
+            model.path.endControl,
+        ].compactMap { $0 }
     }
 
     private func trimmedPath(progress: CGFloat) -> Path {
@@ -435,17 +524,31 @@ private final class ClickCaptureView: NSView {
 
 private struct CursorGlyph: View {
     let rotation: CGFloat
+    let cursorBodyOffset: CGVector
+    let fogOffset: CGVector
+    let fogOpacity: CGFloat
+    let fogScale: CGFloat
     let clickPulse: CGFloat
+
+    private var motionCompression: CGFloat {
+        min(hypot(cursorBodyOffset.dx, cursorBodyOffset.dy) * 0.01, 0.02)
+    }
+
+    private var clickCompression: CGFloat {
+        clickPulse * 0.04
+    }
 
     var body: some View {
         ZStack {
             Ellipse()
-                .fill(Color.black.opacity(0.12))
-                .frame(width: 22 + clickPulse * 4, height: 6 + clickPulse * 1.4)
-                .offset(x: 0, y: 24)
-                .blur(radius: 1.6)
+                .fill(Color.white.opacity(fogOpacity))
+                .frame(width: 20 * fogScale, height: 10 * fogScale)
+                .offset(x: fogOffset.dx, y: 18 + fogOffset.dy)
+                .blur(radius: 6)
 
             glyphBody
+                .offset(x: cursorBodyOffset.dx, y: cursorBodyOffset.dy)
+                .shadow(color: Color.black.opacity(0.14), radius: 8, x: 0, y: 4)
 
             if clickPulse > 0.02 {
                 Circle()
@@ -455,7 +558,11 @@ private struct CursorGlyph: View {
         }
         .frame(width: CursorGlyphArtwork.layoutSize.width, height: CursorGlyphArtwork.layoutSize.height)
         .rotationEffect(.radians(rotation), anchor: .center)
-        .scaleEffect(x: 1 - clickPulse * 0.04, y: 1 + clickPulse * 0.03, anchor: .center)
+        .scaleEffect(
+            x: 1 - clickCompression - motionCompression,
+            y: 1 + (clickPulse * 0.03) + motionCompression,
+            anchor: .center
+        )
     }
 
     @ViewBuilder
@@ -478,7 +585,7 @@ private struct CursorGlyph: View {
 
 private struct CursorGlyphFallbackShape: Shape {
     func path(in rect: CGRect) -> Path {
-        return Path { path in
+        Path { path in
             path.move(to: CGPoint(x: rect.midX, y: rect.minY))
             path.addQuadCurve(
                 to: CGPoint(x: rect.maxX, y: rect.maxY * 0.86),
@@ -497,29 +604,6 @@ private struct CursorGlyphFallbackShape: Shape {
                 control: CGPoint(x: rect.maxX * 0.08, y: rect.maxY * 0.28)
             )
             path.closeSubpath()
-        }
-    }
-}
-
-private struct CursorSliderRow: View {
-    let title: String
-    @Binding var value: CGFloat
-    var accent: Color = Color(red: 0.94, green: 0.28, blue: 0.62)
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Slider(value: Binding(
-                get: { Double(value) },
-                set: { value = CGFloat($0) }
-            ), in: 0...1)
-            .tint(accent)
-            .frame(width: 66)
-
-            Text(title)
-                .font(.system(size: 10, weight: .black, design: .rounded))
-                .foregroundStyle(Color.white.opacity(0.82))
-                .tracking(0.8)
-                .frame(width: 92, alignment: .leading)
         }
     }
 }
@@ -596,7 +680,8 @@ private struct CursorLabBackground: View {
                 ]
 
                 for blob in blobs {
-                    let rect = CGRect(origin: .zero, size: blob.1).offsetBy(dx: blob.0.x - blob.1.width / 2, dy: blob.0.y - blob.1.height / 2)
+                    let rect = CGRect(origin: .zero, size: blob.1)
+                        .offsetBy(dx: blob.0.x - blob.1.width / 2, dy: blob.0.y - blob.1.height / 2)
                     context.addFilter(.blur(radius: 48))
                     context.fill(Path(ellipseIn: rect), with: .color(blob.2))
                 }

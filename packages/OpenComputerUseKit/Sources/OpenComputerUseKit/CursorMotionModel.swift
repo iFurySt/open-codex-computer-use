@@ -1,10 +1,6 @@
 import CoreGraphics
 import Foundation
 
-struct CursorMotionParameters: Equatable {
-    static let `default` = CursorMotionParameters()
-}
-
 struct CursorMotionSegment: Equatable {
     let end: CGPoint
     let control1: CGPoint
@@ -69,21 +65,10 @@ struct CursorMotionPath: Equatable {
             startControl: control1,
             endControl: control2,
             segments: [
-                CursorMotionSegment(end: end, control1: control1, control2: control2),
+                CursorMotionSegment(end: end, control1: control1, control2: control2)
             ],
             curveScale: resolvedCurveScale
         )
-    }
-
-    var cgPath: CGPath {
-        let path = CGMutablePath()
-        path.move(to: start)
-
-        for segment in segments {
-            path.addCurve(to: segment.end, control1: segment.control1, control2: segment.control2)
-        }
-
-        return path
     }
 
     func point(at progress: CGFloat) -> CGPoint {
@@ -201,13 +186,8 @@ struct CursorMotionMeasurement: Equatable {
     let staysInBounds: Bool
 }
 
-enum CursorMotionKind: String, Equatable {
-    case base
-    case arched
-}
-
-struct CursorMotionCandidate: Identifiable, Equatable {
-    let id: String
+struct CursorMotionCandidate: Equatable {
+    let identifier: String
     let kind: CursorMotionKind
     let side: Int
     let tableAScale: CGFloat?
@@ -215,6 +195,11 @@ struct CursorMotionCandidate: Identifiable, Equatable {
     let path: CursorMotionPath
     let measurement: CursorMotionMeasurement
     let score: CGFloat
+}
+
+enum CursorMotionKind: String, Equatable {
+    case base
+    case arched
 }
 
 struct CursorMotionSpringConfiguration: Equatable {
@@ -406,7 +391,7 @@ enum OfficialCursorMotionModel {
         var candidates: [CursorMotionCandidate] = []
         candidates.append(
             makeCandidate(
-                id: "base-full-guide",
+                identifier: "base-full-guide",
                 kind: .base,
                 side: 0,
                 tableAScale: nil,
@@ -417,7 +402,7 @@ enum OfficialCursorMotionModel {
                     startControl: fullStartControl,
                     endControl: fullEndControl,
                     segments: [
-                        CursorMotionSegment(end: end, control1: fullStartControl, control2: fullEndControl),
+                        CursorMotionSegment(end: end, control1: fullStartControl, control2: fullEndControl)
                     ],
                     curveScale: 1
                 ),
@@ -427,7 +412,7 @@ enum OfficialCursorMotionModel {
         )
         candidates.append(
             makeCandidate(
-                id: "base-scaled-guide",
+                identifier: "base-scaled-guide",
                 kind: .base,
                 side: 0,
                 tableAScale: nil,
@@ -438,7 +423,7 @@ enum OfficialCursorMotionModel {
                     startControl: scaledStartControl,
                     endControl: scaledEndControl,
                     segments: [
-                        CursorMotionSegment(end: end, control1: scaledStartControl, control2: scaledEndControl),
+                        CursorMotionSegment(end: end, control1: scaledStartControl, control2: scaledEndControl)
                     ],
                     curveScale: sideBiasScale
                 ),
@@ -466,14 +451,14 @@ enum OfficialCursorMotionModel {
                         endControl: fullEndControl,
                         segments: [
                             CursorMotionSegment(end: anchor, control1: fullStartControl, control2: arcIn),
-                            CursorMotionSegment(end: end, control1: arcOut, control2: fullEndControl),
+                            CursorMotionSegment(end: end, control1: arcOut, control2: fullEndControl)
                         ],
                         curveScale: innerScale
                     )
 
                     candidates.append(
                         makeCandidate(
-                            id: "a\(outerScale.cursorIdentifier)-b\(innerScale.cursorIdentifier)-\(side > 0 ? "positive" : "negative")",
+                            identifier: "a\(outerScale.cursorIdentifier)-b\(innerScale.cursorIdentifier)-\(side > 0 ? "positive" : "negative")",
                             kind: .arched,
                             side: side,
                             tableAScale: outerScale,
@@ -499,7 +484,7 @@ enum OfficialCursorMotionModel {
         let pool = inBoundsCandidates.isEmpty ? candidates : inBoundsCandidates
         return pool.min { lhs, rhs in
             if lhs.score == rhs.score {
-                return lhs.id < rhs.id
+                return lhs.identifier < rhs.identifier
             }
             return lhs.score < rhs.score
         }
@@ -514,7 +499,7 @@ enum OfficialCursorMotionModel {
     }
 
     private static func makeCandidate(
-        id: String,
+        identifier: String,
         kind: CursorMotionKind,
         side: Int,
         tableAScale: CGFloat?,
@@ -526,7 +511,7 @@ enum OfficialCursorMotionModel {
         let measurement = path.measure(bounds: bounds, minStepDistance: minimumStepDistance)
         let score = scoreCandidate(distance: distance, measurement: measurement)
         return CursorMotionCandidate(
-            id: id,
+            identifier: identifier,
             kind: kind,
             side: side,
             tableAScale: tableAScale,
@@ -645,7 +630,7 @@ enum HeadingDrivenCursorMotionModel {
                 endForward: resolvedEndForward
             )
             return makeCandidate(
-                id: descriptor.id,
+                identifier: descriptor.id,
                 kind: descriptor.kind,
                 side: descriptor.side,
                 tableAScale: nil,
@@ -667,7 +652,7 @@ enum HeadingDrivenCursorMotionModel {
         let pool = inBoundsCandidates.isEmpty ? candidates : inBoundsCandidates
         return pool.min { lhs, rhs in
             if lhs.score == rhs.score {
-                return lhs.id < rhs.id
+                return lhs.identifier < rhs.identifier
             }
             return lhs.score < rhs.score
         }
@@ -750,7 +735,7 @@ enum HeadingDrivenCursorMotionModel {
     }
 
     private static func makeCandidate(
-        id: String,
+        identifier: String,
         kind: CursorMotionKind,
         side: Int,
         tableAScale: CGFloat?,
@@ -769,7 +754,7 @@ enum HeadingDrivenCursorMotionModel {
         )
 
         return CursorMotionCandidate(
-            id: id,
+            identifier: identifier,
             kind: kind,
             side: side,
             tableAScale: tableAScale,
@@ -1182,8 +1167,8 @@ struct CursorVisualSpringConfiguration: Equatable {
         self.dampingFraction = dampingFraction
         self.dt = dt
         self.idleVelocityThreshold = idleVelocityThreshold
-        stiffness = min(rawStiffness, idleVelocityThreshold)
-        drag = 2 * dampingFraction * sqrt(stiffness)
+        self.stiffness = min(rawStiffness, idleVelocityThreshold)
+        self.drag = 2 * dampingFraction * sqrt(self.stiffness)
     }
 }
 
@@ -1233,8 +1218,8 @@ struct CursorVisualDynamicsState: Equatable {
     init(
         time: CGFloat = 0,
         tipPosition: CGPoint,
-        tipVelocity: CGVector = .zero,
-        tipForce: CGVector = .zero,
+        tipVelocity: CGVector = CGVector(dx: 0, dy: 0),
+        tipForce: CGVector = CGVector(dx: 0, dy: 0),
         angle: CGFloat = 0,
         angleVelocity: CGFloat = 0,
         angleForce: CGFloat = 0
@@ -1412,188 +1397,6 @@ enum CursorVisualDynamicsAnimator {
     }
 }
 
-struct CursorMotionState: Equatable {
-    let point: CGPoint
-    let rotation: CGFloat
-    let cursorBodyOffset: CGVector
-    let fogOffset: CGVector
-    let fogOpacity: CGFloat
-    let fogScale: CGFloat
-    let trailProgress: CGFloat
-    let isSettled: Bool
-}
-
-private enum CursorMotionPhase {
-    case moving
-    case idle(restingTipPosition: CGPoint)
-}
-
-final class CursorMotionSimulator {
-    private static let baseHeading = CursorGlyphCalibration.neutralHeading + CursorGlyphCalibration.restingRotation
-
-    private(set) var parameters: CursorMotionParameters
-    private(set) var path: CursorMotionPath
-    private(set) var start: CGPoint
-    private(set) var end: CGPoint
-
-    private var measurement: CursorMotionMeasurement
-    private var phase: CursorMotionPhase
-    private var progress: CGFloat
-    private var progressSpringState: CursorMotionSpringState
-    private var moveElapsed: CGFloat
-    private var travelDuration: CGFloat
-    private var visualState: CursorVisualDynamicsState
-    private var time: CGFloat
-    private var idlePhase: CGFloat
-
-    init(start: CGPoint, end: CGPoint, parameters: CursorMotionParameters) {
-        self.parameters = parameters
-        path = CursorMotionPath(start: start, end: end)
-        self.start = start
-        self.end = end
-        measurement = path.measure(bounds: nil)
-        phase = .idle(restingTipPosition: start)
-        progress = 1
-        progressSpringState = CursorMotionSpringState()
-        moveElapsed = 0
-        travelDuration = OfficialCursorMotionModel.calibratedTravelDuration(
-            distance: distanceBetween(start, end),
-            measurement: measurement
-        )
-        visualState = CursorVisualDynamicsAnimator.state(at: start)
-        time = 0
-        idlePhase = 0
-    }
-
-    @discardableResult
-    func snap(to point: CGPoint, path newPath: CursorMotionPath? = nil) -> CursorMotionState {
-        if let newPath {
-            path = newPath
-            start = newPath.start
-            end = newPath.end
-            measurement = newPath.measure(bounds: nil)
-        }
-
-        time = 0
-        idlePhase = 0
-        moveElapsed = 0
-        progress = 1
-        progressSpringState = CursorMotionSpringState()
-        visualState = CursorVisualDynamicsAnimator.state(at: point, time: time)
-        phase = .idle(restingTipPosition: point)
-        return renderCurrentState(trailProgress: 1, isSettled: true)
-    }
-
-    func begin(path: CursorMotionPath, measurement: CursorMotionMeasurement) {
-        self.path = path
-        start = path.start
-        end = path.end
-        self.measurement = measurement
-        progress = 0
-        progressSpringState = CursorMotionSpringState()
-        moveElapsed = 0
-        idlePhase = 0
-        travelDuration = OfficialCursorMotionModel.calibratedTravelDuration(
-            distance: distanceBetween(path.start, path.end),
-            measurement: measurement
-        )
-        phase = .moving
-
-        if visualState.tipPosition == .zero && path.start != .zero {
-            visualState = CursorVisualDynamicsAnimator.state(at: path.start, time: time)
-        }
-    }
-
-    func step(deltaTime dt: CGFloat) -> CursorMotionState {
-        let clampedDelta = max(1.0 / 240.0, min(dt, 1.0 / 24.0))
-        time += clampedDelta
-
-        switch phase {
-        case .moving:
-            moveElapsed += clampedDelta
-            let normalizedElapsed = (moveElapsed / max(travelDuration, 0.001)).clamped(to: 0...1)
-            let springTime = normalizedElapsed * OfficialCursorMotionModel.closeEnoughTime
-            (progress, progressSpringState) = CursorMotionProgressAnimator.advance(
-                current: progress,
-                state: progressSpringState,
-                to: springTime
-            )
-
-            let sample = path.sample(at: progress)
-            let renderState = advanceVisualDynamics(toward: sample.point)
-            let finished = normalizedElapsed >= 1 || CursorMotionProgressAnimator.isCloseEnough(progress: progress)
-
-            if finished {
-                progress = 1
-                phase = .idle(restingTipPosition: end)
-                let settledState = advanceVisualDynamics(toward: end)
-                return makeMotionState(renderState: settledState, trailProgress: 1, isSettled: true)
-            }
-
-            return makeMotionState(
-                renderState: renderState,
-                trailProgress: progress.clamped(to: 0...1),
-                isSettled: false
-            )
-
-        case let .idle(restingTipPosition):
-            idlePhase += clampedDelta * 3
-            let targetTipPosition = CGPoint(
-                x: restingTipPosition.x + (sin(idlePhase) * 1.6),
-                y: restingTipPosition.y + (cos(idlePhase * 0.47) * 0.7)
-            )
-            let idleAngleOffset = sin(idlePhase * 0.8) * 0.03
-            let renderState = advanceVisualDynamics(
-                toward: targetTipPosition,
-                idleAngleOffset: idleAngleOffset
-            )
-            return makeMotionState(renderState: renderState, trailProgress: 1, isSettled: true)
-        }
-    }
-
-    private func advanceVisualDynamics(
-        toward targetTipPosition: CGPoint,
-        idleAngleOffset: CGFloat = 0
-    ) -> CursorVisualRenderState {
-        let result = CursorVisualDynamicsAnimator.advance(
-            state: visualState,
-            targetTipPosition: targetTipPosition,
-            targetTime: time,
-            idleAngleOffset: idleAngleOffset,
-            baseHeading: Self.baseHeading
-        )
-        visualState = result.state
-        return result.renderState
-    }
-
-    private func renderCurrentState(trailProgress: CGFloat, isSettled: Bool) -> CursorMotionState {
-        let renderState = CursorVisualDynamicsAnimator.advance(
-            state: visualState,
-            targetTipPosition: visualState.tipPosition,
-            targetTime: time,
-            baseHeading: Self.baseHeading
-        ).renderState
-        return makeMotionState(renderState: renderState, trailProgress: trailProgress, isSettled: isSettled)
-    }
-
-    private func makeMotionState(
-        renderState: CursorVisualRenderState,
-        trailProgress: CGFloat,
-        isSettled: Bool
-    ) -> CursorMotionState {
-        CursorMotionState(
-            point: renderState.tipPosition,
-            rotation: CursorGlyphCalibration.restingRotation + renderState.rotation,
-            cursorBodyOffset: renderState.cursorBodyOffset,
-            fogOffset: renderState.fogOffset,
-            fogOpacity: renderState.fogOpacity,
-            fogScale: renderState.fogScale,
-            trailProgress: trailProgress,
-            isSettled: isSettled
-        )
-    }
-}
-
 private func sampleCubic(start: CGPoint, control1: CGPoint, control2: CGPoint, end: CGPoint, t: CGFloat) -> CGPoint {
     let omt = 1 - t
     let omt2 = omt * omt
@@ -1621,10 +1424,6 @@ private func sampleCubicTangent(start: CGPoint, control1: CGPoint, control2: CGP
             + (6 * omt * t * (control2.y - control1.y))
             + (3 * t * t * (end.y - control2.y))
     )
-}
-
-private func distanceBetween(_ lhs: CGPoint, _ rhs: CGPoint) -> CGFloat {
-    hypot(rhs.x - lhs.x, rhs.y - lhs.y)
 }
 
 private extension CGRect {
@@ -1671,6 +1470,15 @@ private extension CGVector {
 
     func scaled(by factor: CGFloat) -> CGVector {
         CGVector(dx: dx * factor, dy: dy * factor)
+    }
+
+    func limited(maxLength: CGFloat) -> CGVector {
+        let resolvedLength = length
+        guard resolvedLength > maxLength, resolvedLength > 0.001 else {
+            return self
+        }
+
+        return scaled(by: maxLength / resolvedLength)
     }
 }
 
