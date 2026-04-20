@@ -58,14 +58,14 @@
 ```bash
 swift test
 node ./scripts/npm/build-packages.mjs --skip-build --out-dir dist/release/npm-staging-check
-./scripts/build-cursor-motion-dmg.sh --configuration release --arch universal --version 0.1.13
+./scripts/build-cursor-motion-dmg.sh --configuration release --arch universal --version 0.1.14
 ```
 
 然后直接检查 staging 包版本和 DMG 文件名：
 
 ```bash
 node -p "require('./dist/release/npm-staging-check/open-codex-computer-use-mcp/package.json').version"
-ls dist/release/cursor-motion/CursorMotion-0.1.13.dmg
+ls dist/release/cursor-motion/CursorMotion-0.1.14.dmg
 ```
 
 如果这里打印的不是目标版本，或者 DMG 没按目标版本名产出，不要打 tag。
@@ -80,15 +80,15 @@ ls dist/release/cursor-motion/CursorMotion-0.1.13.dmg
 当前约定用 `vX.Y.Z`：
 
 ```bash
-git tag -a v0.1.13 -m "v0.1.13"
+git tag -a v0.1.14 -m "v0.1.14"
 git push origin main
-git push origin v0.1.13
+git push origin v0.1.14
 ```
 
 tag push 后，`.github/workflows/release.yml` 会自动做两件事：
 
 - 发布 npm 包。
-- 构建 `CursorMotion-0.1.13.dmg`，并创建或更新同名 tag 的 GitHub Release asset。
+- 构建 `CursorMotion-0.1.14.dmg`，并创建或更新同名 tag 的 GitHub Release asset。
 
 ## Release 失败时怎么查
 
@@ -123,13 +123,13 @@ gh run view -R iFurySt/open-codex-computer-use <run-id> --log-failed
 本地删 tag：
 
 ```bash
-git tag -d v0.1.13
+git tag -d v0.1.14
 ```
 
 远端删 tag：
 
 ```bash
-git push origin :refs/tags/v0.1.13
+git push origin :refs/tags/v0.1.14
 ```
 
 修好后再重新创建并推送同名 tag。

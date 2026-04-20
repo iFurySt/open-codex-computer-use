@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-04-20 | Cursor Motion 打包一致性 | Releases 里的 `CursorMotion.dmg` 现在会和 `swift run CursorMotion` 更一致，不再因为缺少官方 cursor 资源而退回更锯齿、朝向也更差的 fallback glyph。 | 发布 `0.1.14`，修复打包 `.app` 时没有把官方 `official-software-cursor-window-252.png` 带进 bundle 的问题；`Cursor Motion` 现在会优先从 `Bundle.main` 读取这张图，DMG 打包脚本也会把它复制进 `Contents/Resources`，并显式打开高分屏渲染。 |
 | 2026-04-20 | Cursor Motion 与发版链路 | Cursor Motion 作为独立 demo 的命名和入口更统一，同时 release tag 现在可以直接产出可下载的 macOS `.dmg`。 | 发布 `0.1.13`，把 `StandaloneCursorLab` 统一更名为 `Cursor Motion` / `CursorMotion`，同步中英文 README 与架构文档，并新增 tag 驱动的 `CursorMotion-<version>.dmg` GitHub Releases 发布链路。 |
 | 2026-04-19 | 权限浮窗细节收口 | `Allow` 后的引导浮窗动效更连贯，且在系统设置窗口稳定后能自动落到正确位置，不需要用户手动点一下再归位。 | 发布 `0.1.12`，补齐权限 panel 的 source-to-target 入场动画、返回按钮，以及动画结束后的持续 re-anchor，修复 release workflow 因 npm 版本仍停在 `0.1.11` 而发布失败的问题。 |
 | 2026-04-18 | 权限浮窗与文档入口 | 第一次冷启动系统设置时权限浮窗能直接出现，仓库根目录也重新补回中文文档入口。 | 发布 `0.1.11`，修复首次 `Allow` 冷启动 `System Settings` 时辅助浮窗需要切窗后才显示的时序问题，并新增根目录 `README.zh-CN.md` 承载中文说明。 |
