@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-04-20 | 安装器运行时依赖 | `open-computer-use` 的一键安装命令不再因为系统 Python 版本太旧而失败，npm 全局安装后的首次接入路径更稳定。 | 发布 `0.1.19`，移除 `install-claude-mcp`、`install-codex-mcp`、`install-codex-plugin` 对 `python3` / `tomllib` 的运行时依赖，统一改为随 npm 包分发的 Node helper 处理配置读写。 |
 | 2026-04-20 | macOS 分发签名与公证 | `Cursor Motion` 的下载 `.dmg` 现在补齐了 Apple notarization 要求的 hardened runtime，release 链路离标准 macOS 分发更近了一步。 | 发布 `0.1.18`，修复 `Cursor Motion.app` 在 notarization 前缺少 hardened runtime 的问题；Developer ID 签名现在会显式启用 `codesign --options runtime`，用于新的 release 重跑。 |
 | 2026-04-20 | macOS 分发签名与公证 | `Open Computer Use` 的 release `.app` 已经能走统一的 `Developer ID Application` 签名链，`Cursor Motion` 的公证工作流与演示视频入口也已接入仓库。 | 发布 `0.1.17`，接通 `Developer ID Application` 证书导入、统一签名和 `Cursor Motion` 的 notarization 工作流，README 也补了 `Cursor Motion` 的演示视频入口；但该版本的 `Cursor Motion` `.dmg` 仍因缺少 hardened runtime 未通过 Apple notarization。 |
 | 2026-04-20 | Open Computer Use 开发态身份 | 本地 debug/dev 调试构建不再和正式发布版在系统权限列表里混成同名对象，开发授权与正式分发边界更清楚。 | 发布 `0.1.16`，CI release 回退到原来的 ad-hoc 打包路径，不再要求 GitHub Actions 导入开发证书；本地非 release 构建统一改成 `Open Computer Use (Dev).app` 和 `com.ifuryst.opencomputeruse.dev`，权限发现也会在 dev 运行态优先绑定当前 dev app。 |
