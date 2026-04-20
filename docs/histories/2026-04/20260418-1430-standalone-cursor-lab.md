@@ -108,6 +108,46 @@
 - `experiments/StandaloneCursorLab/Sources/StandaloneCursorLab/CursorLabRootView.swift`
 - `experiments/StandaloneCursorLab/README.md`
 
+### 🔁 Follow-up (2026-04-20, align glyph baseline heading with official cursor artwork)
+**Scope:** `experiments/StandaloneCursorLab/`、`docs/`
+
+**Key Actions:**
+- **[回收多余的局部旋转补偿]**: 对照独立 `render-synthesized-software-cursor.swift` 脚本和官方 `252x252` runtime baseline 图后，确认 lab 里额外的 `restingRotation = -26.5°` 会把 moving 期间的可见 heading 固定偏开。
+- **[静止朝向改为左上基线]**: `CursorGlyphCalibration` 现在直接把零旋转基线定义成官方箭头的天然静止朝向；在 lab 的 y-down 坐标里用 `neutralHeading = -3π/4`，`restingRotation = 0`，让 path heading 和 glyph 朝向共用同一套基准。
+- **[对齐主运行时语义]**: 这次调整也把 `StandaloneCursorLab` 的 heading 标定方式收回到和 `SoftwareCursorOverlay` 一致的思路，不再额外维护一层实验性局部偏角。
+
+### 📁 Additional Files Modified
+- `experiments/StandaloneCursorLab/Sources/StandaloneCursorLab/CursorGlyphCalibration.swift`
+- `docs/exec-plans/active/20260418-standalone-cursor-lab.md`
+
+### 🔁 Follow-up (2026-04-20, fix y-axis mismatch in glyph rendering)
+**Scope:** `experiments/StandaloneCursorLab/`、`docs/`
+
+**Key Actions:**
+- **[定位到渲染坐标系不一致]**: 继续对照用户反馈的“屁股超前”现象后，确认 `StandaloneCursorLab` 的 path / heading 在 SwiftUI y-down 坐标里推进，但 `SynthesizedCursorGlyphView` 实际使用的是 AppKit 默认 y-up 绘制坐标。
+- **[统一翻转 angle 与 offset]**: 在 glyph 渲染层新增显式转换，把 screen-space 的 `rotation`、`cursorBodyOffset`、`fogOffset` 统一映射到 AppKit drawing space，避免 moving 期间可见姿态被垂直镜像。
+- **[保持 motion model 不动]**: 这次没有继续改候选路径或 spring，只修复显示层坐标映射，让 heading-driven 选路和 visual dynamics 仍维持原来的 y-down 几何语义。
+
+### 📁 Additional Files Modified
+- `experiments/StandaloneCursorLab/Sources/StandaloneCursorLab/SynthesizedCursorGlyphView.swift`
+- `docs/exec-plans/active/20260418-standalone-cursor-lab.md`
+
+### 🔁 Follow-up (2026-04-20, restore visible heading during moves)
+**Scope:** `experiments/StandaloneCursorLab/`、`docs/`
+
+**Key Actions:**
+- **[按官方抽帧撤回轻微 lean 假设]**: 对照用户提供的官方 1-9 帧后，确认 moving 阶段箭头主朝向会持续跟随当前 move heading，而不是只保留一个很小的 turn lean。
+- **[移除多余的 displayRotation 分层]**: `StandaloneCursorLab` 的 glyph 渲染重新直接使用 visual dynamics 主 `rotation`；之前额外加的 `displayRotation / visibleRotationOffset` 已移除，避免把主 heading 丢掉。
+- **[保留小幅 idle wobble]**: idle 阶段仍沿用 `_animatedAngleOffsetDegrees` 对应的小摆角近似，但这层 offset 重新回到主 heading 之上，而不是替代 moving 期间的可见朝向。
+- **[同步当前文档口径]**: README、架构说明和 active execution plan 统一改回“moving 阶段箭头跟随 heading，停住后再回 resting pose”的表述。
+
+### 📁 Additional Files Modified
+- `experiments/StandaloneCursorLab/Sources/StandaloneCursorLab/CursorMotionModel.swift`
+- `experiments/StandaloneCursorLab/Sources/StandaloneCursorLab/CursorLabRootView.swift`
+- `experiments/StandaloneCursorLab/README.md`
+- `docs/ARCHITECTURE.md`
+- `docs/exec-plans/active/20260418-standalone-cursor-lab.md`
+
 ### 🔁 Follow-up (2026-04-20, restore slider tuning surface)
 **Scope:** `experiments/StandaloneCursorLab/`、`docs/`
 

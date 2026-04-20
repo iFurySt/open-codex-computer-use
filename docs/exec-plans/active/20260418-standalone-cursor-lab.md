@@ -66,11 +66,14 @@
 - 2026-04-19：在对照官方视频后发现 guide/arc 相关常量不能直接按屏幕坐标向量使用；当前已改成先投到 start→end 的局部基底，再生成候选路径，默认样例和反向斜移都不再出现起点附近打结式的扭曲回环。
 - 2026-04-19：继续对照官方视频后，确认 lab 主线不能直接拿 raw reverse-engineered `20` candidates 当 chooser；当前已改成 heading-driven 选路，把当前可见朝向和最终 resting pose 一起参与选路，主路径重新收敛到“需要掉头时走单侧 C 形，不需要掉头时近直线”的分布。
 - 2026-04-20：在对照 `scripts/render-synthesized-software-cursor.swift` 与用户截图后，确认共享 glyph renderer 的亮白 asset 风格并不对；当前已把 lab 改成优先显示仓库里的官方 `252x252` runtime baseline 图，fallback 才走脚本同款 procedural pointer/fog，同时把 idle 从 XY 漂移收紧为中心固定的小幅摆角。
-- 2026-04-20：继续按用户反馈收紧姿态后，lab 现在把“内部 heading”与“可见箭头角度”分离；选路仍可参考当前 heading，但屏幕上看到的箭头不再像车头一样沿切线持续转向，只在转弯时轻微 lean。
+- 2026-04-20：曾按用户反馈把“内部 heading”与“可见箭头角度”分离，短暂把 moving 阶段的可见箭头收紧成轻微 lean；这层假设随后已在对照官方抽帧后撤回。
 - 2026-04-20：按用户反馈把左上角 5 个 slider 恢复回来，并重新接到 heading-driven 路径几何与 progress spring；当前 slider 明确只作为本地调参入口，不宣称是已完全确认的官方字段映射。
 - 2026-04-20：继续按用户反馈把左上角控件区裁成纯 slider，并把 slider label / panel accent 收回当前中性灰紫主色系；不再保留 `REPLAY` / `RESET` 按钮和额外 metrics 文案，避免信息噪音和低对比白字。
 - 2026-04-20：修正窗口 resize 时的状态重置 bug；`proxy.size` 变化现在只更新 canvas bounds，不再重新走 `configure + snap(to: start)`，因此调整窗口大小不会把 cursor 强行拉回起始点。
 - 2026-04-20：基于 `Codex Computer Use.app` 的新一轮 timing 逆向，确认默认 move 的 wall-clock endpoint-lock 是固定的 `343 / 240 = 1.4291667s`；lab 现已移除距离驱动的 travel-duration 压缩，默认档直接按官方 spring timeline 走，`SPRING` slider 只再改变 spring 本身的 response / damping 与对应时长。
+- 2026-04-20：对照用户提供的官方视频抽帧后，确认 moving 阶段的可见箭头确实会持续跟随当前 move heading，而不是只保留一个轻微 lean；lab 现已撤回那层 `displayRotation` 分离，glyph 渲染重新直接使用 visual dynamics 的主 `rotation`。
+- 2026-04-20：继续对照 `official-software-cursor-window-252.png` 与独立脚本的静止朝向后，确认 lab 之前额外加的 `-26.5°` glyph 补偿会让 moving heading 固定偏掉；当前已把静止基线收敛到和主运行时一致的“零旋转即左上朝向”，也就是 y-down 画布里的 `-3π/4`。
+- 2026-04-20：继续排查“屁股超前”后，确认真正的问题是 lab 的 motion/heading 运行在 SwiftUI 的 y-down 坐标，但 glyph 渲染落在 AppKit 默认 y-up `NSView`；当前已在 glyph 渲染层对 angle、body offset 和 fog offset 统一做 y-down -> y-up 转换，避免 moving 姿态被垂直镜像。
 
 ## 决策记录
 

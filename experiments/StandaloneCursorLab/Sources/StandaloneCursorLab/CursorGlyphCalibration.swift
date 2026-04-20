@@ -1,8 +1,10 @@
 import CoreGraphics
 
 enum CursorGlyphCalibration {
-    static let neutralHeading = -CGFloat.pi / 2
-    static let restingRotation = -26.5 * CGFloat.pi / 180
+    // The captured official baseline cursor artwork rests facing upper-left.
+    // In the lab's y-down canvas coordinates, that is -3π/4.
+    static let neutralHeading = -(3 * CGFloat.pi / 4)
+    static let restingRotation: CGFloat = 0
 }
 
 enum SynthesizedCursorOverlayMetrics {

@@ -69,15 +69,16 @@ final class SynthesizedCursorGlyphView: NSView {
     }
 
     private func drawReferenceImage(_ image: NSImage, in context: CGContext) {
+        let drawingBodyOffset = drawingVector(from: cursorBodyOffset)
         let motionCompression = min(hypot(cursorBodyOffset.dx, cursorBodyOffset.dy) * 0.008, 0.018)
         let pulseCompression = clickProgress * 0.03
 
         context.saveGState()
         context.translateBy(
-            x: bounds.midX + cursorBodyOffset.dx,
-            y: bounds.midY + cursorBodyOffset.dy
+            x: bounds.midX + drawingBodyOffset.dx,
+            y: bounds.midY + drawingBodyOffset.dy
         )
-        context.rotate(by: rotation - CursorGlyphCalibration.restingRotation)
+        context.rotate(by: drawingAngle(from: rotation - CursorGlyphCalibration.restingRotation))
         context.scaleBy(
             x: 1 - motionCompression - pulseCompression,
             y: 1 + (pulseCompression * 0.4)
@@ -89,13 +90,15 @@ final class SynthesizedCursorGlyphView: NSView {
 
     private func drawProceduralGlyph(in context: CGContext) {
         let pulse = clickProgress
+        let drawingFogOffset = drawingVector(from: fogOffset)
+        let drawingBodyOffset = drawingVector(from: cursorBodyOffset)
         let fogCenter = CGPoint(
-            x: bounds.midX + fogOffset.dx,
-            y: bounds.midY + fogOffset.dy
+            x: bounds.midX + drawingFogOffset.dx,
+            y: bounds.midY + drawingFogOffset.dy
         )
         let pointerCenter = CGPoint(
-            x: bounds.midX + 2.6 + cursorBodyOffset.dx,
-            y: bounds.midY - 3.2 + cursorBodyOffset.dy + (pulse * 0.35)
+            x: bounds.midX + 2.6 + drawingBodyOffset.dx,
+            y: bounds.midY - 3.2 + drawingBodyOffset.dy + (pulse * 0.35)
         )
 
         drawFog(in: context, center: fogCenter, pulse: pulse)
@@ -162,10 +165,11 @@ final class SynthesizedCursorGlyphView: NSView {
         let outerPath = pointerPath(in: pointerRect)
 
         context.saveGState()
-        context.translateBy(x: bounds.midX + cursorBodyOffset.dx, y: bounds.midY + cursorBodyOffset.dy)
-        context.rotate(by: rotation - CursorGlyphCalibration.restingRotation)
+        let drawingBodyOffset = drawingVector(from: cursorBodyOffset)
+        context.translateBy(x: bounds.midX + drawingBodyOffset.dx, y: bounds.midY + drawingBodyOffset.dy)
+        context.rotate(by: drawingAngle(from: rotation - CursorGlyphCalibration.restingRotation))
         context.scaleBy(x: 1 - (pulse * 0.04), y: 1 + (pulse * 0.02))
-        context.translateBy(x: -(bounds.midX + cursorBodyOffset.dx), y: -(bounds.midY + cursorBodyOffset.dy))
+        context.translateBy(x: -(bounds.midX + drawingBodyOffset.dx), y: -(bounds.midY + drawingBodyOffset.dy))
 
         NSGraphicsContext.saveGraphicsState()
         let shadow = NSShadow()
@@ -220,6 +224,14 @@ final class SynthesizedCursorGlyphView: NSView {
         path.close()
         path.lineJoinStyle = .round
         return path
+    }
+
+    private func drawingVector(from screenVector: CGVector) -> CGVector {
+        CGVector(dx: screenVector.dx, dy: -screenVector.dy)
+    }
+
+    private func drawingAngle(from screenAngle: CGFloat) -> CGFloat {
+        -screenAngle
     }
 }
 

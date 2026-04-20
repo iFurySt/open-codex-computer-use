@@ -46,7 +46,7 @@ swift run StandaloneCursorLab
 - 默认档的 wall-clock move 时长现在直接对齐 reverse-engineered 官方 endpoint-lock 时间 `343 / 240 = 1.4291667s`；不再额外按路径距离压缩时长。
 - 可见 cursor 不再直接贴在 path sample 上，而是经过独立 visual dynamics 状态，再输出 `rotation + cursorBodyOffset + fogOffset + fogScale`。
 - 候选路径现在显式约束“先顺车头方向掉头，再沿主轴推进，再按 resting pose 收尾”；因此大多数跨向移动会呈现单侧 C 形，需要直接切入时才会退化为近直线，而不会再出现两侧乱甩的 S 形扭曲。
-- 箭头的可见角度不再像“车头”一样持续指向移动方向；当前会保留更接近默认 cursor 的静止姿态，只在转弯时给一点轻微 lean，并在停住后继续做原地小摆角。
+- 箭头的可见角度现在重新对齐官方抽帧与逆向证据：moving 阶段持续跟随当前 move heading，接近停住后再平滑回到默认 resting pose，并继续做原地小摆角。
 - cursor glyph 不再走之前那套亮白 asset；当前优先直接显示仓库里的官方 `252x252` runtime baseline 图，缺失时才退回脚本同款 procedural pointer/fog。
 - settle 态不再做 XY 漂移；现在改成和参考脚本一致的中心固定小摆角，让“停住以后原地轻微转动”的观感先对齐。
 

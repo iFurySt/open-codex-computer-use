@@ -115,7 +115,6 @@ final class CursorLabViewModel: ObservableObject {
     @Published private(set) var currentState = CursorMotionState(
         point: CGPoint(x: 220, y: 440),
         rotation: CursorGlyphCalibration.restingRotation,
-        displayRotation: CursorGlyphCalibration.restingRotation,
         cursorBodyOffset: .zero,
         fogOffset: .zero,
         fogOpacity: CursorVisualDynamicsConfiguration.officialInspired.fogOpacityBase,
@@ -391,7 +390,7 @@ private struct CursorLabCanvas: View {
             }
 
             CursorGlyph(
-                rotation: model.currentState.displayRotation,
+                rotation: model.currentState.rotation,
                 cursorBodyOffset: model.currentState.cursorBodyOffset,
                 fogOffset: model.currentState.fogOffset,
                 fogOpacity: model.currentState.fogOpacity,
