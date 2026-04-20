@@ -108,14 +108,16 @@ build_binary() {
 app_name="Cursor Motion.app"
 bundle_identifier="com.ifuryst.cursormotion"
 bundle_version="${CURSOR_MOTION_BUNDLE_VERSION:-${GITHUB_RUN_NUMBER:-$(git -C "${repo_root}" rev-list --count HEAD 2>/dev/null || echo 1)}}"
+cursor_reference_source="${repo_root}/docs/references/codex-computer-use-reverse-engineering/assets/extracted-2026-04-19/official-software-cursor-window-252.png"
 app_root="${output_dir}/${app_name}"
 contents_dir="${app_root}/Contents"
 macos_dir="${contents_dir}/MacOS"
+resources_dir="${contents_dir}/Resources"
 dmg_root="${output_dir}/dmg-root"
 dmg_path="${output_dir}/CursorMotion-${version}.dmg"
 
 rm -rf "${output_dir}"
-mkdir -p "${macos_dir}" "${dmg_root}"
+mkdir -p "${macos_dir}" "${resources_dir}" "${dmg_root}"
 
 cd "${repo_root}"
 
@@ -137,6 +139,13 @@ case "${arch_mode}" in
 esac
 
 chmod +x "${macos_dir}/CursorMotion"
+
+if [[ ! -f "${cursor_reference_source}" ]]; then
+  echo "Missing cursor reference asset: ${cursor_reference_source}" >&2
+  exit 1
+fi
+
+cp "${cursor_reference_source}" "${resources_dir}/official-software-cursor-window-252.png"
 
 cat > "${contents_dir}/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -163,6 +172,8 @@ cat > "${contents_dir}/Info.plist" <<PLIST
   <string>${bundle_version}</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
 </dict>

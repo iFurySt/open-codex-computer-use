@@ -85,6 +85,7 @@
 - 2026-04-20：继续修正 panel 在浅背景上的识别度；当前 card fill 已收成更实的灰白底，并加强描边和阴影，减少背景渐变直接透到 panel 上导致的“看起来像不同底色”问题。
 - 2026-04-20：已把独立 demo 的对外命名统一收口到 `Cursor Motion` / `CursorMotion`；Swift Package product、实验目录、README 入口和相关文档现在都以 `swift run CursorMotion` 为准，不再保留 `StandaloneCursorLab` 旧名。
 - 2026-04-20：已补一条 tag 驱动的 `Cursor Motion` 分发链路；本地可以通过 `scripts/build-cursor-motion-dmg.sh` 构建 DMG，GitHub Actions 在推送 release tag 后会自动生成 `CursorMotion-<version>.dmg` 并上传到 GitHub Releases。
+- 2026-04-20：继续修正“打包版和 `swift run CursorMotion` 观感不一致”的问题；当前已确认 release app 之前没把官方 `252x252` baseline cursor PNG 带进 bundle，导致退回 procedural glyph。现在 `.app` 会优先从 `Bundle.main` 读官方 cursor 图，DMG 打包脚本也会把这张图复制进 `Contents/Resources`，并显式打开 `NSHighResolutionCapable`。
 
 ## 决策记录
 
@@ -101,3 +102,4 @@
 - 2026-04-20：对 `SPRING`，当前实验线采用“围绕官方 `.official` 的 centered response/damping remap，而不是再叠加额外 distance-based duration 层”的策略；这更接近当前 binary-backed 证据里“主链直接吃 `1.4 / 0.9` spring config”的边界。
 - 2026-04-20：调左上角 slider 时，path 重建现在统一基于当前会话里最近一次 move 的 reference origin / startRotation / `queuedTarget`，而不是外层 `@State start/end` 或 settled 后的 live endpoint；这样参数调节既不会把曲线起点误拉回初始位置，也不会把 DEBUG 反馈线消成零长度。
 - 2026-04-20：对 `Cursor Motion` 的对外交付，当前采用“源码运行 + GitHub Releases 分发 ad-hoc signed DMG”的策略；先把 tag 驱动的可复现封装链路稳定下来，不在这一轮提前引入 notarization 和 Developer ID 签名复杂度。
+- 2026-04-20：对 packaged `Cursor Motion` 的 glyph 资源，当前采用“bundle 内官方 baseline 图优先，仓库 reference 路径兜底”的策略；这样 release app 不再因为缺资源而静默退回低保真的 procedural glyph。

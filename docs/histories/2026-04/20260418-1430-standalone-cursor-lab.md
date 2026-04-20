@@ -380,3 +380,16 @@
 - `docs/exec-plans/active/20260418-standalone-cursor-lab.md`
 - `docs/releases/RELEASE_GUIDE.md`
 - `scripts/build-cursor-motion-dmg.sh`
+
+### 🔁 Follow-up (2026-04-20, make packaged Cursor Motion match swift-run glyph quality)
+**Scope:** `experiments/CursorMotion/`、`scripts/`
+
+**Key Actions:**
+- **[定位到 release app 资源缺失]**: 重新检查后确认 `swift run CursorMotion` 和 DMG 版观感不一致，不是 motion 算法分叉，而是打包 `.app` 时没有把官方 `official-software-cursor-window-252.png` 一起带进去；release app 因此退回 procedural glyph，肉眼就会出现更锯齿、朝向也不如官方 baseline 准的结果。
+- **[补 bundle 内资源加载]**: `SynthesizedCursorGlyphView` 现在会优先从 `Bundle.main` 读取打进 `.app` 的官方 cursor PNG，只在开发态或 bundle 资源缺失时才回退到仓库里的 reference 路径。
+- **[补 DMG 打包资源与高分屏标记]**: `build-cursor-motion-dmg.sh` 现在会把官方 cursor PNG 复制到 `Cursor Motion.app/Contents/Resources/`，并在 `Info.plist` 里显式写入 `NSHighResolutionCapable=true`，避免继续静默产出低保真 app。
+- **[补本地验证]**: 已本地重打 `./scripts/build-cursor-motion-dmg.sh --configuration release --arch native --version 0.1.13-glyphfix`，并确认 `.app` 内的 PNG 与仓库参考图 SHA256 一致。
+
+### 📁 Additional Files Modified
+- `experiments/CursorMotion/Sources/CursorMotion/SynthesizedCursorGlyphView.swift`
+- `scripts/build-cursor-motion-dmg.sh`

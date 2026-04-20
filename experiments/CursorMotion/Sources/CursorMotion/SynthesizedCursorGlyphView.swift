@@ -236,6 +236,13 @@ final class SynthesizedCursorGlyphView: NSView {
 }
 
 private func loadReferenceCursorWindowImage() -> NSImage? {
+    if let bundledReference = Bundle.main.url(
+        forResource: "official-software-cursor-window-252",
+        withExtension: "png"
+    ), let image = NSImage(contentsOf: bundledReference) {
+        return image
+    }
+
     let fileURL = URL(fileURLWithPath: #filePath).standardizedFileURL
     let repoRoot = fileURL
         .deletingLastPathComponent()
