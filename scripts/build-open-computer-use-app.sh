@@ -117,6 +117,49 @@ find_codesign_identity() {
     | head -n 1
 }
 
+list_user_keychains() {
+  security list-keychains -d user \
+    | sed -n 's/^[[:space:]]*"\(.*\)"$/\1/p'
+}
+
+run_with_codesign_keychain() {
+  local keychain_path="${1:-}"
+  shift
+
+  if [[ -z "${keychain_path}" ]]; then
+    "$@"
+    return
+  fi
+
+  local -a existing_keychains=()
+  while IFS= read -r keychain; do
+    if [[ -n "${keychain}" ]]; then
+      existing_keychains+=("${keychain}")
+    fi
+  done < <(list_user_keychains)
+
+  local -a desired_keychains=("${keychain_path}")
+  local existing=""
+  for existing in "${existing_keychains[@]}"; do
+    if [[ "${existing}" != "${keychain_path}" ]]; then
+      desired_keychains+=("${existing}")
+    fi
+  done
+
+  security list-keychains -d user -s "${desired_keychains[@]}" >/dev/null
+
+  local status=0
+  "$@" || status=$?
+
+  if [[ ${#existing_keychains[@]} -gt 0 ]]; then
+    security list-keychains -d user -s "${existing_keychains[@]}" >/dev/null
+  else
+    security list-keychains -d user -s >/dev/null
+  fi
+
+  return "${status}"
+}
+
 resolve_codesign_identity() {
   case "${codesign_mode}" in
     none)
@@ -174,7 +217,8 @@ codesign_app_bundle() {
     args+=(--keychain "${codesign_keychain}")
   fi
 
-  codesign "${args[@]}" "${app_path}" >/dev/null
+  run_with_codesign_keychain "${codesign_keychain}" \
+    codesign "${args[@]}" "${app_path}" >/dev/null
 
   if [[ "${identity}" == "-" ]]; then
     echo "Signed ${app_path} with ad-hoc identity; macOS TCC may still treat separately built copies as different app identities until a stable Apple signing identity is configured." >&2
