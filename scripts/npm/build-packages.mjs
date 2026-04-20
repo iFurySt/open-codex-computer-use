@@ -399,6 +399,7 @@ function renderPackageJson(packageName, version) {
       "plugins/open-computer-use/assets/",
       "plugins/open-computer-use/scripts/",
       "scripts/install-claude-mcp.sh",
+      "scripts/install-config-helper.mjs",
       "scripts/install-codex-mcp.sh",
       "scripts/install-codex-plugin.sh",
       "scripts/postinstall.mjs",
@@ -426,6 +427,7 @@ function stagePackage(packageName, version, outDir) {
     recursive: true,
   });
   cpSync(path.join(repoRoot, "scripts", "install-claude-mcp.sh"), path.join(packageRoot, "scripts", "install-claude-mcp.sh"));
+  cpSync(path.join(repoRoot, "scripts", "install-config-helper.mjs"), path.join(packageRoot, "scripts", "install-config-helper.mjs"));
   cpSync(path.join(repoRoot, "scripts", "install-codex-mcp.sh"), path.join(packageRoot, "scripts", "install-codex-mcp.sh"));
   cpSync(path.join(repoRoot, "scripts", "install-codex-plugin.sh"), path.join(packageRoot, "scripts", "install-codex-plugin.sh"));
   cpSync(path.join(repoRoot, "LICENSE"), path.join(packageRoot, "LICENSE"));
