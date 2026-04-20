@@ -35,6 +35,38 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Prepare Open Computer Use signing config
+        env:
+          OPEN_COMPUTER_USE_CODESIGN_P12_BASE64: ${{ secrets.OPEN_COMPUTER_USE_CODESIGN_P12_BASE64 }}
+          OPEN_COMPUTER_USE_CODESIGN_P12_PASSWORD: ${{ secrets.OPEN_COMPUTER_USE_CODESIGN_P12_PASSWORD }}
+          OPEN_COMPUTER_USE_CODESIGN_KEYCHAIN_PASSWORD: ${{ secrets.OPEN_COMPUTER_USE_CODESIGN_KEYCHAIN_PASSWORD }}
+          OPEN_COMPUTER_USE_CODESIGN_IDENTITY: ${{ secrets.OPEN_COMPUTER_USE_CODESIGN_IDENTITY }}
+        run: |
+          echo "OPEN_COMPUTER_USE_CODESIGN_MODE=adhoc" >> "${GITHUB_ENV}"
+
+          if [ -z "${OPEN_COMPUTER_USE_CODESIGN_P12_BASE64}" ] || [ -z "${OPEN_COMPUTER_USE_CODESIGN_P12_PASSWORD}" ] || [ -z "${OPEN_COMPUTER_USE_CODESIGN_IDENTITY}" ]; then
+            echo "No Open Computer Use signing certificate configured; release artifacts will fall back to ad-hoc signing and may create install-specific macOS permission identities."
+            exit 0
+          fi
+
+          keychain_password="${OPEN_COMPUTER_USE_CODESIGN_KEYCHAIN_PASSWORD:-${RUNNER_TEMP}-open-computer-use-keychain}"
+          cert_path="${RUNNER_TEMP}/open-computer-use-signing.p12"
+          keychain_path="${RUNNER_TEMP}/open-computer-use-signing.keychain-db"
+
+          CERT_PATH="${cert_path}" python3 -c 'import base64, os, pathlib; pathlib.Path(os.environ["CERT_PATH"]).write_bytes(base64.b64decode(os.environ["OPEN_COMPUTER_USE_CODESIGN_P12_BASE64"]))'
+
+          security create-keychain -p "${keychain_password}" "${keychain_path}"
+          security set-keychain-settings -lut 21600 "${keychain_path}"
+          security unlock-keychain -p "${keychain_password}" "${keychain_path}"
+          security import "${cert_path}" -k "${keychain_path}" -P "${OPEN_COMPUTER_USE_CODESIGN_P12_PASSWORD}" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${keychain_password}" "${keychain_path}"
+
+          {
+            echo "OPEN_COMPUTER_USE_CODESIGN_MODE=identity"
+            echo "OPEN_COMPUTER_USE_CODESIGN_IDENTITY=${OPEN_COMPUTER_USE_CODESIGN_IDENTITY}"
+            echo "OPEN_COMPUTER_USE_CODESIGN_KEYCHAIN=${keychain_path}"
+          } >> "${GITHUB_ENV}"
+
       - name: Build npm release artifacts
         run: npm run npm:pack
 

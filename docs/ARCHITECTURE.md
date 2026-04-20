@@ -35,7 +35,7 @@
 - app bundle 以 `LSUIElement` agent-style 形态运行，默认不在 Dock 暴露常驻图标，但仍可按需显示权限窗口。
 - 主窗口负责渲染 `Accessibility` / `Screen & System Audio Recording` 两类权限卡片、`Allow` / `Done` 状态和 relaunch 后的状态收敛；当两项权限都已完成时会自动关闭，不再要求用户手动退出。
 - 辅助 drag panel 会跳转到对应的 `System Settings` 页面；点击 `Allow` 后，panel 会从主窗口里的按钮位置做一段 spring + curved frame 的入场，再落到 `System Settings` 内容区下沿。panel 默认保持在窗口右侧内容区下方居中并固定贴近窗口底边，不再依赖实时扫描权限页内部 `+ / -` 控件行；窗口层级上会显式排在当前 `System Settings` 窗口之上，避免被权限列表内容盖住，同时尽量减少对系统设置自身滚动区域的干扰。panel 内也补了显式返回按钮，允许用户中断当前 guidance、回到 onboarding 主窗口重新选择权限步骤。
-- 权限状态优先基于 TCC 持久授权记录判断，避免 CLI 子进程与 GUI app 对授权状态看到不一致的结果；同时会兼容 bundle-id 和路径型授权记录，并在源码启动场景下优先认 npm 全局安装后的稳定 `.app` 路径，仓库内 `dist/` 产物只作为开发兜底。
+- 权限状态优先基于 TCC 持久授权记录判断，避免 CLI 子进程与 GUI app 对授权状态看到不一致的结果；同时会兼容 bundle-id 和路径型授权记录，并按统一 bundle identity 去发现当前运行副本、`/Applications`、npm、Homebrew 等渠道的已安装 `.app`。源码态 `dist/` 产物只作为开发兜底；如果没有统一的正式 codesign identity，不同渠道或不同构建产物仍可能在 TCC 里分裂成多个授权条目。
 
 ### 2. MCP 层
 

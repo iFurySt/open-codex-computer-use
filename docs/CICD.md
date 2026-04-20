@@ -4,9 +4,9 @@
 
 ## 当前 release 入口
 
-- `scripts/release-package.sh`：构建 universal `Open Computer Use.app`，stage 三个 npm 包目录，并产出 `dist/release/npm/*.tgz` 与 `dist/release/release-manifest.json`。
+- `scripts/release-package.sh`：构建 universal `Open Computer Use.app`，stage 三个 npm 包目录，并产出 `dist/release/npm/*.tgz` 与 `dist/release/release-manifest.json`。如果提供统一的 Apple codesign identity，npm 包里的 `.app` 会按同一签名链封装；否则会回退到 ad-hoc signing。
 - `scripts/build-cursor-motion-dmg.sh`：本地构建 `Cursor Motion.app` 并封装 `dist/release/cursor-motion/CursorMotion-<version>.dmg`，支持 `native` / `arm64` / `x86_64` / `universal`。
-- `.github/workflows/release.yml`：支持 push semver tag 自动发布，也支持手动触发；tag push 时会同时跑 npm release 打包逻辑与 `Cursor Motion` 的 DMG 打包，并把 `.dmg` 上传到对应的 GitHub Releases 页面。当前 `Cursor Motion` 这条链路只做 ad-hoc codesign，不包含 notarization。
+- `.github/workflows/release.yml`：支持 push semver tag 自动发布，也支持手动触发；tag push 时会同时跑 npm release 打包逻辑与 `Cursor Motion` 的 DMG 打包，并把 `.dmg` 上传到对应的 GitHub Releases 页面。`Open Computer Use` 的 npm 产物会优先使用仓库 secrets 里提供的 codesign 证书导入临时 keychain 后统一签名；若未配置证书则仍回退到 ad-hoc signing。当前 `Cursor Motion` 这条链路仍只做 ad-hoc codesign，不包含 notarization。
 
 ## 设计原则
 

@@ -18,7 +18,7 @@
 npm i -g open-computer-use
 ```
 
-第一次使用前，给 `Open Computer Use.app` 授予 macOS 的 `Accessibility` 和 `Screen Recording` 权限
+第一次使用前，给你实际准备长期保留的那个 `Open Computer Use.app` 授予 macOS 的 `Accessibility` 和 `Screen Recording` 权限。正式发布的 npm / Homebrew / DMG 构建应共享同一个 bundle identifier 和签名身份，这样 macOS 才会把它们识别成同一个 app；未正式签名的本地调试构建仍可能单独占一个权限条目。
 
 ```bash
 open-computer-use

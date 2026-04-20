@@ -5,6 +5,9 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 configuration="debug"
 arch_mode="native"
+codesign_mode="${OPEN_COMPUTER_USE_CODESIGN_MODE:-auto}"
+codesign_identity="${OPEN_COMPUTER_USE_CODESIGN_IDENTITY:-}"
+codesign_keychain="${OPEN_COMPUTER_USE_CODESIGN_KEYCHAIN:-}"
 
 usage() {
   cat <<'EOF'
@@ -13,6 +16,11 @@ Usage: ./scripts/build-open-computer-use-app.sh [debug|release] [--configuration
 Examples:
   ./scripts/build-open-computer-use-app.sh debug
   ./scripts/build-open-computer-use-app.sh --configuration release --arch universal
+
+Environment:
+  OPEN_COMPUTER_USE_CODESIGN_MODE=auto|identity|adhoc|none
+  OPEN_COMPUTER_USE_CODESIGN_IDENTITY="Developer ID Application: Example, Inc. (TEAMID)"
+  OPEN_COMPUTER_USE_CODESIGN_KEYCHAIN=/path/to/signing.keychain-db
 EOF
 }
 
@@ -60,6 +68,11 @@ if [[ "${arch_mode}" != "native" && "${arch_mode}" != "arm64" && "${arch_mode}" 
   exit 1
 fi
 
+if [[ "${codesign_mode}" != "auto" && "${codesign_mode}" != "identity" && "${codesign_mode}" != "adhoc" && "${codesign_mode}" != "none" ]]; then
+  echo "Unsupported OPEN_COMPUTER_USE_CODESIGN_MODE: ${codesign_mode}" >&2
+  exit 1
+fi
+
 read_package_version() {
   python3 - "${repo_root}/plugins/open-computer-use/.codex-plugin/plugin.json" <<'PY'
 import json
@@ -89,6 +102,85 @@ build_binary() {
   binary_dir="$(swift build "${args[@]}" --show-bin-path)"
   swift build "${args[@]}" --product OpenComputerUse >&2
   printf '%s/OpenComputerUse\n' "${binary_dir}"
+}
+
+find_codesign_identity() {
+  local prefix="${1:-}"
+  local -a args=(find-identity -v -p codesigning)
+
+  if [[ -n "${codesign_keychain}" ]]; then
+    args+=("${codesign_keychain}")
+  fi
+
+  security "${args[@]}" 2>/dev/null \
+    | sed -n "s/.*\"\\(${prefix}: .*\\)\"/\1/p" \
+    | head -n 1
+}
+
+resolve_codesign_identity() {
+  case "${codesign_mode}" in
+    none)
+      return 1
+      ;;
+    adhoc)
+      printf '%s\n' "-"
+      return 0
+      ;;
+    identity)
+      if [[ -z "${codesign_identity}" ]]; then
+        echo "OPEN_COMPUTER_USE_CODESIGN_IDENTITY is required when OPEN_COMPUTER_USE_CODESIGN_MODE=identity" >&2
+        exit 1
+      fi
+      printf '%s\n' "${codesign_identity}"
+      return 0
+      ;;
+    auto)
+      if [[ -n "${codesign_identity}" ]]; then
+        printf '%s\n' "${codesign_identity}"
+        return 0
+      fi
+
+      local discovered_identity
+      discovered_identity="$(find_codesign_identity "Developer ID Application")"
+      if [[ -n "${discovered_identity}" ]]; then
+        printf '%s\n' "${discovered_identity}"
+        return 0
+      fi
+
+      discovered_identity="$(find_codesign_identity "Apple Development")"
+      if [[ -n "${discovered_identity}" ]]; then
+        printf '%s\n' "${discovered_identity}"
+        return 0
+      fi
+
+      printf '%s\n' "-"
+      return 0
+      ;;
+  esac
+}
+
+codesign_app_bundle() {
+  local app_path="${1:-}"
+  local identity=""
+
+  if ! identity="$(resolve_codesign_identity)"; then
+    echo "Skipping codesign for ${app_path} (OPEN_COMPUTER_USE_CODESIGN_MODE=none)" >&2
+    return
+  fi
+
+  local -a args=(--force --deep --sign "${identity}")
+
+  if [[ -n "${codesign_keychain}" && "${identity}" != "-" ]]; then
+    args+=(--keychain "${codesign_keychain}")
+  fi
+
+  codesign "${args[@]}" "${app_path}" >/dev/null
+
+  if [[ "${identity}" == "-" ]]; then
+    echo "Signed ${app_path} with ad-hoc identity; macOS TCC may still treat separately built copies as different app identities until a stable Apple signing identity is configured." >&2
+  else
+    echo "Signed ${app_path} with ${identity}" >&2
+  fi
 }
 
 cd "${repo_root}"
@@ -176,5 +268,6 @@ cat > "${contents_dir}/Info.plist" <<PLIST
 PLIST
 
 plutil -lint "${contents_dir}/Info.plist" >/dev/null
+codesign_app_bundle "${app_root}"
 
 echo "Built ${app_root} (${arch_mode}, ${configuration})"

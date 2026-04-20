@@ -75,6 +75,58 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertTrue(diagnostics.missingPermissions.isEmpty)
     }
 
+    func testPreferredPermissionAppBundleURLPrefersInstalledCopyOverTransientRunningCopy() {
+        let installed = URL(fileURLWithPath: "/opt/homebrew/lib/node_modules/open-computer-use/dist/Open Computer Use.app")
+        let running = URL(fileURLWithPath: "/Users/example/projects/open-codex-computer-use/dist/Open Computer Use.app")
+        let fallback = URL(fileURLWithPath: "/Users/example/projects/open-codex-computer-use-debug/dist/Open Computer Use.app")
+
+        let resolved = PermissionSupport.preferredPermissionAppBundleURL(
+            preferredInstalledBundleURL: installed,
+            runningBundleURL: running,
+            fallbackDevelopmentBundleURL: fallback
+        )
+
+        XCTAssertEqual(resolved, installed)
+    }
+
+    func testPreferredInstalledAppBundleURLUsesFirstDiscoveredInstalledCopy() {
+        let applications = URL(fileURLWithPath: "/Applications/Open Computer Use.app")
+        let npm = URL(fileURLWithPath: "/opt/homebrew/lib/node_modules/open-computer-use/dist/Open Computer Use.app")
+        let duplicateApplications = URL(fileURLWithPath: "/Applications/Open Computer Use.app")
+
+        let resolved = PermissionSupport.preferredInstalledAppBundleURL(
+            candidates: [applications, npm, duplicateApplications]
+        )
+
+        XCTAssertEqual(resolved, applications)
+    }
+
+    func testPermissionClientsKeepStableBundleIdentityAheadOfTransientAppPath() {
+        let installed = URL(fileURLWithPath: "/opt/homebrew/lib/node_modules/open-computer-use/dist/Open Computer Use.app")
+        let running = URL(fileURLWithPath: "/Users/example/projects/open-codex-computer-use/dist/Open Computer Use.app")
+
+        let clients = PermissionSupport.permissionClients(
+            primaryBundleURL: installed,
+            runningBundleURL: running,
+            mainBundleIdentifier: PermissionSupport.bundleIdentifier
+        )
+
+        XCTAssertEqual(
+            clients,
+            [
+                PermissionClientRecord(identifier: PermissionSupport.bundleIdentifier, type: 0),
+                PermissionClientRecord(identifier: installed.path, type: 1),
+                PermissionClientRecord(identifier: running.path, type: 1),
+            ]
+        )
+    }
+
+    func testTCCAuthorizationGrantedTreatsAnyGrantedCandidateAsGranted() {
+        XCTAssertTrue(tccAuthorizationGranted(authValues: [0, 2]))
+        XCTAssertFalse(tccAuthorizationGranted(authValues: [0, nil]))
+        XCTAssertFalse(tccAuthorizationGranted(authValues: []))
+    }
+
     func testKeyPressParserSupportsCommandStyleChord() throws {
         let parsed = try KeyPressParser.parse("super+c")
         XCTAssertEqual(parsed.displayValue, "c")

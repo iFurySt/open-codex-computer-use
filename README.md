@@ -18,7 +18,7 @@ Install it globally first:
 npm i -g open-computer-use
 ```
 
-Before first use, grant macOS `Accessibility` and `Screen Recording` permission to the `Open Computer Use.app` installed by `npm install -g open-computer-use`. That global npm install location should be treated as the long-term stable permission target. The development copy at `dist/Open Computer Use.app` should only be used as a local debugging fallback, not as the long-term app identity. If you are not sure about the current state, run:
+Before first use, grant macOS `Accessibility` and `Screen Recording` permission to the `Open Computer Use.app` you actually plan to keep installed. Official npm / Homebrew / DMG builds should share the same bundle identifier and signing identity so macOS treats them as the same app; unsigned local debug builds can still appear as separate permission entries. If you are not sure about the current state, run:
 
 ```bash
 open-computer-use
