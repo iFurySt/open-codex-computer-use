@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 function fail(message) {
@@ -14,6 +14,7 @@ function usage() {
   node ./scripts/install-config-helper.mjs codex-mcp <config-path> <server-name> <command-name>
   node ./scripts/install-config-helper.mjs codex-plugin-version <plugin-manifest-path>
   node ./scripts/install-config-helper.mjs codex-plugin-config <config-path> <repo-root> <marketplace-name> <plugin-name>
+  node ./scripts/install-config-helper.mjs copy-into-dir <target-dir> <source-path> [<source-path> ...]
 `);
 }
 
@@ -311,6 +312,24 @@ function installCodexPluginConfig(configPath, repoRoot, marketplaceName, pluginN
   writeFileSync(configPath, nextText, "utf8");
 }
 
+function copyIntoDir(targetDir, sourcePaths) {
+  if (sourcePaths.length === 0) {
+    fail("copy-into-dir requires at least one source path.");
+  }
+
+  mkdirSync(targetDir, { recursive: true });
+
+  for (const sourcePath of sourcePaths) {
+    if (!existsSync(sourcePath)) {
+      fail(`Source path does not exist: ${sourcePath}`);
+    }
+
+    const destinationPath = path.join(targetDir, path.basename(sourcePath));
+    rmSync(destinationPath, { recursive: true, force: true });
+    cpSync(sourcePath, destinationPath, { recursive: true });
+  }
+}
+
 function main(argv) {
   const [command, ...args] = argv;
   switch (command) {
@@ -341,6 +360,13 @@ function main(argv) {
         process.exit(1);
       }
       installCodexPluginConfig(...args);
+      return;
+    case "copy-into-dir":
+      if (args.length < 2) {
+        usage();
+        process.exit(1);
+      }
+      copyIntoDir(args[0], args.slice(1));
       return;
     default:
       usage();

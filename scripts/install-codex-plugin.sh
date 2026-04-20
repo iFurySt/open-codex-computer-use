@@ -99,8 +99,7 @@ mkdir -p "${codex_home}" "${plugin_cache_root}"
 rm -rf "${plugin_install_root}"
 mkdir -p "${plugin_install_root}"
 
-rsync -a "${plugin_source_root}/" "${plugin_install_root}/"
-rsync -a "${app_bundle}" "${plugin_install_root}/"
+node "${config_helper}" copy-into-dir "${plugin_install_root}" "${plugin_source_root}" "${app_bundle}"
 
 node "${config_helper}" codex-plugin-config "${config_path}" "${repo_root}" "${marketplace_name}" "${plugin_name}"
 
