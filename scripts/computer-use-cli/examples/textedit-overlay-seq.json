@@ -1,0 +1,103 @@
+[
+  {
+    "tool": "list_apps"
+  },
+  {
+    "tool": "get_app_state",
+    "args": {
+      "app": "TextEdit"
+    }
+  },
+  {
+    "tool": "set_value",
+    "args": {
+      "app": "TextEdit",
+      "element_index": "2",
+      "value": "line 01\nline 02\nline 03\nline 04\nline 05\nline 06\nline 07\nline 08\nline 09\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20"
+    }
+  },
+  {
+    "tool": "get_app_state",
+    "args": {
+      "app": "TextEdit"
+    }
+  },
+  {
+    "tool": "click",
+    "args": {
+      "app": "TextEdit",
+      "element_index": "2"
+    }
+  },
+  {
+    "tool": "get_app_state",
+    "args": {
+      "app": "TextEdit"
+    }
+  },
+  {
+    "tool": "type_text",
+    "args": {
+      "app": "TextEdit",
+      "text": "\n[type_text] hello from call-seq"
+    }
+  },
+  {
+    "tool": "get_app_state",
+    "args": {
+      "app": "TextEdit"
+    }
+  },
+  {
+    "tool": "press_key",
+    "args": {
+      "app": "TextEdit",
+      "key": "Return"
+    }
+  },
+  {
+    "tool": "get_app_state",
+    "args": {
+      "app": "TextEdit"
+    }
+  },
+  {
+    "tool": "scroll",
+    "args": {
+      "app": "TextEdit",
+      "element_index": "1",
+      "direction": "down",
+      "pages": 1
+    }
+  },
+  {
+    "tool": "get_app_state",
+    "args": {
+      "app": "TextEdit"
+    }
+  },
+  {
+    "tool": "drag",
+    "args": {
+      "app": "TextEdit",
+      "from_x": 120,
+      "from_y": 120,
+      "to_x": 320,
+      "to_y": 120
+    }
+  },
+  {
+    "tool": "get_app_state",
+    "args": {
+      "app": "TextEdit"
+    }
+  },
+  {
+    "tool": "perform_secondary_action",
+    "args": {
+      "app": "TextEdit",
+      "element_index": "0",
+      "action": "Raise"
+    }
+  }
+]

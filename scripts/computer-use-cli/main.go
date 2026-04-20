@@ -47,6 +47,16 @@ type resolvedTarget struct {
 	ServerBin  string `json:"serverBin"`
 }
 
+type toolCallSpec struct {
+	Tool string         `json:"tool"`
+	Args map[string]any `json:"args,omitempty"`
+}
+
+type toolCallOutput struct {
+	Tool   string              `json:"tool"`
+	Result *mcp.CallToolResult `json:"result"`
+}
+
 type rpcSession struct {
 	conn   mcp.Connection
 	nextID int64
@@ -86,6 +96,8 @@ func run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		return runListTools(ctx, args[1:], stdout, stderr)
 	case "call":
 		return runCall(ctx, args[1:], stdout, stderr)
+	case "call-seq":
+		return runCallSeq(ctx, args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		printRootUsage(stderr)
 		return nil
@@ -247,6 +259,66 @@ func runCall(ctx context.Context, args []string, stdout io.Writer, stderr io.Wri
 	}
 }
 
+func runCallSeq(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) error {
+	var flags commonFlags
+	var callsJSON string
+	var callsFile string
+
+	fs := flag.NewFlagSet("call-seq", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	addCommonFlags(fs, &flags)
+	fs.StringVar(&callsJSON, "calls", "", "JSON array of sequential tool calls")
+	fs.StringVar(&callsFile, "calls-file", "", "Path to a file containing a JSON array of sequential tool calls")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("usage: %s call-seq [flags]", cliName)
+	}
+	if callsJSON != "" && callsFile != "" {
+		return fmt.Errorf("use only one of --calls or --calls-file")
+	}
+
+	calls, err := readToolCallSequence(callsJSON, callsFile)
+	if err != nil {
+		return err
+	}
+
+	transport, err := resolveTransport(flags)
+	if err != nil {
+		return err
+	}
+
+	switch transport {
+	case transportDirect:
+		session, err := connect(ctx, flags)
+		if err != nil {
+			return err
+		}
+		defer session.Close()
+
+		results, err := callToolSequenceDirect(ctx, session, flags.timeout, calls)
+		if err != nil {
+			return err
+		}
+		return writeJSON(stdout, results, flags.pretty)
+	case transportAppServer:
+		session, err := connectAppServer(ctx, flags)
+		if err != nil {
+			return err
+		}
+		defer session.Close()
+
+		results, err := callToolSequenceViaAppServer(ctx, session, flags, calls)
+		if err != nil {
+			return err
+		}
+		return writeJSON(stdout, results, flags.pretty)
+	default:
+		return fmt.Errorf("unsupported transport %q", transport)
+	}
+}
+
 func addCommonFlags(fs *flag.FlagSet, flags *commonFlags) {
 	fs.StringVar(&flags.transport, "transport", transportAuto, "Connection mode: auto, direct, or app-server")
 	fs.StringVar(&flags.pluginRoot, "plugin-root", "", "Path to the installed computer-use plugin root")
@@ -322,6 +394,28 @@ func (s *rpcSession) listTools(ctx context.Context) (*mcp.ListToolsResult, error
 		return nil, err
 	}
 	return &result, nil
+}
+
+func callToolSequenceDirect(
+	ctx context.Context,
+	session *rpcSession,
+	timeout time.Duration,
+	calls []toolCallSpec,
+) ([]toolCallOutput, error) {
+	results := make([]toolCallOutput, 0, len(calls))
+	for i, call := range calls {
+		callCtx, cancel := context.WithTimeout(ctx, timeout)
+		result, err := session.callTool(callCtx, call.Tool, call.Args)
+		cancel()
+		if err != nil {
+			return nil, fmt.Errorf("call #%d %q: %w", i+1, call.Tool, err)
+		}
+		results = append(results, toolCallOutput{
+			Tool:   call.Tool,
+			Result: result,
+		})
+	}
+	return results, nil
 }
 
 func (s *rpcSession) callTool(
@@ -616,6 +710,40 @@ func readToolArgs(argsJSON, argsFile string) (map[string]any, error) {
 	return object, nil
 }
 
+func readToolCallSequence(callsJSON, callsFile string) ([]toolCallSpec, error) {
+	if callsFile != "" {
+		data, err := os.ReadFile(callsFile)
+		if err != nil {
+			return nil, fmt.Errorf("read calls file %q: %w", callsFile, err)
+		}
+		callsJSON = string(data)
+	}
+
+	if strings.TrimSpace(callsJSON) == "" {
+		return nil, fmt.Errorf("missing --calls or --calls-file")
+	}
+
+	decoder := json.NewDecoder(strings.NewReader(callsJSON))
+	decoder.UseNumber()
+
+	var calls []toolCallSpec
+	if err := decoder.Decode(&calls); err != nil {
+		return nil, fmt.Errorf("decode tool call sequence JSON: %w", err)
+	}
+	if decoder.More() {
+		return nil, fmt.Errorf("tool call sequence JSON must contain exactly one array")
+	}
+	if len(calls) == 0 {
+		return nil, fmt.Errorf("tool call sequence must contain at least one call")
+	}
+	for i, call := range calls {
+		if strings.TrimSpace(call.Tool) == "" {
+			return nil, fmt.Errorf("call #%d is missing a non-empty tool name", i+1)
+		}
+	}
+	return calls, nil
+}
+
 func writeJSON(w io.Writer, value any, pretty bool) error {
 	var (
 		data []byte
@@ -680,6 +808,7 @@ Usage:
   %s resolve-server [flags]
   %s list-tools [flags]
   %s call [flags] <tool-name>
+  %s call-seq [flags]
 
 Examples:
   %s resolve-server
@@ -688,10 +817,11 @@ Examples:
   %s call list_apps --transport app-server
   %s call list_apps --transport direct --server-bin /path/to/open-computer-use
   %s call get_app_state --args '{"app":"Feishu"}'
+  %s call-seq --transport app-server --calls-file /tmp/calls.json
 
 Environment:
   %s  Override the installed plugin root.
   %s   Override the SkyComputerUseClient executable path.
   %s      Override the Codex binary used for app-server mode.
-`, cliName, cliName, cliName, cliName, cliName, cliName, cliName, cliName, cliName, cliName, pluginRootEnvVar, serverBinEnvVar, appServerBinEnvVar)
+`, cliName, cliName, cliName, cliName, cliName, cliName, cliName, cliName, cliName, cliName, cliName, cliName, pluginRootEnvVar, serverBinEnvVar, appServerBinEnvVar)
 }

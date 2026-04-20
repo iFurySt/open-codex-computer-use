@@ -8,6 +8,7 @@ This directory is intended to be run from `scripts/computer-use-cli/` inside the
 cd scripts/computer-use-cli
 go run . list-tools
 go run . call list_apps
+go run . call-seq --calls-file /tmp/calls.json
 ```
 
 It supports two transports:
@@ -27,6 +28,7 @@ go run . resolve-server
 go run . list-tools
 go run . call list_apps
 go run . call get_app_state --args '{"app":"Feishu"}'
+go run . call-seq --calls-file /tmp/calls.json
 ```
 
 Explicit transport examples:
@@ -35,6 +37,7 @@ Explicit transport examples:
 go run . list-tools --transport app-server
 go run . call list_apps --transport app-server
 go run . call list_apps --transport direct --server-bin /path/to/open-computer-use
+go run . call-seq --transport app-server --calls-file /tmp/calls.json
 ```
 
 Flags can appear either before or after the tool name for `call`:
@@ -43,6 +46,24 @@ Flags can appear either before or after the tool name for `call`:
 go run . call --server-bin /path/to/server list_apps
 go run . call list_apps --server-bin /path/to/server
 ```
+
+`call` creates a fresh ephemeral app-server thread per invocation. If you need `get_app_state`
+followed by one or more action tools in the same official `computer-use` session, use
+`call-seq` with a JSON array:
+
+```json
+[
+  {"tool": "get_app_state", "args": {"app": "TextEdit"}},
+  {"tool": "set_value", "args": {"app": "TextEdit", "element_index": "2", "value": "cursor probe 01\ncursor probe 02"}},
+  {"tool": "scroll", "args": {"app": "TextEdit", "element_index": "1", "direction": "down", "pages": 1}}
+]
+```
+
+This repo includes a ready-to-run example at
+`examples/textedit-overlay-seq.json`.
+That sample covers all 9 official tools against `TextEdit`, and it intentionally
+repeats `get_app_state` between state-changing actions because the official
+bundled `computer-use` invalidates the cached app state after each mutation.
 
 ## Default target
 
@@ -92,4 +113,5 @@ Example working invocation against the official bundled `computer-use`:
 
 ```bash
 go run . call list_apps --transport app-server
+go run . call-seq --transport app-server --calls-file /tmp/calls.json
 ```

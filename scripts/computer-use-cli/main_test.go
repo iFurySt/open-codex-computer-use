@@ -37,6 +37,37 @@ func TestReadToolArgsRejectsNonObject(t *testing.T) {
 	}
 }
 
+func TestReadToolCallSequenceAcceptsJSONArray(t *testing.T) {
+	t.Parallel()
+
+	calls, err := readToolCallSequence(`[{"tool":"get_app_state","args":{"app":"TextEdit"}},{"tool":"scroll","args":{"pages":1}}]`, "")
+	if err != nil {
+		t.Fatalf("readToolCallSequence returned error: %v", err)
+	}
+	if got, want := len(calls), 2; got != want {
+		t.Fatalf("len(calls) = %d, want %d", got, want)
+	}
+	if got, want := calls[0].Tool, "get_app_state"; got != want {
+		t.Fatalf("calls[0].Tool = %q, want %q", got, want)
+	}
+
+	number, ok := calls[1].Args["pages"].(json.Number)
+	if !ok {
+		t.Fatalf("pages type = %T, want json.Number", calls[1].Args["pages"])
+	}
+	if got, want := number.String(), "1"; got != want {
+		t.Fatalf("pages = %q, want %q", got, want)
+	}
+}
+
+func TestReadToolCallSequenceRejectsMissingTool(t *testing.T) {
+	t.Parallel()
+
+	if _, err := readToolCallSequence(`[{"args":{"app":"TextEdit"}}]`, ""); err == nil {
+		t.Fatal("readToolCallSequence should reject a call without a tool name")
+	}
+}
+
 func TestDiscoverPluginRootChoosesNewestCandidate(t *testing.T) {
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)

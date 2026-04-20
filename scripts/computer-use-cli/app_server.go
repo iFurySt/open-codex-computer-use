@@ -215,9 +215,18 @@ func (s *appServerSession) callToolViaAppServer(
 	toolName string,
 	toolArgs map[string]any,
 ) (*mcp.CallToolResult, error) {
-	threadCwd, err := resolveThreadCwd(flags)
+	threadID, err := s.startEphemeralThread(ctx, flags)
 	if err != nil {
 		return nil, err
+	}
+
+	return s.callToolOnThread(ctx, threadID, flags.serverName, toolName, toolArgs)
+}
+
+func (s *appServerSession) startEphemeralThread(ctx context.Context, flags commonFlags) (string, error) {
+	threadCwd, err := resolveThreadCwd(flags)
+	if err != nil {
+		return "", err
 	}
 
 	var thread appServerThreadStartResult
@@ -227,22 +236,60 @@ func (s *appServerSession) callToolViaAppServer(
 		Ephemeral:      true,
 		Sandbox:        flags.sandbox,
 	}, &thread); err != nil {
-		return nil, fmt.Errorf("start ephemeral thread: %w", err)
+		return "", fmt.Errorf("start ephemeral thread: %w", err)
 	}
 	if thread.Thread.ID == "" {
-		return nil, fmt.Errorf("app-server returned an empty thread id")
+		return "", fmt.Errorf("app-server returned an empty thread id")
 	}
+	return thread.Thread.ID, nil
+}
 
+func (s *appServerSession) callToolOnThread(
+	ctx context.Context,
+	threadID string,
+	serverName string,
+	toolName string,
+	toolArgs map[string]any,
+) (*mcp.CallToolResult, error) {
 	var result mcp.CallToolResult
 	if err := s.request(ctx, "mcpServer/tool/call", appServerToolCallParams{
-		ThreadID:  thread.Thread.ID,
-		Server:    flags.serverName,
+		ThreadID:  threadID,
+		Server:    serverName,
 		Tool:      toolName,
 		Arguments: toolArgs,
 	}, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
+}
+
+func callToolSequenceViaAppServer(
+	ctx context.Context,
+	session *appServerSession,
+	flags commonFlags,
+	calls []toolCallSpec,
+) ([]toolCallOutput, error) {
+	threadCtx, cancel := context.WithTimeout(ctx, flags.timeout)
+	threadID, err := session.startEphemeralThread(threadCtx, flags)
+	cancel()
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]toolCallOutput, 0, len(calls))
+	for i, call := range calls {
+		callCtx, cancel := context.WithTimeout(ctx, flags.timeout)
+		result, err := session.callToolOnThread(callCtx, threadID, flags.serverName, call.Tool, call.Args)
+		cancel()
+		if err != nil {
+			return nil, fmt.Errorf("call #%d %q via app-server: %w", i+1, call.Tool, err)
+		}
+		results = append(results, toolCallOutput{
+			Tool:   call.Tool,
+			Result: result,
+		})
+	}
+	return results, nil
 }
 
 func (s *appServerSession) request(ctx context.Context, method string, params any, out any) error {
