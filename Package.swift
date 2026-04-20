@@ -55,10 +55,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "StandaloneCursorLab",
-            path: "experiments/StandaloneCursorLab/Sources/StandaloneCursorLab",
-            resources: [
-                .process("Resources"),
-            ]
+            path: "experiments/StandaloneCursorLab/Sources/StandaloneCursorLab"
         ),
         .target(
             name: "StandaloneCursorSupport",

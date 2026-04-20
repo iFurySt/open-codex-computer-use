@@ -18,6 +18,8 @@
   - 独立 visual dynamics，用 visible tip/velocity/angle/fog 来驱动姿态
 - `Sources/CursorLabRootView.swift`
   - 本地 demo UI、候选路径 overlay、`REPLAY` 与点击交互
+- `Sources/SynthesizedCursorGlyphView.swift`
+  - 参考 `scripts/render-synthesized-software-cursor.swift` 的 baseline/procedural cursor renderer
 
 ## 当前参考
 
@@ -38,13 +40,14 @@ swift run StandaloneCursorLab
 - 点击画布任意位置，先预览当前 heading-driven candidate 族，再自动选一路径并驱动 cursor 过去。
 - `REPLAY` 会从固定起点重新跑同一条选中路径，便于反复观察收尾曲线和姿态变化。
 - debug overlay 会显示控制点、arc handle 和当前选中的 candidate id / score。
+- 关闭 `DEBUG` 后不会展示任何轨迹线或目标点，只保留 cursor 本体，便于单独观察最终运动观感。
 - lab 主线不再直接复用 raw binary lift 的 `20` 条 candidate + score；当前改为 reverse-engineering 约束下的 heading-driven chooser，把起始朝向和最终 resting pose 一起喂给路径选择器，让默认曲线更稳定收敛到单侧 C 形或近直线。
 - 主路径进度不再用 speculative `easeInOut` 或 terminal settle；现在直接复用官方风格 spring progress。
-- 关闭 `DEBUG` 后不会展示任何轨迹线或目标点，只保留 cursor 本体，便于单独观察最终运动观感。
 - 可见 cursor 不再直接贴在 path sample 上，而是经过独立 visual dynamics 状态，再输出 `rotation + cursorBodyOffset + fogOffset + fogScale`。
 - 候选路径现在显式约束“先顺车头方向掉头，再沿主轴推进，再按 resting pose 收尾”；因此大多数跨向移动会呈现单侧 C 形，需要直接切入时才会退化为近直线，而不会再出现两侧乱甩的 S 形扭曲。
-- 箭头主朝向会重新明显跟随运动方向；小幅摆动单独作为额外 angle offset 叠加，而不是把整套 rotation 压成一个小角度 wiggle。
-- 使用 target 自带资源里的 cursor asset 渲染指针，并用 tip-anchor 而不是整张图中心来对齐点击点。
+- 箭头的可见角度不再像“车头”一样持续指向移动方向；当前会保留更接近默认 cursor 的静止姿态，只在转弯时给一点轻微 lean，并在停住后继续做原地小摆角。
+- cursor glyph 不再走之前那套亮白 asset；当前优先直接显示仓库里的官方 `252x252` runtime baseline 图，缺失时才退回脚本同款 procedural pointer/fog。
+- settle 态不再做 XY 漂移；现在改成和参考脚本一致的中心固定小摆角，让“停住以后原地轻微转动”的观感先对齐。
 
 后续实现应优先保持：
 

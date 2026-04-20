@@ -108,6 +108,7 @@ final class CursorLabViewModel: ObservableObject {
     @Published private(set) var currentState = CursorMotionState(
         point: CGPoint(x: 220, y: 440),
         rotation: CursorGlyphCalibration.restingRotation,
+        displayRotation: CursorGlyphCalibration.restingRotation,
         cursorBodyOffset: .zero,
         fogOffset: .zero,
         fogOpacity: CursorVisualDynamicsConfiguration.officialInspired.fogOpacityBase,
@@ -351,7 +352,7 @@ private struct CursorLabCanvas: View {
             }
 
             CursorGlyph(
-                rotation: model.currentState.rotation,
+                rotation: model.currentState.displayRotation,
                 cursorBodyOffset: model.currentState.cursorBodyOffset,
                 fogOffset: model.currentState.fogOffset,
                 fogOpacity: model.currentState.fogOpacity,
@@ -529,81 +530,52 @@ private struct CursorGlyph: View {
     let fogScale: CGFloat
     let clickPulse: CGFloat
 
-    private var motionCompression: CGFloat {
-        min(hypot(cursorBodyOffset.dx, cursorBodyOffset.dy) * 0.01, 0.02)
-    }
-
-    private var clickCompression: CGFloat {
-        clickPulse * 0.04
-    }
-
     var body: some View {
         ZStack {
-            Ellipse()
-                .fill(Color.white.opacity(fogOpacity))
-                .frame(width: 20 * fogScale, height: 10 * fogScale)
-                .offset(x: fogOffset.dx, y: 18 + fogOffset.dy)
-                .blur(radius: 6)
-
-            glyphBody
-                .offset(x: cursorBodyOffset.dx, y: cursorBodyOffset.dy)
-                .shadow(color: Color.black.opacity(0.14), radius: 8, x: 0, y: 4)
-
-            if clickPulse > 0.02 {
-                Circle()
-                    .stroke(Color.white.opacity(0.26), lineWidth: 1)
-                    .frame(width: 8 + clickPulse * 12, height: 8 + clickPulse * 12)
-            }
+            SynthesizedCursorGlyphRepresentable(
+                rotation: rotation,
+                cursorBodyOffset: cursorBodyOffset,
+                fogOffset: fogOffset,
+                fogOpacity: fogOpacity,
+                fogScale: fogScale,
+                clickProgress: clickPulse
+            )
+            .frame(
+                width: SynthesizedCursorOverlayMetrics.windowSize.width,
+                height: SynthesizedCursorOverlayMetrics.windowSize.height
+            )
         }
-        .frame(width: CursorGlyphArtwork.layoutSize.width, height: CursorGlyphArtwork.layoutSize.height)
-        .rotationEffect(.radians(rotation), anchor: .center)
-        .scaleEffect(
-            x: 1 - clickCompression - motionCompression,
-            y: 1 + (clickPulse * 0.03) + motionCompression,
-            anchor: .center
+        .frame(
+            width: SynthesizedCursorOverlayMetrics.windowSize.width,
+            height: SynthesizedCursorOverlayMetrics.windowSize.height
         )
-    }
-
-    @ViewBuilder
-    private var glyphBody: some View {
-        if let image = CursorGlyphArtwork.image {
-            Image(nsImage: image)
-                .resizable()
-                .interpolation(.high)
-                .antialiased(true)
-                .frame(width: CursorGlyphArtwork.imageSize.width, height: CursorGlyphArtwork.imageSize.height)
-                .offset(CursorGlyphArtwork.contentOffset)
-        } else {
-            CursorGlyphFallbackShape()
-                .fill(Color.black.opacity(0.92))
-                .frame(width: CursorGlyphArtwork.imageSize.width, height: CursorGlyphArtwork.imageSize.height)
-                .offset(CursorGlyphArtwork.contentOffset)
-        }
     }
 }
 
-private struct CursorGlyphFallbackShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        Path { path in
-            path.move(to: CGPoint(x: rect.midX, y: rect.minY))
-            path.addQuadCurve(
-                to: CGPoint(x: rect.maxX, y: rect.maxY * 0.86),
-                control: CGPoint(x: rect.maxX * 0.92, y: rect.maxY * 0.28)
+private struct SynthesizedCursorGlyphRepresentable: NSViewRepresentable {
+    let rotation: CGFloat
+    let cursorBodyOffset: CGVector
+    let fogOffset: CGVector
+    let fogOpacity: CGFloat
+    let fogScale: CGFloat
+    let clickProgress: CGFloat
+
+    func makeNSView(context: Context) -> SynthesizedCursorGlyphView {
+        SynthesizedCursorGlyphView(
+            frame: CGRect(
+                origin: .zero,
+                size: SynthesizedCursorOverlayMetrics.windowSize
             )
-            path.addQuadCurve(
-                to: CGPoint(x: rect.midX, y: rect.maxY * 0.62),
-                control: CGPoint(x: rect.maxX * 0.82, y: rect.maxY * 1.02)
-            )
-            path.addQuadCurve(
-                to: CGPoint(x: rect.minX, y: rect.maxY * 0.86),
-                control: CGPoint(x: rect.maxX * 0.18, y: rect.maxY * 1.02)
-            )
-            path.addQuadCurve(
-                to: CGPoint(x: rect.midX, y: rect.minY),
-                control: CGPoint(x: rect.maxX * 0.08, y: rect.maxY * 0.28)
-            )
-            path.closeSubpath()
-        }
+        )
+    }
+
+    func updateNSView(_ nsView: SynthesizedCursorGlyphView, context: Context) {
+        nsView.rotation = rotation
+        nsView.cursorBodyOffset = cursorBodyOffset
+        nsView.fogOffset = fogOffset
+        nsView.fogOpacity = fogOpacity
+        nsView.fogScale = fogScale
+        nsView.clickProgress = clickProgress
     }
 }
 

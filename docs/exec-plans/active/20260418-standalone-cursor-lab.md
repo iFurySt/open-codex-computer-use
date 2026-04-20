@@ -65,6 +65,8 @@
 - 2026-04-19：已把 lab 从 speculative slider 驱动的曲线/收尾模型，重构为 recovered 的 `20` candidate path + 官方风格 spring progress + 独立 visual dynamics；收尾不再靠 endpoint 锁住后原地翻角。
 - 2026-04-19：在对照官方视频后发现 guide/arc 相关常量不能直接按屏幕坐标向量使用；当前已改成先投到 start→end 的局部基底，再生成候选路径，默认样例和反向斜移都不再出现起点附近打结式的扭曲回环。
 - 2026-04-19：继续对照官方视频后，确认 lab 主线不能直接拿 raw reverse-engineered `20` candidates 当 chooser；当前已改成 heading-driven 选路，把当前可见朝向和最终 resting pose 一起参与选路，主路径重新收敛到“需要掉头时走单侧 C 形，不需要掉头时近直线”的分布。
+- 2026-04-20：在对照 `scripts/render-synthesized-software-cursor.swift` 与用户截图后，确认共享 glyph renderer 的亮白 asset 风格并不对；当前已把 lab 改成优先显示仓库里的官方 `252x252` runtime baseline 图，fallback 才走脚本同款 procedural pointer/fog，同时把 idle 从 XY 漂移收紧为中心固定的小幅摆角。
+- 2026-04-20：继续按用户反馈收紧姿态后，lab 现在把“内部 heading”与“可见箭头角度”分离；选路仍可参考当前 heading，但屏幕上看到的箭头不再像车头一样沿切线持续转向，只在转弯时轻微 lean。
 
 ## 决策记录
 

@@ -63,6 +63,39 @@
 - **[同步 runtime overlay 选路]**: 主 `SoftwareCursorOverlay` 现在也改为同一套 heading-driven candidate 族；raw reverse-engineered `20` candidates 仍然保留在 `StandaloneCursor` / Python 重建脚本里做分析对照，但不再直接作为 runtime 主 chooser。
 - **[补方向约束回归测试]**: 新增测试，显式验证“朝向已对齐时优先近直线”和“起步朝向反向时优先掉头大弧”两类行为，避免后续再次回到怪异扭曲曲线。
 
+### 🔁 Follow-up (2026-04-20, synthesized overlay style)
+**Scope:** `experiments/StandaloneCursorLab/`、`Package.swift`、`docs/`
+
+**Key Actions:**
+- **[改回脚本同款视觉]**: 对照用户给出的 `render-synthesized-software-cursor.swift` 参考图后，确认 lab 当前复用的亮白 asset 风格不对；改为优先显示仓库中的官方 `252x252` runtime baseline 图，并在缺失时退回脚本同款 procedural pointer/fog。
+- **[收紧 settle 态]**: `CursorMotionSimulator` 的 idle 不再做 XY 漂移，而是保持位置固定，只保留中心固定的小幅摆角，贴近脚本默认档的“原地轻微转动”。
+- **[撤回错误文档描述]**: README、架构说明和 execution plan 不再声称 lab 复用 `SoftwareCursorKit` 的共享 glyph renderer，改成明确引用脚本化 baseline/procedural renderer。
+
+### 📁 Additional Files Modified
+- `Package.swift`
+- `experiments/StandaloneCursorLab/Sources/StandaloneCursorLab/CursorGlyphCalibration.swift`
+- `experiments/StandaloneCursorLab/Sources/StandaloneCursorLab/CursorLabRootView.swift`
+- `experiments/StandaloneCursorLab/Sources/StandaloneCursorLab/CursorMotionModel.swift`
+- `experiments/StandaloneCursorLab/Sources/StandaloneCursorLab/SynthesizedCursorGlyphView.swift`
+- `experiments/StandaloneCursorLab/README.md`
+- `docs/ARCHITECTURE.md`
+- `docs/exec-plans/active/20260418-standalone-cursor-lab.md`
+
+### 🔁 Follow-up (2026-04-20, decouple visible arrow angle)
+**Scope:** `experiments/StandaloneCursorLab/`、`docs/`
+
+**Key Actions:**
+- **[分离内部 heading 与可见角度]**: 保留 motion model 内部 `rotation` 给下一段选路参考，但新增单独的 `displayRotation` 给 glyph 渲染，避免箭头在移动时像车头一样持续指向轨迹方向。
+- **[改成轻微 lean]**: moving 阶段的可见角度现在只根据 turn dynamics 给一个很小的偏转；idle 阶段仍然保留原地小摆角。
+- **[同步文档说法]**: README、架构说明和 active plan 不再把 lab 当前表现描述成“箭头主朝向明显跟随运动方向”。
+
+### 📁 Additional Files Modified
+- `experiments/StandaloneCursorLab/Sources/StandaloneCursorLab/CursorMotionModel.swift`
+- `experiments/StandaloneCursorLab/Sources/StandaloneCursorLab/CursorLabRootView.swift`
+- `experiments/StandaloneCursorLab/README.md`
+- `docs/ARCHITECTURE.md`
+- `docs/exec-plans/active/20260418-standalone-cursor-lab.md`
+
 ### 🔁 Follow-up (2026-04-20)
 **Scope:** `experiments/StandaloneCursorLab/`、`docs/`
 
@@ -70,7 +103,6 @@
 - **[移除起始点残留白点]**: `StandaloneCursorLab` 画布不再常驻渲染起始点白色 marker，避免 cursor 沿曲线移动后仍在起点留下误导性的白点。
 - **[收紧 DEBUG 关闭态]**: `DEBUG` 关闭后不再保留选中主轨迹或目标点 marker，整层调试 overlay 会一起隐藏，避免非调试模式下仍残留轨迹线和圆点。
 - **[主视觉改为中性灰紫]**: 把 lab 的背景渐变、调试高亮和控件 accent 从原先偏粉色的方案切到接近 `#E3E2E6` 的中性灰紫配色，避免画面继续带明显粉色倾向。
-
 
 ### 📁 Additional Files Modified
 - `experiments/StandaloneCursorLab/Sources/StandaloneCursorLab/CursorLabRootView.swift`

@@ -84,7 +84,8 @@
 - 这条线优先验证 Python 重建脚本已经收敛出来的核心：`20` 条候选路径、`measure + score`、`prefer in-bounds then lowest-score` 选路，以及 `response=1.4` / `dampingFraction=0.9` / `dt=1/240` 的 raw spring timeline。
 - 当前它刻意不引入 speculative 的 wall-clock duration 映射，也不复用 `StandaloneCursorLab` 里更偏视觉手感试验的 pose dynamics。
 - `StandaloneCursorLab` 是一个单独的 SwiftUI demo target，可通过 `swift run StandaloneCursorLab` 本地启动。
-- 这条线优先验证 motion model 本身：当前主线是 heading-driven 的 turn / brake / orbit / direct candidate 族、spring progress、独立 visual dynamics 和 debug UI；显式保留“主朝向跟随速度方向、额外角度 offset 单独叠加”的姿态结构，并把当前可见朝向与最终 resting pose 一起参与选路，避免出现与官方视频不符的原地翻转或 S 形扭曲回环。
+- 这条线优先验证 motion model 本身：当前主线是 heading-driven 的 turn / brake / orbit / direct candidate 族、spring progress、独立 visual dynamics 和 debug UI；内部 heading 仍会参与选路，但真正画出来的箭头角度已经收紧到更接近默认 cursor 的静止姿态，不再像车头一样持续指向移动方向，只在转弯时给一点 lean，并在停住后做原地小摆角。
+- lab 的 cursor 视觉当前单独参考 `scripts/render-synthesized-software-cursor.swift`：优先使用仓库里保存的官方 `252x252` runtime baseline 图，缺失时再退回脚本里的 procedural pointer/fog 近似；settle 态也改成中心固定的小幅摆角，而不是继续沿 XY 轻微漂移。
 - 当前它不接真实 tool call，也不回写主 `SoftwareCursorOverlay`，目的是把实验噪音与产品行为边界隔离开。
 
 ## 关键边界

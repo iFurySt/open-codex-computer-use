@@ -1192,6 +1192,7 @@ struct CursorVisualDynamicsConfiguration: Equatable {
     let angleSpring: CursorVisualSpringConfiguration
     let headingVelocityFloor: CGFloat
     let animatedAngleOffsetMax: CGFloat
+    let visibleTurnLeanMax: CGFloat
     let bodyOffsetScale: CGFloat
     let bodyOffsetMax: CGFloat
     let bodyLateralScale: CGFloat
@@ -1207,7 +1208,8 @@ struct CursorVisualDynamicsConfiguration: Equatable {
         tipSpring: CursorVisualSpringConfiguration(response: 0.18, dampingFraction: 0.76),
         angleSpring: CursorVisualSpringConfiguration(response: 0.24, dampingFraction: 0.82),
         headingVelocityFloor: 14,
-        animatedAngleOffsetMax: 0.26,
+        animatedAngleOffsetMax: 0.28,
+        visibleTurnLeanMax: 0.085,
         bodyOffsetScale: 0.0012,
         bodyOffsetMax: 2.4,
         bodyLateralScale: 0.06,
@@ -1252,6 +1254,7 @@ struct CursorVisualDynamicsState: Equatable {
 struct CursorVisualRenderState: Equatable {
     let tipPosition: CGPoint
     let rotation: CGFloat
+    let visibleRotationOffset: CGFloat
     let cursorBodyOffset: CGVector
     let fogOffset: CGVector
     let fogOpacity: CGFloat
@@ -1370,6 +1373,16 @@ enum CursorVisualDynamicsAnimator {
             speed * configuration.fogScaleVelocityScale,
             configuration.fogScaleMaxDelta
         )
+        let visibleRotationOffset: CGFloat
+        if speed > configuration.headingVelocityFloor {
+            visibleRotationOffset = CGFloat.clamped(
+                (lateralAmount / max(configuration.bodyLateralMax, 0.001)) * configuration.visibleTurnLeanMax,
+                lower: -configuration.visibleTurnLeanMax,
+                upper: configuration.visibleTurnLeanMax
+            )
+        } else {
+            visibleRotationOffset = idleAngleOffset
+        }
 
         return CursorVisualRenderState(
             tipPosition: state.tipPosition,
@@ -1378,6 +1391,7 @@ enum CursorVisualDynamicsAnimator {
                     to: -configuration.animatedAngleOffsetMax...configuration.animatedAngleOffsetMax
                 )
             ),
+            visibleRotationOffset: visibleRotationOffset,
             cursorBodyOffset: cursorBodyOffset,
             fogOffset: fogOffset,
             fogOpacity: fogOpacity,
@@ -1415,6 +1429,7 @@ enum CursorVisualDynamicsAnimator {
 struct CursorMotionState: Equatable {
     let point: CGPoint
     let rotation: CGFloat
+    let displayRotation: CGFloat
     let cursorBodyOffset: CGVector
     let fogOffset: CGVector
     let fogOpacity: CGFloat
@@ -1538,13 +1553,9 @@ final class CursorMotionSimulator {
 
         case let .idle(restingTipPosition):
             idlePhase += clampedDelta * 3
-            let targetTipPosition = CGPoint(
-                x: restingTipPosition.x + (sin(idlePhase) * 1.6),
-                y: restingTipPosition.y + (cos(idlePhase * 0.47) * 0.7)
-            )
-            let idleAngleOffset = sin(idlePhase * 0.8) * 0.03
+            let idleAngleOffset = sin(idlePhase * 0.8) * SynthesizedCursorIdleStyle.wobbleAmplitude
             let renderState = advanceVisualDynamics(
-                toward: targetTipPosition,
+                toward: restingTipPosition,
                 idleAngleOffset: idleAngleOffset
             )
             return makeMotionState(renderState: renderState, trailProgress: 1, isSettled: true)
@@ -1584,6 +1595,7 @@ final class CursorMotionSimulator {
         CursorMotionState(
             point: renderState.tipPosition,
             rotation: CursorGlyphCalibration.restingRotation + renderState.rotation,
+            displayRotation: CursorGlyphCalibration.restingRotation + renderState.visibleRotationOffset,
             cursorBodyOffset: renderState.cursorBodyOffset,
             fogOffset: renderState.fogOffset,
             fogOpacity: renderState.fogOpacity,
