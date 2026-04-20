@@ -106,7 +106,7 @@ Example working invocation against `open-computer-use`:
 ```bash
 go run . list-tools \
   --transport direct \
-  --server-bin ~/.codex/plugins/cache/open-computer-use-local/open-computer-use/0.1.16/scripts/launch-open-computer-use.sh
+  --server-bin ~/.codex/plugins/cache/open-computer-use-local/open-computer-use/0.1.17/scripts/launch-open-computer-use.sh
 ```
 
 Example working invocation against the official bundled `computer-use`:
