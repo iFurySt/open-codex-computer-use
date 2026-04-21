@@ -318,6 +318,15 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(SoftwareCursorGlyphMetrics.windowSize, CGSize(width: 126, height: 126))
         XCTAssertEqual(SoftwareCursorGlyphMetrics.tipAnchor.x, 60.35, accuracy: 0.01)
         XCTAssertEqual(SoftwareCursorGlyphMetrics.tipAnchor.y, 70.3, accuracy: 0.01)
+        XCTAssertEqual(SoftwareCursorGlyphMetrics.referenceImageResourceName, "official-software-cursor-window-252")
+    }
+
+    func testSoftwareCursorGlyphLoadsCursorMotionReferenceImage() throws {
+        let image = try XCTUnwrap(loadReferenceCursorWindowImage())
+        let bitmap = try XCTUnwrap(image.representations.first)
+
+        XCTAssertEqual(bitmap.pixelsWide, 252)
+        XCTAssertEqual(bitmap.pixelsHigh, 252)
     }
 
     func testSoftwareCursorGlyphArtworkNeutralHeadingMatchesCursorMotionBaseline() {
@@ -352,6 +361,23 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(drawingState.fogOpacity, 0.2)
         XCTAssertEqual(drawingState.fogScale, 1.1)
         XCTAssertEqual(drawingState.clickProgress, 0.6)
+    }
+
+    func testDefaultVisualCursorAppearanceStartsBehindRestingForward() {
+        let target = CGPoint(x: 300, y: 240)
+        let restingForward = CGVector(dx: -1, dy: -1)
+        let start = defaultVisualCursorAppearancePoint(
+            for: target,
+            restingForward: restingForward,
+            distance: 90
+        )
+        let travelDirection = normalizedVector(from: start, to: target)
+        let expectedDirection = normalizedVector(from: .zero, to: CGPoint(x: restingForward.dx, y: restingForward.dy))
+
+        XCTAssertGreaterThan(start.x, target.x)
+        XCTAssertGreaterThan(start.y, target.y)
+        XCTAssertEqual(travelDirection.dx, expectedDirection.dx, accuracy: 0.0001)
+        XCTAssertEqual(travelDirection.dy, expectedDirection.dy, accuracy: 0.0001)
     }
 
     func testCursorMotionPathStartsAndEndsAtExpectedPoints() {

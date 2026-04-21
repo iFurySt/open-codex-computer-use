@@ -41,6 +41,7 @@ struct SoftwareCursorGlyphRenderState {
 enum SoftwareCursorGlyphMetrics {
     static let windowSize = CGSize(width: 126, height: 126)
     static let tipAnchor = CGPoint(x: 60.35, y: 70.3)
+    static let referenceImageResourceName = "official-software-cursor-window-252"
 
     static let pointerSize = CGSize(width: 21, height: 21)
     static let pointerOffset = CGPoint(x: 2.6, y: -3.2)
@@ -55,12 +56,25 @@ private enum SoftwareCursorGlyphColors {
 }
 
 enum SoftwareCursorGlyphRenderer {
+    private static let referenceImage = loadReferenceCursorWindowImage()
+
     static func draw(
         in bounds: CGRect,
         context: CGContext,
         state: SoftwareCursorGlyphRenderState
     ) {
         let drawingState = state.appKitDrawingState
+
+        if let referenceImage {
+            drawReferenceImage(
+                referenceImage,
+                in: bounds,
+                context: context,
+                state: drawingState
+            )
+            return
+        }
+
         let pulse = drawingState.clickProgress
         let fogCenter = CGPoint(
             x: bounds.midX + drawingState.fogOffset.dx,
@@ -86,6 +100,31 @@ enum SoftwareCursorGlyphRenderer {
             cursorBodyOffset: drawingState.cursorBodyOffset,
             boundsMidpoint: CGPoint(x: bounds.midX, y: bounds.midY)
         )
+    }
+
+    private static func drawReferenceImage(
+        _ image: NSImage,
+        in bounds: CGRect,
+        context: CGContext,
+        state: SoftwareCursorGlyphRenderState
+    ) {
+        let motionCompression = min(hypot(state.cursorBodyOffset.dx, state.cursorBodyOffset.dy) * 0.008, 0.018)
+        let pulseCompression = state.clickProgress * 0.03
+
+        context.saveGState()
+        context.interpolationQuality = .high
+        context.translateBy(
+            x: bounds.midX + state.cursorBodyOffset.dx,
+            y: bounds.midY + state.cursorBodyOffset.dy
+        )
+        context.rotate(by: state.rotation)
+        context.scaleBy(
+            x: 1 - motionCompression - pulseCompression,
+            y: 1 + (pulseCompression * 0.4)
+        )
+        context.translateBy(x: -bounds.midX, y: -bounds.midY)
+        image.draw(in: bounds, from: .zero, operation: .sourceOver, fraction: 1)
+        context.restoreGState()
     }
 
     private static func drawFog(
@@ -229,4 +268,26 @@ enum SoftwareCursorGlyphRenderer {
         path.lineJoinStyle = .round
         return path
     }
+}
+
+func loadReferenceCursorWindowImage() -> NSImage? {
+    if let bundledReference = Bundle.main.url(
+        forResource: SoftwareCursorGlyphMetrics.referenceImageResourceName,
+        withExtension: "png"
+    ), let image = NSImage(contentsOf: bundledReference) {
+        return image
+    }
+
+    let fileURL = URL(fileURLWithPath: #filePath).standardizedFileURL
+    let repoRoot = fileURL
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+
+    let referenceURL = repoRoot
+        .appendingPathComponent("docs/references/codex-computer-use-reverse-engineering/assets/extracted-2026-04-19/\(SoftwareCursorGlyphMetrics.referenceImageResourceName).png")
+
+    return NSImage(contentsOf: referenceURL)
 }

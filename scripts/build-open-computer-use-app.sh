@@ -241,6 +241,7 @@ legacy_app_bundle_name="OpenComputerUse.app"
 bundle_icon_name="OpenComputerUse.icns"
 icon_master_png="${repo_root}/assets/app-icons/open-computer-use-1024.png"
 iconset_build_script="${repo_root}/scripts/build-apple-iconset.sh"
+cursor_reference_source="${repo_root}/docs/references/codex-computer-use-reverse-engineering/assets/extracted-2026-04-19/official-software-cursor-window-252.png"
 
 bundle_display_name="Open Computer Use"
 bundle_identifier="com.ifuryst.opencomputeruse"
@@ -299,6 +300,11 @@ if [[ ! -f "${iconset_build_script}" ]]; then
   exit 1
 fi
 
+if [[ ! -f "${cursor_reference_source}" ]]; then
+  echo "Missing cursor reference PNG: ${cursor_reference_source}" >&2
+  exit 1
+fi
+
 icon_work_dir="$(mktemp -d "${TMPDIR:-/tmp}/open-computer-use-icon.XXXXXX")"
 cleanup() {
   if [[ -n "${icon_work_dir:-}" ]]; then
@@ -310,6 +316,7 @@ iconset_dir="${icon_work_dir}/OpenComputerUse.iconset"
 mkdir -p "${iconset_dir}"
 "${iconset_build_script}" "${icon_master_png}" "${iconset_dir}"
 iconutil -c icns "${iconset_dir}" -o "${resources_dir}/${bundle_icon_name}"
+cp "${cursor_reference_source}" "${resources_dir}/official-software-cursor-window-252.png"
 
 cat > "${contents_dir}/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -341,6 +348,8 @@ cat > "${contents_dir}/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <key>LSUIElement</key>
+  <true/>
+  <key>NSHighResolutionCapable</key>
   <true/>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>

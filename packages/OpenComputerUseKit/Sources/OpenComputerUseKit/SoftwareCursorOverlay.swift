@@ -32,6 +32,19 @@ func visualCursorEnabled(environment: [String: String]) -> Bool {
     return !["0", "false", "no", "off"].contains(rawValue)
 }
 
+func defaultVisualCursorAppearancePoint(
+    for targetPoint: CGPoint,
+    restingForward: CGVector,
+    distance: CGFloat
+) -> CGPoint {
+    let length = max(hypot(restingForward.dx, restingForward.dy), 0.001)
+    let unitForward = CGVector(dx: restingForward.dx / length, dy: restingForward.dy / length)
+    return CGPoint(
+        x: targetPoint.x - (unitForward.dx * distance),
+        y: targetPoint.y - (unitForward.dy * distance)
+    )
+}
+
 struct CursorTargetWindow: Equatable, Sendable {
     let windowID: CGWindowID
     let layer: Int
@@ -70,6 +83,7 @@ private struct CursorArtwork {
 enum SoftwareCursorOverlay {
     private static let artwork = CursorArtwork.active
     private static let baseHeading = -(3 * CGFloat.pi / 4)
+    private static let defaultAppearanceDistance: CGFloat = 90
     private static var panel: CursorPanel?
     private static var cursorView: SoftwareCursorView?
     private static var restingTipPosition: CGPoint?
@@ -533,9 +547,10 @@ enum SoftwareCursorOverlay {
 
     private static func defaultAppearancePoint(for targetPoint: CGPoint) -> CGPoint {
         clampTipPosition(
-            CGPoint(
-                x: targetPoint.x + 72,
-                y: targetPoint.y - 54
+            defaultVisualCursorAppearancePoint(
+                for: targetPoint,
+                restingForward: restingForwardVector(),
+                distance: defaultAppearanceDistance
             )
         )
     }
