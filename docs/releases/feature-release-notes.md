@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-04-22 | set_value 可设置边界 | `set_value` 对 Sublime 这类不可直接设置的文本区域会返回清晰的 non-settable 错误，不再暴露底层 `-25200`。 | 发布 `0.1.25`，按官方 bundled app 的 settable accessibility element 语义，在写入前检查 `AXUIElementIsAttributeSettable(kAXValueAttribute)`，不可设置时不退到键盘、剪贴板或未公开文本替换接口。 |
 | 2026-04-22 | click 非侵入默认行为 | `click` 的 AX 失败路径不再默认移动用户真实鼠标，多次点击也会优先复用可用的 AX action。 | 发布 `0.1.24`，基于官方包 click/EventTap 逆向结果，将全局物理指针 fallback 改成 `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` 显式 opt-in，并修正 `click_count > 1` 直接落入全局鼠标路径的问题。 |
 | 2026-04-21 | CLI tool 编排 | 不接 MCP client 时也能直接通过 `open-computer-use call` 调用 9 个 Computer Use tools，并能用 JSON 数组在同一进程里编排连续动作。 | 发布 `0.1.23`，新增原生 `call` 子命令、共享 MCP/CLI tool dispatcher、`--calls` / `--calls-file` 序列执行和相关文档测试。 |
 | 2026-04-21 | 软件光标运行时朝向 | 软件光标首次出现和移动时的可见朝向更贴近官方行为，上行、转向和落点姿态不再出现坐标系翻转造成的违和感。 | 发布 `0.1.22`，修正 runtime overlay 在 AppKit 全局坐标与 Cursor Motion y-down screen state 之间的速度/朝向转换，并补充回归测试锁定首次 `(0,0)` 起点和 render rotation 关系。 |
