@@ -22,6 +22,8 @@ The npm package currently ships the macOS app bundle. Install it globally first:
 npm i -g open-computer-use
 ```
 
+On interactive local global installs, npm also tries to open the bundled permiso-style permission onboarding automatically. If nothing appears, run `open-computer-use` or `open-computer-use doctor`.
+
 Before first use, grant macOS `Accessibility` and `Screen Recording` permission to the `Open Computer Use.app` you actually plan to keep installed. The CI-built release package remains the stable identity for distribution. Local debug/dev builds are intentionally packaged as `Open Computer Use (Dev).app`, so System Settings shows them as a separate development app instead of another indistinguishable `Open Computer Use`. If you are not sure about the current state, run:
 
 ```bash

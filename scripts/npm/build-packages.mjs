@@ -287,6 +287,66 @@ exec "\${app_binary}" "$@"
 
 function renderPostinstall(packageName, version) {
   return `#!/usr/bin/env node
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import path from "node:path";
+import process from "node:process";
+import { fileURLToPath } from "node:url";
+
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const packageRoot = path.resolve(scriptDir, "..");
+const bundledAppBinary = path.join(
+  packageRoot,
+  "dist",
+  ${JSON.stringify(appBundleName)},
+  "Contents",
+  "MacOS",
+  ${JSON.stringify(appExecutableName)}
+);
+
+function shouldLaunchOnboarding() {
+  if (process.platform !== "darwin") {
+    return false;
+  }
+
+  if (process.env.CI === "1" || process.env.CI === "true") {
+    return false;
+  }
+
+  if (process.env.OPEN_COMPUTER_USE_SKIP_POSTINSTALL_ONBOARDING === "1") {
+    return false;
+  }
+
+  if (process.stdout.isTTY !== true) {
+    return false;
+  }
+
+  return process.env.npm_config_global === "true" || process.env.npm_config_location === "global";
+}
+
+function launchOnboardingIfPossible() {
+  if (!shouldLaunchOnboarding() || !existsSync(bundledAppBinary)) {
+    return false;
+  }
+
+  try {
+    const child = spawn(bundledAppBinary, [], {
+      detached: true,
+      stdio: "ignore",
+      env: {
+        ...process.env,
+        OPEN_COMPUTER_USE_LAUNCHED_FROM_POSTINSTALL: "1",
+      },
+    });
+    child.on("error", () => {});
+    child.unref();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const launchedOnboarding = launchOnboardingIfPossible();
 const mcpConfig = ${JSON.stringify({
   mcpServers: {
     "open-computer-use": {
@@ -301,9 +361,13 @@ const lines = [
   "Package: https://www.npmjs.com/package/${packageName}",
   "Commands: open-computer-use, open-computer-use-mcp, open-codex-computer-use-mcp",
   "",
+  launchedOnboarding
+    ? "Permission onboarding launched automatically using the bundled app."
+    : "Run open-computer-use or open-computer-use doctor if you want to open the bundled permission onboarding.",
+  "",
   "Next:",
-  "1. Run open-computer-use doctor",
-  "2. In macOS System Settings, grant Accessibility and Screen Recording to your host terminal or MCP client",
+  "1. If the helper did not appear, run open-computer-use or open-computer-use doctor",
+  "2. In macOS System Settings, grant Accessibility and Screen Recording to the app or host CLI you actually plan to run",
   "3. Run open-computer-use install-claude-mcp, install-gemini-mcp, install-codex-mcp, or install-opencode-mcp for your host CLI, or install-codex-plugin for the local Codex plugin cache",
   "",
   "You can add this to any MCP-capable client:",
@@ -333,7 +397,7 @@ This package bundles a ready-to-run \`${appBundleName}\`, the Codex plugin metad
 npm install -g ${packageName}
 \`\`\`
 
-After install, run \`open-computer-use doctor\` first. If macOS \`Accessibility\` or \`Screen Recording\` permission is missing, it will open the permission onboarding window and tell you what still needs to be granted. If everything is already granted, it just prints the status and exits.
+On interactive local global installs, the package also tries to open the bundled permiso-style permission onboarding automatically. If nothing appears, run \`open-computer-use\` or \`open-computer-use doctor\`. If macOS \`Accessibility\` or \`Screen Recording\` permission is missing, the helper opens the onboarding window and tells you what still needs to be granted. If everything is already granted, it just exits.
 
 ## MCP config
 
@@ -350,7 +414,7 @@ If your MCP client accepts a stdio-style \`mcpServers\` JSON config, this is the
 }
 \`\`\`
 
-In practice, using this package as MCP is: global install, add the JSON config, then grant macOS \`Accessibility\` and \`Screen Recording\` permission to the bundled npm-installed \`Open Computer Use.app\` on first use.
+In practice, using this package as MCP is: global install, let the bundled onboarding helper run (or launch it yourself), add the JSON config, then grant macOS \`Accessibility\` and \`Screen Recording\` permission to the bundled npm-installed \`Open Computer Use.app\` or the host CLI you actually use.
 
 Package page: https://www.npmjs.com/package/${packageName}
 
@@ -375,7 +439,8 @@ open-computer-use install-codex-mcp
 # Install into opencode in ~/.config/opencode
 open-computer-use install-opencode-mcp
 
-# Check permissions first; if Accessibility / Screen Recording is missing, open the permission onboarding window
+# Check permissions first; if the postinstall helper did not appear, run this manually
+# If Accessibility / Screen Recording is missing, it opens the permission onboarding window
 # If both are already granted, this just prints the status and exits
 open-computer-use doctor
 
