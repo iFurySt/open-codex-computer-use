@@ -115,39 +115,87 @@ function npmPackageVersionExists(packageName, version, env) {
   return false;
 }
 
-function publishWithRetry(args, npmEnv, packageName, version) {
-  if (npmPackageVersionExists(packageName, version, npmEnv)) {
+function publishEnvCandidates(baseEnv) {
+  const candidates = [];
+
+  if (baseEnv.ACTIONS_ID_TOKEN_REQUEST_URL) {
+    const oidcEnv = { ...baseEnv };
+    delete oidcEnv.NODE_AUTH_TOKEN;
+    delete oidcEnv.NPM_TOKEN;
+    delete oidcEnv.NPM_CONFIG_USERCONFIG;
+    delete oidcEnv.NPM_ID_TOKEN;
+    candidates.push({
+      env: oidcEnv,
+      label: "GitHub Actions OIDC trusted publishing",
+    });
+  }
+
+  if (baseEnv.NODE_AUTH_TOKEN) {
+    const tokenEnv = { ...baseEnv };
+    delete tokenEnv.ACTIONS_ID_TOKEN_REQUEST_URL;
+    delete tokenEnv.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+    delete tokenEnv.NPM_ID_TOKEN;
+    candidates.push({
+      env: tokenEnv,
+      label: "NODE_AUTH_TOKEN fallback",
+    });
+  }
+
+  if (candidates.length === 0) {
+    candidates.push({
+      env: baseEnv,
+      label: "default npm environment",
+    });
+  }
+
+  return candidates;
+}
+
+function publishWithRetry(args, npmEnvCandidates, packageName, version) {
+  if (npmPackageVersionExists(packageName, version, npmEnvCandidates[0].env)) {
     process.stdout.write(`${packageName}@${version} already exists on npm; skipping publish.\n`);
     return;
   }
 
-  for (let attempt = 1; attempt <= maxPublishAttempts; attempt += 1) {
-    const result = spawnSync("npm", args, {
-      cwd: repoRoot,
-      stdio: "inherit",
-      env: npmEnv,
-    });
+  let lastError;
 
-    if (result.status === 0) {
-      return;
+  for (const { env, label } of npmEnvCandidates) {
+    process.stdout.write(`Publishing ${packageName}@${version} using ${label}.\n`);
+
+    for (let attempt = 1; attempt <= maxPublishAttempts; attempt += 1) {
+      const result = spawnSync("npm", args, {
+        cwd: repoRoot,
+        stdio: "inherit",
+        env,
+      });
+
+      if (result.status === 0) {
+        return;
+      }
+
+      if (npmPackageVersionExists(packageName, version, env)) {
+        process.stdout.write(`${packageName}@${version} is visible on npm after publish failure; continuing.\n`);
+        return;
+      }
+
+      lastError = new Error(`npm ${args.join(" ")} failed with exit code ${result.status ?? "unknown"}`);
+
+      if (attempt < maxPublishAttempts) {
+        const delayMs = attempt * 5000;
+        process.stderr.write(
+          `npm publish ${packageName}@${version} via ${label} failed with exit code ${result.status ?? "unknown"}; retrying in ${delayMs / 1000}s.\n`
+        );
+        sleep(delayMs);
+        continue;
+      }
+
+      if (npmEnvCandidates.length > 1 && label !== npmEnvCandidates[npmEnvCandidates.length - 1].label) {
+        process.stderr.write(`npm publish ${packageName}@${version} via ${label} failed; trying next auth path.\n`);
+      }
     }
-
-    if (npmPackageVersionExists(packageName, version, npmEnv)) {
-      process.stdout.write(`${packageName}@${version} is visible on npm after publish failure; continuing.\n`);
-      return;
-    }
-
-    if (attempt < maxPublishAttempts) {
-      const delayMs = attempt * 5000;
-      process.stderr.write(
-        `npm publish ${packageName}@${version} failed with exit code ${result.status ?? "unknown"}; retrying in ${delayMs / 1000}s.\n`
-      );
-      sleep(delayMs);
-      continue;
-    }
-
-    throw new Error(`npm ${args.join(" ")} failed with exit code ${result.status ?? "unknown"}`);
   }
+
+  throw lastError ?? new Error(`npm ${args.join(" ")} failed`);
 }
 
 function main() {
@@ -195,16 +243,7 @@ function main() {
       ...process.env,
     };
 
-    // npm prefers GitHub Actions OIDC when the runner exposes it. If we
-    // explicitly provided an npm token fallback, clear the OIDC env so publish
-    // actually uses the token path.
-    if (process.env.NODE_AUTH_TOKEN) {
-      delete npmEnv.ACTIONS_ID_TOKEN_REQUEST_URL;
-      delete npmEnv.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
-      delete npmEnv.NPM_ID_TOKEN;
-    }
-
-    publishWithRetry(args, npmEnv, packageName, version);
+    publishWithRetry(args, publishEnvCandidates(npmEnv), packageName, version);
   }
 }
 

@@ -106,7 +106,7 @@ gh run view -R iFurySt/open-codex-computer-use <run-id> --log-failed
   - 先回头检查 `plugin.json` 的 `version`，再检查 staging 包实际产出的 `package.json`。
 - `npm error 404 Not Found - PUT https://registry.npmjs.org/<package>`
   - 先确认 registry 上目标包旧版本是否仍可见：`npm view <package> versions --json`。
-  - 当前 publish 脚本会在发布前跳过已经存在的同版本 package，并对 publish 失败做短暂重试；如果 tag 重发前某个 package 已经部分发布成功，重新跑同一个 release 不会因为该 package 已存在而中断。
+  - 当前 publish 脚本会在发布前跳过已经存在的同版本 package，并对 publish 失败做短暂重试；如果 GitHub Actions OIDC 可用，会优先走 trusted publishing，再回退到 `NODE_AUTH_TOKEN`。如果 tag 重发前某个 package 已经部分发布成功，重新跑同一个 release 不会因为该 package 已存在而中断。
 - 构建阶段失败
   - 优先看 `Build npm release artifacts`、`Build Cursor Motion DMG` 或 Swift 编译错误。
 - GitHub Release 资产上传失败
