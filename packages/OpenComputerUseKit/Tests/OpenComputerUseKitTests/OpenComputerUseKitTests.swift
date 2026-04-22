@@ -363,6 +363,21 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertFalse(globalPointerFallbacksEnabled(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "false"]))
     }
 
+    func testSetValueAttributeGateMatchesOfficialSettableBoundary() throws {
+        XCTAssertTrue(try setValueAttributeIsSettable(result: .success, settable: true, attribute: kAXValueAttribute))
+        XCTAssertFalse(try setValueAttributeIsSettable(result: .success, settable: false, attribute: kAXValueAttribute))
+        XCTAssertEqual(nonSettableSetValueErrorMessage, "Cannot set a value for an element that is not settable")
+
+        XCTAssertThrowsError(
+            try setValueAttributeIsSettable(result: .attributeUnsupported, settable: false, attribute: kAXValueAttribute)
+        ) { error in
+            XCTAssertEqual(
+                (error as? ComputerUseError)?.errorDescription,
+                "AXUIElementIsAttributeSettable(AXValue) failed with -25205"
+            )
+        }
+    }
+
     func testMakeVisualCursorTargetUsesWindowRelativeElementCenter() {
         let target = makeVisualCursorTarget(
             localFrame: CGRect(x: 24, y: 32, width: 120, height: 48),

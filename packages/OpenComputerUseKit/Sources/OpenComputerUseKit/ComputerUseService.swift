@@ -61,6 +61,16 @@ func globalPointerFallbacksEnabled(environment: [String: String]) -> Bool {
     return ["1", "true", "yes", "on"].contains(rawValue)
 }
 
+let nonSettableSetValueErrorMessage = "Cannot set a value for an element that is not settable"
+
+func setValueAttributeIsSettable(result: AXError, settable: Bool, attribute: String) throws -> Bool {
+    guard result == .success else {
+        throw ComputerUseError.message("AXUIElementIsAttributeSettable(\(attribute)) failed with \(result.rawValue)")
+    }
+
+    return settable
+}
+
 public final class ComputerUseService {
     private var snapshotsByApp: [String: AppSnapshot] = [:]
 
@@ -288,6 +298,10 @@ public final class ComputerUseService {
             throw ComputerUseError.stateUnavailable("element \(elementIndex) has no backing accessibility object")
         }
 
+        guard try isSettableForSetValue(element: element, attribute: kAXValueAttribute) else {
+            throw ComputerUseError.message(nonSettableSetValueErrorMessage)
+        }
+
         let cursorTarget = visualCursorTarget(for: record, snapshot: snapshot)
         moveVisualCursor(to: cursorTarget)
 
@@ -439,6 +453,16 @@ public final class ComputerUseService {
         var settable: DarwinBoolean = false
         let result = AXUIElementIsAttributeSettable(element, attribute as CFString, &settable)
         return result == .success && settable.boolValue
+    }
+
+    private func isSettableForSetValue(element: AXUIElement, attribute: String) throws -> Bool {
+        var settable = DarwinBoolean(false)
+        let result = AXUIElementIsAttributeSettable(element, attribute as CFString, &settable)
+        return try setValueAttributeIsSettable(
+            result: result,
+            settable: settable.boolValue,
+            attribute: attribute
+        )
     }
 
     private func bestElement(containing point: CGPoint, in snapshot: AppSnapshot) -> ElementRecord? {

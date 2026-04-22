@@ -67,7 +67,7 @@
 - overlay 的渲染输入也从单一 `rotation` 扩展成 `rotation + cursorBodyOffset + fogOffset + fogScale`，让速度滞后能真正体现在画面上，而不是只存在于主循环内部状态；其中 `rotation` 现在按二进制里 `SoftwareCursorStyle.angle + CursorView._animatedAngleOffsetDegrees` 的分层去近似，不再把“跟随运动方向的主朝向”和“小幅 wiggle offset”压成同一个受限小角度。
 - 动作型 tools 对普通 app 采用“非侵入优先，物理指针路径显式 opt-in”策略：
   - `AXUIElementPerformAction`
-  - `AXUIElementSetAttributeValue`
+  - `set_value` 会先用 `AXUIElementIsAttributeSettable(kAXValueAttribute)` 判断目标是否真的是可设置值元素，只有 settable 时才调用 `AXUIElementSetAttributeValue`；不可设置时返回官方风格的 non-settable 错误，不退到键盘输入、剪贴板或未公开的文本替换接口
   - element-targeted `click` 的左键路径会先试 `AXPress`，再试窗口/根元素常见的 `AXRaise`、`kAXMainAttribute`、`kAXFocusedAttribute`；这里不再把 `AXUIElementIsAttributeSettable` 的结果当成硬门槛，因为像 `TextEdit` window 这类元素在 `kAXFocusedAttribute` 上会出现“`isSettable=false` 但直接 set 成功”的官方同款场景；`click_count > 1` 会优先重复可用的 AX action，而不是直接退到全局鼠标事件
   - `AXUIElementCopyElementAtPosition` 做坐标命中，尽量把 coordinate click 反解成可操作 AX 元素
   - `CGEvent.postToPid` 定向发送键盘事件，避免为了 `type_text` / `press_key` 抢前台
