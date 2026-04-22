@@ -55,6 +55,7 @@ open-computer-use install-codex-plugin
 open-computer-use mcp
 
 # 直接调用单个 Computer Use tool，输出 MCP 风格的 JSON result
+# image payload 仍保留在结果结构里，但 CLI stdout 会摘要 base64，不再整段打印
 open-computer-use call list_apps
 open-computer-use call get_app_state --args '{"app":"TextEdit"}'
 

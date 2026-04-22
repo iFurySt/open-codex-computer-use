@@ -51,6 +51,7 @@ open-computer-use install-codex-plugin
 # Start the MCP server directly
 open-computer-use mcp
 # Call a single Computer Use tool and print the MCP-style JSON result
+# Image payloads stay in the result shape, but CLI stdout summarizes base64 instead of dumping it verbatim
 open-computer-use call list_apps
 open-computer-use call get_app_state --args '{"app":"TextEdit"}'
 # Run a sequence in one process so element_index state can be reused

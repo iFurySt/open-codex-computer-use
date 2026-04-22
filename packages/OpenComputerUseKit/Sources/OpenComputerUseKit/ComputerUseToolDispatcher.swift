@@ -135,14 +135,38 @@ public struct OpenComputerUseCallOutput {
     }
 
     public func jsonText() throws -> String {
+        let sanitizedObject = sanitizeForCLIPrint(jsonObject)
         let data = try JSONSerialization.data(
-            withJSONObject: jsonObject,
+            withJSONObject: sanitizedObject,
             options: [.prettyPrinted, .withoutEscapingSlashes]
         )
         guard let text = String(data: data, encoding: .utf8) else {
             throw ComputerUseError.message("Failed to encode call output as JSON.")
         }
         return text
+    }
+
+    private func sanitizeForCLIPrint(_ value: Any) -> Any {
+        if let array = value as? [Any] {
+            return array.map(sanitizeForCLIPrint)
+        }
+
+        guard let dictionary = value as? [String: Any] else {
+            return value
+        }
+
+        var sanitized: [String: Any] = [:]
+        for (key, rawValue) in dictionary {
+            sanitized[key] = sanitizeForCLIPrint(rawValue)
+        }
+
+        if let type = dictionary["type"] as? String,
+           type == "image",
+           let data = dictionary["data"] as? String {
+            sanitized["data"] = "[base64 omitted from CLI output: \(data.utf8.count) chars]"
+        }
+
+        return sanitized
     }
 }
 

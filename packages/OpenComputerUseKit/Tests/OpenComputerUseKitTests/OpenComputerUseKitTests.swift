@@ -148,6 +148,25 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertTrue(output.hasToolError)
     }
 
+    func testCallOutputJSONStringOmitsImageBase64Payloads() throws {
+        let output = OpenComputerUseCallOutput(
+            jsonObject: [
+                "content": [
+                    ToolResultContentItem.text("ok").dictionary,
+                    ToolResultContentItem.pngImage(Data([0x01, 0x02, 0x03])).dictionary,
+                ],
+                "isError": false,
+            ],
+            hasToolError: false
+        )
+
+        let json = try output.jsonText()
+
+        XCTAssertTrue(json.contains("[base64 omitted from CLI output: 4 chars]"))
+        XCTAssertTrue(json.contains("\"mimeType\" : \"image/png\""))
+        XCTAssertFalse(json.contains("\"data\" : \"AQID\""))
+    }
+
     func testPermissionDiagnosticsListsMissingPermissionsInCanonicalOrder() {
         let diagnostics = PermissionDiagnostics(
             accessibilityTrusted: false,
