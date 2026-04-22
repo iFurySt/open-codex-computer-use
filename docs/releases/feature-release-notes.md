@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-04-22 | 软件光标移动速度 | `click` / `set_value` 的 overlay cursor 默认移动速度不再显得过快，和 `Cursor Motion` 默认档及官方 spring endpoint-lock 时间保持一致。 | 发布 `0.1.28`，移除 runtime 里旧的距离压缩时长公式，默认 move 直接使用已恢复出的 `response=1.4` / `dampingFraction=0.9` / `dt=1/240` close-enough 时间 `343 / 240 = 1.4291667s`，并补回归测试和逆向文档。 |
 | 2026-04-22 | Computer Use 工具对齐收口 | 9 个 Computer Use tools 的 schema、错误语义和默认非侵入输入路径进一步贴近官方；`press_key` 支持更多 xdotool alias。 | 发布 `0.1.27`，收口剩余工具 checklist：`perform_secondary_action` invalid action 错误改为官方形态，fixture `Raise` 不再准备全局物理指针输入，`press_key` 补齐 `BackSpace`、`Page_Up`、`Prior` / `Next`、`F1...F12` 和常见 `KP_*` alias，并把 execution plan 进度项具体化。 |
 | 2026-04-22 | Computer Use 操作连续性 | 连续 `click` / `set_value` 不再反复从左下角 fresh cursor 起步，任务结束时也能显式清理 overlay；`scroll` / `drag` 默认路径进一步避免移动用户真实鼠标。 | 发布 `0.1.26`，基于官方 bundled app 复查把 visual cursor 改成约 5 分钟 idle 保留并接入 `turn-ended` 清理，同时将 `scroll.pages` 对齐为 number schema、required string 空值按 missing 处理，并把 `scroll` / `drag` 默认 fallback 改为 pid-targeted event。 |
 | 2026-04-22 | set_value 可设置边界 | `set_value` 对 Sublime 这类不可直接设置的文本区域会返回清晰的 non-settable 错误，不再暴露底层 `-25200`。 | 发布 `0.1.25`，按官方 bundled app 的 settable accessibility element 语义，在写入前检查 `AXUIElementIsAttributeSettable(kAXValueAttribute)`，不可设置时不退到键盘、剪贴板或未公开文本替换接口。 |
