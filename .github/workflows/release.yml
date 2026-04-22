@@ -35,6 +35,11 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Set up npm trusted publishing CLI
+        run: |
+          npm install -g npm@11.12.1
+          npm --version
+
       - name: Prepare Open Computer Use signing config
         env:
           OPEN_COMPUTER_USE_CODESIGN_P12_BASE64: ${{ secrets.OPEN_COMPUTER_USE_CODESIGN_P12_BASE64 }}

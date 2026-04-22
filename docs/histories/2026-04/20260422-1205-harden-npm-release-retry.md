@@ -10,6 +10,7 @@
 
 - **[Publish Recovery]**: `scripts/npm/publish-packages.mjs` 发布每个 staged package 前先用 `npm view <name>@<version>` 检查同版本是否已经存在；存在时直接跳过。
 - **[Auth Preference]**: GitHub Actions 暴露 OIDC 时优先用 `--provenance` 走 npm trusted publishing，不再因为存在 `NPM_TOKEN` fallback 就强制清掉 OIDC 环境；token 仅作为 fallback。
+- **[Trusted Publishing CLI]**: release workflow 在 publish 前固定升级到 npm `11.12.1`，满足 npm trusted publishing 对 CLI `11.5.1+` 的要求。
 - **[Retry]**: npm publish 失败后最多重试 3 次，并在每次失败后再次检查版本是否已经对 registry 可见，用于覆盖 registry 短暂错误或部分发布成功场景。
 - **[Release Guide]**: 在发版指南中补充 npm publish 404 的排查方式，以及 tag 重发时脚本如何处理已存在版本。
 
