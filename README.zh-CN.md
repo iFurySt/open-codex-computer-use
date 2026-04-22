@@ -4,7 +4,7 @@
 
 [![open-computer-use 自定义演示封面](./docs/generated/readme-assets/open-computer-use-demo-cover.png)](https://youtu.be/2s6aVpGiwaQ)
 
-`open-computer-use` 是一个开源的 `Computer Use` 服务，已经包装成 `MCP` 协议，支持所有的 AI Agent 或 MCP Client 快速调用，实现 macOS 上的 `Computer Use` 能力
+`open-computer-use` 是一个开源的 `Computer Use` 服务，已经包装成 `MCP` 协议，支持所有的 AI Agent 或 MCP Client 快速调用，实现 macOS 上的 `Computer Use` 能力。仓库里也已经新增实验性的 Windows runtime，用 Go 生成独立 `.exe`，暴露同样的 9 个 tool。
 
 项目的背后是 OpenAI 刚发布的 [Codex Computer Use](https://openai.com/index/codex-for-almost-everything/)，让我看到了基于 Accessibility 可以实现非抢占式 CUA 能力，因此决定复刻一个开源版本
 
@@ -12,7 +12,7 @@
 
 ## Quick Start
 
-先全局安装：
+当前 npm 包发布的是 macOS app bundle，先全局安装：
 
 ```bash
 npm i -g open-computer-use
@@ -69,6 +69,24 @@ open-computer-use doctor
 # 查看帮助
 open-computer-use -h
 ```
+
+## Windows Runtime
+
+Windows 侧不复用 Swift `.app`，而是放在 `apps/OpenComputerUseWindows` 里独立构建；执行时优先走 Windows UI Automation，必要时用 Win32 window message 做 fallback。
+
+```bash
+# 从仓库里构建 Windows arm64 exe
+./scripts/build-open-computer-use-windows.sh --arch arm64
+
+# 在 Windows 里直接运行
+open-computer-use.exe mcp
+open-computer-use.exe call list_apps
+open-computer-use.exe call --calls "[{\"tool\":\"get_app_state\",\"args\":{\"app\":\"notepad\"}},{\"tool\":\"type_text\",\"args\":{\"app\":\"notepad\",\"text\":\"hello\"}}]"
+```
+
+这个 `.exe` 需要跑在已登录的桌面 session 里。作为 Windows service 或纯 SSH 脱离桌面运行时，系统可能不给它暴露顶层 UI Automation 窗口。
+
+默认情况下，Windows runtime 只连接已经运行的 app，不会自动启动目标 app，也不会执行 `SetFocus`；`type_text` 也会避开 UIA `ValuePattern.SetValue` fallback，因为有些 app 会在这条路径里主动把自己带到前台。如果确实需要旧的前台行为，可以设置 `OPEN_COMPUTER_USE_WINDOWS_ALLOW_APP_LAUNCH=1` 允许启动 fallback，设置 `OPEN_COMPUTER_USE_WINDOWS_ALLOW_FOCUS_ACTIONS=1` 允许 `SetFocus` secondary action，设置 `OPEN_COMPUTER_USE_WINDOWS_ALLOW_UIA_TEXT_FALLBACK=1` 允许 UIA text fallback。
 
 ## Cursor Motion
 

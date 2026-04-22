@@ -4,7 +4,7 @@
 
 [![Open Computer Use custom demo cover](./docs/generated/readme-assets/open-computer-use-demo-cover.png)](https://youtu.be/2s6aVpGiwaQ)
 
-`open-computer-use` is an open-source `Computer Use` service exposed over `MCP`, so any AI agent or MCP client can call it directly and use computer interaction capabilities on macOS.
+`open-computer-use` is an open-source `Computer Use` service exposed over `MCP`, so any AI agent or MCP client can call it directly and use computer interaction capabilities on macOS. An experimental Windows runtime now lives in this repo too, with the same 9-tool surface implemented as a standalone Go-built `.exe`.
 
 This project was inspired by OpenAI's recently released [Codex Computer Use](https://openai.com/index/codex-for-almost-everything/). It showed that non-intrusive CUA can be built on top of macOS Accessibility, which is why I decided to build an open-source version.
 
@@ -12,7 +12,7 @@ I bootstrapped this repo with my earlier [harness template](https://github.com/i
 
 ## Quick Start
 
-Install it globally first:
+The npm package currently ships the macOS app bundle. Install it globally first:
 
 ```bash
 npm i -g open-computer-use
@@ -62,6 +62,24 @@ open-computer-use doctor
 # Show help
 open-computer-use -h
 ```
+
+## Windows Runtime
+
+The Windows runtime is intentionally separate from the macOS Swift `.app`. It is built from `apps/OpenComputerUseWindows` and uses Windows UI Automation first, then Win32 window messages for fallback input.
+
+```bash
+# Build a Windows arm64 executable from this repo
+./scripts/build-open-computer-use-windows.sh --arch arm64
+
+# On Windows, run it directly
+open-computer-use.exe mcp
+open-computer-use.exe call list_apps
+open-computer-use.exe call --calls "[{\"tool\":\"get_app_state\",\"args\":{\"app\":\"notepad\"}},{\"tool\":\"type_text\",\"args\":{\"app\":\"notepad\",\"text\":\"hello\"}}]"
+```
+
+Run the `.exe` in the signed-in desktop session. Running it as a Windows service or a detached SSH-only process may not expose top-level UI Automation windows.
+
+By default, the Windows runtime only attaches to already running apps, does not call `SetFocus`, and avoids the UIA `ValuePattern.SetValue` fallback for `type_text` because some apps bring themselves forward from that path. If you explicitly want the old foreground behavior, set `OPEN_COMPUTER_USE_WINDOWS_ALLOW_APP_LAUNCH=1` to allow app launch fallback, `OPEN_COMPUTER_USE_WINDOWS_ALLOW_FOCUS_ACTIONS=1` to allow the `SetFocus` secondary action, and `OPEN_COMPUTER_USE_WINDOWS_ALLOW_UIA_TEXT_FALLBACK=1` to allow UIA text fallback.
 
 ## Cursor Motion
 
