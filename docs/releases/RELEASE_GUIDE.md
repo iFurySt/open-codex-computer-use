@@ -108,7 +108,7 @@ gh run view -R iFurySt/open-codex-computer-use <run-id> --log-failed
   - 先确认 registry 上目标包旧版本是否仍可见：`npm view <package> versions --json`。
   - 当前 publish 脚本会在发布前跳过已经存在的同版本 package，并对 publish 失败做短暂重试；如果 GitHub Actions OIDC 可用，会优先用 `--provenance` 走 trusted publishing，再回退到 `NODE_AUTH_TOKEN`。如果 tag 重发前某个 package 已经部分发布成功，重新跑同一个 release 不会因为该 package 已存在而中断。
 - `npm error need auth ... You need to authorize this machine using npm adduser`
-  - 如果日志显示已经选择 `GitHub Actions OIDC trusted publishing`，优先检查 CI 里的 npm CLI 版本；trusted publishing 需要 npm `11.5.1+`，当前 release workflow 会先升级到 npm `11.12.1`。
+  - 如果日志显示已经选择 `GitHub Actions OIDC trusted publishing`，优先检查 CI 里的 npm CLI 版本；trusted publishing 需要 npm `11.5.1+`，当前 release workflow 的 npm package job 使用 Node `24` 并显式检查 npm 版本。
   - 如果 npm CLI 版本满足要求仍报这个错误，说明 npmjs.com 包侧还没有把当前 GitHub repo / workflow 文件配置成 trusted publisher。
 - 构建阶段失败
   - 优先看 `Build npm release artifacts`、`Build Cursor Motion DMG` 或 Swift 编译错误。

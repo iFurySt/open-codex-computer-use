@@ -33,12 +33,14 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
-          node-version: "22"
+          node-version: "24"
 
-      - name: Set up npm trusted publishing CLI
+      - name: Check npm trusted publishing CLI
         run: |
-          npm install -g npm@11.12.1
-          npm --version
+          node --version
+          npm_version="$(npm --version)"
+          echo "npm ${npm_version}"
+          node -e 'const [major, minor] = process.argv[1].split(".").map(Number); if (major < 11 || (major === 11 && minor < 5)) { console.error(`npm ${process.argv[1]} is too old for trusted publishing; need 11.5.1+`); process.exit(1); }' "${npm_version}"
 
       - name: Prepare Open Computer Use signing config
         env:
