@@ -4,6 +4,8 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-04-22 | 发布版本重新对齐 | GitHub Release tag、插件 manifest 和仓库内版本常量重新回到同一个版本线；后续本地安装、staging 和诊断不会再出现 “release 已是新版本，但产物仍显示旧值” 的混乱状态。 | 发布 `0.1.32`，在远端 `v0.1.31` 已存在的前提下，将 `plugin.json`、Swift 版本常量、smoke/test 初始化请求和 CLI helper 文档统一 bump 到 `0.1.32`，为下一次 release 保持单一版本源。 |
+| 2026-04-22 | 视觉光标落点与空闲态收口 | Retina 窗口里的坐标点击更准确，visual cursor 在等待下一次动作时也更稳定、更接近官方观感。 | 发布 `0.1.31`，修复 screenshot pixel 到 window point 的映射，避免 `click({x,y})` 在高分屏上点偏；同时把 idle cursor 收敛为 30 秒停驻、保持压在目标窗口之上，并将等待态改成 anchored tip + tiny rotate wobble。 |
 | 2026-04-22 | Windows runtime 预览与发版说明 | Windows 用户和后续开发者现在有了实验性 Computer Use runtime 起点；每次 GitHub Release 也会保留面向用户的变更摘要，不再只留下 changelog 链接。 | 发布 `0.1.30`，新增实验性 Go/PowerShell Windows runtime、构建脚本和文档；同时明确 release agent 在 bump 版本后必须检查 GitHub 自动 release notes，必要时手动补 `What's Changed`。 |
 | 2026-04-22 | click 定向 fallback | 当目标 app 的 Accessibility 点击链路不完整时，`click` 现在会先尝试定向发送鼠标事件，不会立刻抢走用户真实鼠标；Finder 侧边栏这类场景也更容易真正点通。 | 发布 `0.1.29`，补上 `click` 的 `AX -> pid-targeted mouse event -> optional global pointer fallback` 顺序，优先尝试 `AXPress` / `AXConfirm` / `AXOpen`、子孙点击候选和命中点附近 hit-test，再把全局物理指针保持为显式 opt-in 的最后兜底。 |
 | 2026-04-22 | 软件光标移动速度 | `click` / `set_value` 的 overlay cursor 默认移动速度不再显得过快，和 `Cursor Motion` 默认档及官方 spring endpoint-lock 时间保持一致。 | 发布 `0.1.28`，移除 runtime 里旧的距离压缩时长公式，默认 move 直接使用已恢复出的 `response=1.4` / `dampingFraction=0.9` / `dt=1/240` close-enough 时间 `343 / 240 = 1.4291667s`，并补回归测试和逆向文档。 |
