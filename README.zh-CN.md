@@ -22,6 +22,8 @@ https://github.com/user-attachments/assets/eacb3b15-f939-46c7-b3b3-6f876977a58d
 npm i -g open-computer-use
 ```
 
+在本机交互式的全局安装场景下，npm 也会尝试自动拉起内置的 permiso 风格权限引导；如果没有弹出来，手动运行 `open-computer-use` 或 `open-computer-use doctor` 即可。
+
 第一次使用前，给你实际准备长期保留的那个 `Open Computer Use.app` 授予 macOS 的 `Accessibility` 和 `Screen Recording` 权限。CI 产出的 release 包继续作为正式分发身份；本地 debug/dev 构建会故意打成 `Open Computer Use (Dev).app`，这样系统设置里会明确显示成一个开发版 app，而不是再出现两个同名的 `Open Computer Use`。
 
 ```bash
