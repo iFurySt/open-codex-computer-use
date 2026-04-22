@@ -15,10 +15,11 @@ final class MCPClient {
     private let stdout: FileHandle
     private var nextID = 1
 
-    init(executableURL: URL, arguments: [String]) throws {
+    init(executableURL: URL, arguments: [String], environment: [String: String]? = nil) throws {
         process = Process()
         process.executableURL = executableURL
         process.arguments = arguments
+        process.environment = environment
         let stdinPipe = Pipe()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -160,6 +161,7 @@ enum OpenComputerUseSmokeSuite {
         let fixtureURL = productsDirectory.appendingPathComponent("OpenComputerUseFixture")
         let serverURL = productsDirectory.appendingPathComponent("OpenComputerUse")
         let appName = "OpenComputerUseFixture"
+        let mode = SmokeMode(arguments: CommandLine.arguments)
 
         terminateExistingFixtures(named: appName)
         try? FileManager.default.removeItem(at: FixtureBridge.stateFileURL)
@@ -176,6 +178,15 @@ enum OpenComputerUseSmokeSuite {
 
         Thread.sleep(forTimeInterval: 1.5)
 
+        switch mode {
+        case .full:
+            try runFullSmoke(serverURL: serverURL, appName: appName)
+        case .cursorIdleOnly:
+            try runCursorIdleSmoke(serverURL: serverURL, appName: appName)
+        }
+    }
+
+    private static func runFullSmoke(serverURL: URL, appName: String) throws {
         let client = try MCPClient(executableURL: serverURL, arguments: ["mcp"])
         defer {
             client.terminate()
@@ -287,6 +298,52 @@ enum OpenComputerUseSmokeSuite {
         print("Smoke suite completed.")
     }
 
+    private static func runCursorIdleSmoke(serverURL: URL, appName: String) throws {
+        print("1. cursor idle observation setup")
+        let observationURL = cursorObservationFileURL()
+        try? FileManager.default.removeItem(at: observationURL)
+        var environment = ProcessInfo.processInfo.environment
+        environment["OPEN_COMPUTER_USE_VISUAL_CURSOR"] = "1"
+        environment["OPEN_COMPUTER_USE_VISUAL_CURSOR_OBSERVATION_FILE"] = observationURL.path
+
+        let client = try MCPClient(executableURL: serverURL, arguments: ["mcp"], environment: environment)
+        defer {
+            client.terminate()
+        }
+
+        try client.initialize()
+        _ = try client.callTool("get_app_state", arguments: [
+            "app": appName,
+        ])
+
+        print("2. trigger click and wait for idle overlay")
+        let state = try client.callTool("click", arguments: [
+            "app": appName,
+            "element_index": "1",
+        ])
+        try expect(state.contains("Counter:"), "cursor smoke click should still return fixture state")
+
+        let firstIdleSnapshot = try waitForCursorObservation(at: observationURL, phase: "idle")
+        Thread.sleep(forTimeInterval: 0.25)
+        let secondIdleSnapshot = try waitForCursorObservation(at: observationURL, phase: "idle")
+
+        print("3. assert anchored tip plus changing rotation")
+        let firstTip = try expectPoint(firstIdleSnapshot.tipPosition, name: "first tip position")
+        let secondTip = try expectPoint(secondIdleSnapshot.tipPosition, name: "second tip position")
+        let firstResting = try expectPoint(firstIdleSnapshot.restingTipPosition, name: "first resting tip position")
+        let secondResting = try expectPoint(secondIdleSnapshot.restingTipPosition, name: "second resting tip position")
+        let firstRotation = try expectValue(firstIdleSnapshot.rotation, name: "first rotation")
+        let secondRotation = try expectValue(secondIdleSnapshot.rotation, name: "second rotation")
+
+        try expect(abs(firstTip.x - secondTip.x) < 0.25, "idle cursor should stay anchored horizontally instead of shaking")
+        try expect(abs(firstTip.y - secondTip.y) < 0.25, "idle cursor should stay anchored vertically")
+        try expect(distanceBetween(firstTip, firstResting) < 0.35, "idle cursor tip should stay near resting position")
+        try expect(distanceBetween(secondTip, secondResting) < 0.35, "idle cursor tip should keep resting anchor")
+        try expect(abs(secondRotation - firstRotation) > 0.01, "idle cursor should keep a clearly visible tiny rotation wobble")
+
+        print("Cursor idle smoke completed.")
+    }
+
     private static func locateProductsDirectory() throws -> URL {
         let executableURL = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
         return executableURL.deletingLastPathComponent()
@@ -375,5 +432,65 @@ enum OpenComputerUseSmokeSuite {
         }
 
         return counter
+    }
+
+    private static func cursorObservationFileURL() -> URL {
+        URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("open-computer-use-smoke", isDirectory: true)
+            .appendingPathComponent("visual-cursor-observation.json")
+    }
+
+    private static func waitForCursorObservation(at url: URL, phase: String, timeout: TimeInterval = 6) throws -> VisualCursorObservationSnapshot {
+        let deadline = Date().addingTimeInterval(timeout)
+        var lastSnapshot: VisualCursorObservationSnapshot?
+
+        while Date() < deadline {
+            if
+                let data = try? Data(contentsOf: url),
+                let snapshot = try? JSONDecoder().decode(VisualCursorObservationSnapshot.self, from: data)
+            {
+                lastSnapshot = snapshot
+                if snapshot.phase == phase {
+                    return snapshot
+                }
+            }
+
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+
+        throw SmokeError.message("Timed out waiting for cursor observation phase \(phase). Last snapshot: \(String(describing: lastSnapshot))")
+    }
+
+    private static func expectPoint(_ point: VisualCursorObservationPoint?, name: String) throws -> CGPoint {
+        guard let point else {
+            throw SmokeError.message("Missing \(name)")
+        }
+
+        return CGPoint(x: point.x, y: point.y)
+    }
+
+    private static func expectValue(_ value: Double?, name: String) throws -> Double {
+        guard let value else {
+            throw SmokeError.message("Missing \(name)")
+        }
+
+        return value
+    }
+
+    private static func distanceBetween(_ lhs: CGPoint, _ rhs: CGPoint) -> CGFloat {
+        hypot(lhs.x - rhs.x, lhs.y - rhs.y)
+    }
+}
+
+private enum SmokeMode {
+    case full
+    case cursorIdleOnly
+
+    init(arguments: [String]) {
+        if arguments.contains("--cursor-idle-only") {
+            self = .cursorIdleOnly
+        } else {
+            self = .full
+        }
     }
 }

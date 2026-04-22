@@ -36,7 +36,7 @@ final class CursorMotionAppDelegate: NSObject, NSApplicationDelegate {
         window.orderFrontRegardless()
         window.makeKeyAndOrderFront(nil)
         window.level = .normal
-        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
         NSApp.activate(ignoringOtherApps: true)
     }
 

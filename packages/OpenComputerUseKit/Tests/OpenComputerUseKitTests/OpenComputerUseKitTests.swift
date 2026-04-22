@@ -556,6 +556,57 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(point, CGPoint(x: 2415, y: 1783))
     }
 
+    func testScreenshotPixelScaleUsesRetinaSizedImageAgainstWindowBounds() {
+        let scale = screenshotPixelScale(
+            screenshotPixelSize: CGSize(width: 2048, height: 1266),
+            windowBounds: CGRect(x: 1938, y: 236, width: 1024, height: 633)
+        )
+
+        XCTAssertEqual(scale.width, 2, accuracy: 0.0001)
+        XCTAssertEqual(scale.height, 2, accuracy: 0.0001)
+    }
+
+    func testScreenshotPixelScaleStaysAtOneForUnscaledDisplays() {
+        let scale = screenshotPixelScale(
+            screenshotPixelSize: CGSize(width: 1024, height: 633),
+            windowBounds: CGRect(x: 1938, y: 236, width: 1024, height: 633)
+        )
+
+        XCTAssertEqual(scale.width, 1, accuracy: 0.0001)
+        XCTAssertEqual(scale.height, 1, accuracy: 0.0001)
+    }
+
+    func testScreenshotPixelToWindowPointConvertsScreenshotPixelsBackToWindowPoints() {
+        let point = screenshotPixelToWindowPoint(
+            CGPoint(x: 1060, y: 790),
+            screenshotPixelSize: CGSize(width: 2048, height: 1266),
+            windowBounds: CGRect(x: 1938, y: 236, width: 1024, height: 633)
+        )
+
+        XCTAssertEqual(point.x, 530, accuracy: 0.0001)
+        XCTAssertEqual(point.y, 395, accuracy: 0.0001)
+    }
+
+    func testScreenshotPixelToWindowPointKeepsCoordinatesOnUnscaledDisplays() {
+        let point = screenshotPixelToWindowPoint(
+            CGPoint(x: 530, y: 395),
+            screenshotPixelSize: CGSize(width: 1024, height: 633),
+            windowBounds: CGRect(x: 1938, y: 236, width: 1024, height: 633)
+        )
+
+        XCTAssertEqual(point, CGPoint(x: 530, y: 395))
+    }
+
+    func testScreenshotPixelToWindowPointFallsBackToIdentityWithoutImageSize() {
+        let point = screenshotPixelToWindowPoint(
+            CGPoint(x: 530, y: 395),
+            screenshotPixelSize: nil,
+            windowBounds: CGRect(x: 1938, y: 236, width: 1024, height: 633)
+        )
+
+        XCTAssertEqual(point, CGPoint(x: 530, y: 395))
+    }
+
     func testCursorWindowGeometryAnchorsTipPosition() {
         let geometry = CursorWindowGeometry(
             windowSize: CGSize(width: 128, height: 128),
@@ -632,8 +683,34 @@ final class OpenComputerUseKitTests: XCTestCase {
     }
 
     func testVisualCursorKeepsPostInteractionIdleStateLongEnoughForFollowupTools() {
-        XCTAssertEqual(visualCursorPostInteractionIdleTimeout(), 5 * 60)
-        XCTAssertGreaterThan(visualCursorPostInteractionIdleTimeout(), 30)
+        XCTAssertEqual(visualCursorPostInteractionIdleTimeout(), 30)
+        XCTAssertGreaterThanOrEqual(visualCursorPostInteractionIdleTimeout(), 30)
+    }
+
+    func testCursorPanelReordersWhenForcedEvenIfTargetWindowDidNotChange() {
+        let targetWindow = CursorTargetWindow(windowID: 42, layer: 0)
+
+        XCTAssertTrue(
+            shouldReorderCursorPanel(
+                activeTargetWindow: targetWindow,
+                effectiveTargetWindow: targetWindow,
+                panelIsVisible: true,
+                forceReorder: true
+            )
+        )
+    }
+
+    func testCursorPanelDoesNotReorderWhenVisibleAndTargetWindowIsStable() {
+        let targetWindow = CursorTargetWindow(windowID: 42, layer: 0)
+
+        XCTAssertFalse(
+            shouldReorderCursorPanel(
+                activeTargetWindow: targetWindow,
+                effectiveTargetWindow: targetWindow,
+                panelIsVisible: true,
+                forceReorder: false
+            )
+        )
     }
 
     func testVisualCursorRuntimeMapsAppKitUpwardMotionToCursorMotionScreenState() {
@@ -856,6 +933,27 @@ final class OpenComputerUseKitTests: XCTestCase {
         let peakRotation = samples.prefix(120).map { abs($0.rotation) }.max() ?? 0
 
         XCTAssertGreaterThan(peakRotation, 1.5)
+    }
+
+    func testVisualCursorIdlePoseKeepsTipAnchoredAndOnlyRotates() {
+        let restingTipPosition = CGPoint(x: 184, y: 92)
+        let positivePose = visualCursorIdlePose(restingTipPosition: restingTipPosition, phase: .pi / 2)
+        let negativePose = visualCursorIdlePose(
+            restingTipPosition: restingTipPosition,
+            phase: (.pi / 2) + (.pi / CGFloat(0.8))
+        )
+
+        XCTAssertEqual(positivePose.tipPosition.x, restingTipPosition.x, accuracy: 0.0001)
+        XCTAssertEqual(positivePose.tipPosition.y, restingTipPosition.y, accuracy: 0.0001)
+        XCTAssertGreaterThan(positivePose.angleOffset, 0)
+        XCTAssertLessThanOrEqual(abs(positivePose.angleOffset), visualCursorIdleRotationAmplitude() + 0.0001)
+        XCTAssertGreaterThan(abs(positivePose.angleOffset), 0.08)
+
+        XCTAssertEqual(negativePose.tipPosition.x, restingTipPosition.x, accuracy: 0.0001)
+        XCTAssertEqual(negativePose.tipPosition.y, restingTipPosition.y, accuracy: 0.0001)
+        XCTAssertLessThan(negativePose.angleOffset, 0)
+        XCTAssertLessThanOrEqual(abs(negativePose.angleOffset), visualCursorIdleRotationAmplitude() + 0.0001)
+        XCTAssertGreaterThan(abs(negativePose.angleOffset), 0.08)
     }
 
     private func makeSnapshot(treeLines: [String], focusedSummary: String?, selectedText: String? = nil) -> AppSnapshot {

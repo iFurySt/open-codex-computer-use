@@ -2,6 +2,7 @@ import AppKit
 import ApplicationServices
 import CoreGraphics
 import Foundation
+import ScreenCaptureKit
 
 final class ElementRecord {
     let index: Int
@@ -232,14 +233,36 @@ private struct WindowCapture {
             return nil
         }
 
-        let image = CGWindowListCreateImage(
-            best.2,
-            .optionIncludingWindow,
-            best.0,
-            [.bestResolution, .boundsIgnoreFraming]
-        )
+        let image = captureImage(windowID: best.0, bounds: best.2)
 
         return WindowCapture(windowID: best.0, layer: best.1, bounds: best.2, image: image)
+    }
+
+    private static func captureImage(windowID: CGWindowID, bounds: CGRect) -> CGImage? {
+        try? BlockingAsyncBridge.run {
+            let shareableContent = try await SCShareableContent.current
+            guard let window = shareableContent.windows.first(where: { $0.windowID == windowID }) else {
+                return nil
+            }
+
+            let configuration = SCStreamConfiguration()
+            let scaleFactor = bestEffortScaleFactor(for: bounds)
+            let captureSize = window.frame.isEmpty ? bounds.size : window.frame.size
+            configuration.width = max(1, Int(ceil(captureSize.width * scaleFactor)))
+            configuration.height = max(1, Int(ceil(captureSize.height * scaleFactor)))
+            configuration.showsCursor = false
+            configuration.scalesToFit = false
+            configuration.ignoreShadowsSingleWindow = true
+
+            let filter = SCContentFilter(desktopIndependentWindow: window)
+            return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+        }
+    }
+
+    private static func bestEffortScaleFactor(for bounds: CGRect) -> CGFloat {
+        NSScreen.screens.first(where: { $0.frame.intersects(bounds) })?.backingScaleFactor
+            ?? NSScreen.main?.backingScaleFactor
+            ?? 1
     }
 
     func pngDataIfAvailable() -> Data? {
@@ -249,6 +272,43 @@ private struct WindowCapture {
 
         let bitmap = NSBitmapImageRep(cgImage: image)
         return bitmap.representation(using: .png, properties: [:])
+    }
+}
+
+private final class AsyncResultBox<T>: @unchecked Sendable {
+    var result: Result<T, Error>?
+}
+
+private enum BlockingAsyncBridge {
+    static func run<T>(_ operation: @escaping @Sendable () async throws -> T) throws -> T {
+        let semaphore = DispatchSemaphore(value: 0)
+        let resultBox = AsyncResultBox<T>()
+
+        Task.detached {
+            do {
+                resultBox.result = .success(try await operation())
+            } catch {
+                resultBox.result = .failure(error)
+            }
+
+            semaphore.signal()
+        }
+
+        waitForSignal(semaphore)
+        return try resultBox.result?.get() ?? {
+            throw ComputerUseError.message("ScreenCaptureKit screenshot task finished without producing a result.")
+        }()
+    }
+
+    private static func waitForSignal(_ semaphore: DispatchSemaphore) {
+        if Thread.isMainThread {
+            while semaphore.wait(timeout: .now()) == .timedOut {
+                RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+            }
+            return
+        }
+
+        semaphore.wait()
     }
 }
 

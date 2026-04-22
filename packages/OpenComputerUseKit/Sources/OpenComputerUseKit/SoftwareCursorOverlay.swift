@@ -69,7 +69,67 @@ func visualCursorScreenStateVelocity(
 }
 
 func visualCursorPostInteractionIdleTimeout() -> TimeInterval {
-    5 * 60
+    30
+}
+
+func visualCursorIdleRotationAmplitude() -> CGFloat {
+    0.09
+}
+
+public struct VisualCursorObservationPoint: Codable, Sendable {
+    public let x: Double
+    public let y: Double
+
+    public init(point: CGPoint) {
+        x = point.x
+        y = point.y
+    }
+}
+
+public struct VisualCursorObservationSnapshot: Codable, Sendable {
+    public let phase: String
+    public let tipPosition: VisualCursorObservationPoint?
+    public let restingTipPosition: VisualCursorObservationPoint?
+    public let rotation: Double?
+    public let timestamp: Double
+
+    public init(
+        phase: String,
+        tipPosition: CGPoint?,
+        restingTipPosition: CGPoint?,
+        rotation: CGFloat?,
+        timestamp: CFTimeInterval
+    ) {
+        self.phase = phase
+        self.tipPosition = tipPosition.map(VisualCursorObservationPoint.init(point:))
+        self.restingTipPosition = restingTipPosition.map(VisualCursorObservationPoint.init(point:))
+        self.rotation = rotation.map(Double.init)
+        self.timestamp = timestamp
+    }
+}
+
+struct VisualCursorIdlePose {
+    let tipPosition: CGPoint
+    let angleOffset: CGFloat
+}
+
+func visualCursorIdlePose(restingTipPosition: CGPoint, phase: CGFloat) -> VisualCursorIdlePose {
+    VisualCursorIdlePose(
+        tipPosition: restingTipPosition,
+        angleOffset: sin(phase * 0.8) * visualCursorIdleRotationAmplitude()
+    )
+}
+
+public func visualCursorObservationFileURL(environment: [String: String]) -> URL? {
+    guard
+        let rawPath = environment["OPEN_COMPUTER_USE_VISUAL_CURSOR_OBSERVATION_FILE"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+        !rawPath.isEmpty
+    else {
+        return nil
+    }
+
+    return URL(fileURLWithPath: rawPath)
 }
 
 public let openComputerUseTurnEndedNotificationName = Notification.Name("com.ifuryst.opencomputeruse.turn-ended")
@@ -136,6 +196,7 @@ enum SoftwareCursorOverlay {
     private static var idleTimer: Timer?
     private static var hideTimer: Timer?
     private static var idlePhase: CGFloat = 0
+    private static var observationPhase = "hidden"
 
     static func moveCursor(to targetPoint: CGPoint, in targetWindow: CursorTargetWindow?) {
         guard VisualCursorSupport.isEnabled, canPresentOverlay else {
@@ -152,6 +213,7 @@ enum SoftwareCursorOverlay {
         let startPoint = displayedTipPosition ?? defaultInitialTipPosition()
         let now = CACurrentMediaTime()
 
+        observationPhase = "moving"
         panel?.alphaValue = 1
         if isFreshStart {
             visualDynamicsState = CursorVisualDynamicsAnimator.state(at: startPoint, time: CGFloat(now))
@@ -182,6 +244,7 @@ enum SoftwareCursorOverlay {
         let now = CACurrentMediaTime()
         seedVisualDynamicsIfNeeded(at: constrainedTarget, time: now)
         restingTipPosition = constrainedTarget
+        observationPhase = "pulse"
         animateClickPulse(at: constrainedTarget, clickCount: max(clickCount, 1), mouseButton: mouseButton)
         startIdleAnimation()
         scheduleHide(after: visualCursorPostInteractionIdleTimeout())
@@ -195,6 +258,7 @@ enum SoftwareCursorOverlay {
         configureOrdering(relativeTo: targetWindow)
         let constrainedTarget = clampTipPosition(targetPoint)
         restingTipPosition = constrainedTarget
+        observationPhase = "settling"
         placeCursor(
             using: advanceVisualDynamics(
                 toward: constrainedTarget,
@@ -213,6 +277,8 @@ enum SoftwareCursorOverlay {
         restingTipPosition = nil
         activeTargetWindow = nil
         visualDynamicsState = nil
+        observationPhase = "hidden"
+        writeObservationSnapshot(tipPosition: nil, rotation: nil)
         panel?.orderOut(nil)
     }
 
@@ -247,6 +313,10 @@ enum SoftwareCursorOverlay {
     }
 
     private static func configureOrdering(relativeTo targetWindow: CursorTargetWindow?) {
+        configureOrdering(relativeTo: targetWindow, forceReorder: false)
+    }
+
+    private static func configureOrdering(relativeTo targetWindow: CursorTargetWindow?, forceReorder: Bool) {
         guard let panel else {
             return
         }
@@ -260,7 +330,12 @@ enum SoftwareCursorOverlay {
             panel.level = desiredLevel
         }
 
-        if activeTargetWindow != effectiveTargetWindow || panel.isVisible == false {
+        if shouldReorderCursorPanel(
+            activeTargetWindow: activeTargetWindow,
+            effectiveTargetWindow: effectiveTargetWindow,
+            panelIsVisible: panel.isVisible,
+            forceReorder: forceReorder
+        ) {
             if let effectiveTargetWindow {
                 panel.order(.above, relativeTo: Int(effectiveTargetWindow.windowID))
             } else {
@@ -457,7 +532,12 @@ enum SoftwareCursorOverlay {
     }
 
     private static func refreshActiveOrderingIfNeeded() {
-        guard let activeTargetWindow, !isWindowPresent(activeTargetWindow.windowID) else {
+        guard let activeTargetWindow else {
+            return
+        }
+
+        if isWindowPresent(activeTargetWindow.windowID) {
+            configureOrdering(relativeTo: activeTargetWindow, forceReorder: true)
             return
         }
 
@@ -510,6 +590,7 @@ enum SoftwareCursorOverlay {
             return
         }
 
+        observationPhase = "idle"
         idlePhase = 0
         let timer = Timer(timeInterval: 1 / 60, repeats: true) { _ in
             MainActor.assumeIsolated {
@@ -519,17 +600,17 @@ enum SoftwareCursorOverlay {
 
                 refreshActiveOrderingIfNeeded()
 
+                observationPhase = "idle"
                 idlePhase += 0.05
-                let targetTipPosition = CGPoint(
-                    x: restingTipPosition.x + (sin(idlePhase) * 1.6),
-                    y: restingTipPosition.y + (cos(idlePhase * 0.47) * 0.7)
+                let idlePose = visualCursorIdlePose(
+                    restingTipPosition: restingTipPosition,
+                    phase: idlePhase
                 )
-                let idleAngleOffset = sin(idlePhase * 0.8) * 0.03
 
                 placeCursor(
                     using: advanceVisualDynamics(
-                        toward: targetTipPosition,
-                        idleAngleOffset: idleAngleOffset,
+                        toward: idlePose.tipPosition,
+                        idleAngleOffset: idlePose.angleOffset,
                         at: CACurrentMediaTime()
                     ),
                     clickProgress: 0
@@ -590,6 +671,8 @@ enum SoftwareCursorOverlay {
                 restingTipPosition = nil
                 activeTargetWindow = nil
                 visualDynamicsState = nil
+                observationPhase = "hidden"
+                writeObservationSnapshot(tipPosition: nil, rotation: nil)
             }
         }
     }
@@ -657,6 +740,35 @@ enum SoftwareCursorOverlay {
         cursorView.clickProgress = clickProgress
         cursorView.needsDisplay = true
         displayedTipPosition = renderState.tipPosition
+        writeObservationSnapshot(
+            tipPosition: renderState.tipPosition,
+            rotation: renderState.rotation
+        )
+    }
+
+    private static func writeObservationSnapshot(tipPosition: CGPoint?, rotation: CGFloat?) {
+        guard
+            let url = visualCursorObservationFileURL(environment: ProcessInfo.processInfo.environment)
+        else {
+            return
+        }
+
+        let snapshot = VisualCursorObservationSnapshot(
+            phase: observationPhase,
+            tipPosition: tipPosition,
+            restingTipPosition: restingTipPosition,
+            rotation: rotation,
+            timestamp: CACurrentMediaTime()
+        )
+
+        do {
+            let directory = url.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let data = try JSONEncoder().encode(snapshot)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            // Observation is debug-only and must not affect tool execution.
+        }
     }
 
     private static func clampTipPosition(_ tipPosition: CGPoint) -> CGPoint {
@@ -694,6 +806,15 @@ enum SoftwareCursorOverlay {
     private static func distanceBetween(_ lhs: CGPoint, _ rhs: CGPoint) -> CGFloat {
         hypot(rhs.x - lhs.x, rhs.y - lhs.y)
     }
+}
+
+func shouldReorderCursorPanel(
+    activeTargetWindow: CursorTargetWindow?,
+    effectiveTargetWindow: CursorTargetWindow?,
+    panelIsVisible: Bool,
+    forceReorder: Bool
+) -> Bool {
+    forceReorder || activeTargetWindow != effectiveTargetWindow || panelIsVisible == false
 }
 
 private final class CursorPanel: NSPanel {

@@ -50,6 +50,12 @@ enum AppDiscovery {
     private static let useCountAttribute = "kMDItemUseCount"
     private static let maxRecentNonRunningApps = 10
     private static let fixtureListBundleIdentifier = "dev.opencodex.opencomputeruse.fixture"
+    private static let standardApplicationSearchRoots: [URL] = [
+        URL(fileURLWithPath: "/Applications", isDirectory: true),
+        URL(fileURLWithPath: "/System/Applications", isDirectory: true),
+        URL(fileURLWithPath: "/System/Library/CoreServices", isDirectory: true),
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true),
+    ]
 
     static let usageDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -240,21 +246,91 @@ enum AppDiscovery {
             }
 
             if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: query) {
-                try NSWorkspace.shared.launchApplication(at: appURL, options: [], configuration: [:])
+                try openApplication(at: appURL)
             }
             return
         }
 
-        guard let fullPath = NSWorkspace.shared.fullPath(forApplication: query) else {
+        guard let appURL = applicationURL(named: query) else {
             return
         }
 
-        let appURL = URL(fileURLWithPath: fullPath)
         if AppSafetyPolicy.isBlocked(bundleIdentifier: Bundle(url: appURL)?.bundleIdentifier) {
             return
         }
 
-        try NSWorkspace.shared.launchApplication(at: appURL, options: [], configuration: [:])
+        try openApplication(at: appURL)
+    }
+
+    private static func applicationURL(named query: String) -> URL? {
+        let targetName = stripAppSuffix(from: query).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !targetName.isEmpty else {
+            return nil
+        }
+
+        let fileManager = FileManager.default
+        let resourceKeys: [URLResourceKey] = [.isApplicationKey, .isDirectoryKey, .nameKey]
+        var visitedPaths: Set<String> = []
+
+        for root in standardApplicationSearchRoots where fileManager.fileExists(atPath: root.path) {
+            guard let enumerator = fileManager.enumerator(
+                at: root,
+                includingPropertiesForKeys: resourceKeys,
+                options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            ) else {
+                continue
+            }
+
+            for case let candidateURL as URL in enumerator {
+                guard candidateURL.pathExtension.caseInsensitiveCompare("app") == .orderedSame else {
+                    continue
+                }
+
+                let normalizedPath = candidateURL.standardizedFileURL.path.lowercased()
+                guard visitedPaths.insert(normalizedPath).inserted else {
+                    continue
+                }
+
+                let candidateName = stripAppSuffix(from: candidateURL.lastPathComponent)
+                if candidateName.caseInsensitiveCompare(targetName) == .orderedSame {
+                    return candidateURL
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private static func openApplication(at appURL: URL) throws {
+        let configuration = NSWorkspace.OpenConfiguration()
+        let semaphore = DispatchSemaphore(value: 0)
+        let errorBox = LaunchErrorBox()
+
+        NSWorkspace.shared.openApplication(at: appURL, configuration: configuration) { _, error in
+            errorBox.error = error
+            semaphore.signal()
+        }
+
+        waitForSignal(semaphore)
+
+        if let launchError = errorBox.error {
+            throw launchError
+        }
+    }
+
+    private static func waitForSignal(_ semaphore: DispatchSemaphore) {
+        if Thread.isMainThread {
+            while semaphore.wait(timeout: .now()) == .timedOut {
+                RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+            }
+            return
+        }
+
+        semaphore.wait()
+    }
+
+    private final class LaunchErrorBox: @unchecked Sendable {
+        var error: Error?
     }
 
     private static func recentUsageCutoff(referenceDate: Date = Date()) -> Date {

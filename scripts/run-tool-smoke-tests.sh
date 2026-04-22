@@ -8,3 +8,4 @@ cd "${repo_root}"
 
 swift build
 OPEN_COMPUTER_USE_VISUAL_CURSOR=0 ".build/debug/OpenComputerUseSmokeSuite"
+".build/debug/OpenComputerUseSmokeSuite" --cursor-idle-only
