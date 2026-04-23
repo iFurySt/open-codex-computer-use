@@ -1,7 +1,7 @@
 {
   "name": "open-computer-use",
-  "version": "0.1.33",
-  "description": "Open-source macOS Computer Use MCP server packaged as a Codex plugin.",
+  "version": "0.1.34",
+  "description": "Open-source cross-platform Computer Use MCP server packaged as a Codex plugin.",
   "author": {
     "name": "Leo",
     "url": "https://github.com/iFurySt"
@@ -19,8 +19,8 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Open Computer Use",
-    "shortDescription": "Control macOS apps from Codex with the open local server",
-    "longDescription": "Open Computer Use packages this repository's open-source macOS automation server as a Codex plugin. It exposes the same nine desktop-control MCP tools through the locally built OpenComputerUse app bundle, with an AX-first and keyboard-first strategy that tries to avoid stealing focus until global pointer input is truly required.",
+    "shortDescription": "Control desktop apps from Codex with the open local server",
+    "longDescription": "Open Computer Use packages this repository's open-source desktop automation server as a Codex plugin. It exposes the same nine desktop-control MCP tools through a local macOS app bundle or Linux / Windows native binary, with semantic accessibility paths preferred before fallback input.",
     "developerName": "Leo",
     "category": "Productivity",
     "capabilities": [
@@ -32,7 +32,7 @@
     "privacyPolicyURL": "https://github.com/iFurySt/open-codex-computer-use/blob/main/SECURITY.md",
     "termsOfServiceURL": "https://github.com/iFurySt/open-codex-computer-use/blob/main/LICENSE",
     "defaultPrompt": [
-      "Inspect the current UI state of this Mac app without stealing focus when possible",
+      "Inspect the current UI state of this desktop app without stealing focus when possible",
       "Open a new local document with keyboard shortcuts first, then type content without moving my real pointer unless required",
       "Drive the fixture app and verify the nine computer-use tools still behave correctly"
     ],

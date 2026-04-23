@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-04-23 | 三端 npm 安装 | `npm i -g open-computer-use` 现在会根据当前 `os-arch` 安装并调用对应的 macOS `.app`、Linux binary 或 Windows `.exe`，不再把 npm 分发锁死在 macOS。 | 发布 `0.1.34`，把 npm 包改成 root/meta package + `open-computer-use-<os>-<arch>` platform packages，通过 `optionalDependencies` 和跨平台 Node launcher 选择 native runtime，并让 release workflow 同时构建 macOS、Linux、Windows 制品。 |
 | 2026-04-22 | Gemini / opencode MCP 安装 | Gemini CLI 和 opencode 用户现在也能像 Claude Code / Codex 一样用仓库内置命令完成 `open-computer-use` 的 MCP 接入，不需要再手动查各自配置格式。 | 发布 `0.1.33`，新增 `install-gemini-mcp` 和 `install-opencode-mcp`，将 npm launcher、README 与共享配置 helper 一并补齐，并让 Gemini 默认 project-scope 配置不会污染仓库 git 状态。 |
 | 2026-04-22 | 发布版本重新对齐 | GitHub Release tag、插件 manifest 和仓库内版本常量重新回到同一个版本线；后续本地安装、staging 和诊断不会再出现 “release 已是新版本，但产物仍显示旧值” 的混乱状态。 | 发布 `0.1.32`，在远端 `v0.1.31` 已存在的前提下，将 `plugin.json`、Swift 版本常量、smoke/test 初始化请求和 CLI helper 文档统一 bump 到 `0.1.32`，为下一次 release 保持单一版本源。 |
 | 2026-04-22 | 视觉光标落点与空闲态收口 | Retina 窗口里的坐标点击更准确，visual cursor 在等待下一次动作时也更稳定、更接近官方观感。 | 发布 `0.1.31`，修复 screenshot pixel 到 window point 的映射，避免 `click({x,y})` 在高分屏上点偏；同时把 idle cursor 收敛为 30 秒停驻、保持压在目标窗口之上，并将等待态改成 anchored tip + tiny rotate wobble。 |

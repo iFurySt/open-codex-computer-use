@@ -8,7 +8,7 @@ https://github.com/user-attachments/assets/eacb3b15-f939-46c7-b3b3-6f876977a58d
 
 <sub><em>Gemini CLI connected to `open-computer-use` through MCP, driving real Computer Use actions end to end.</em></sub>
 
-`open-computer-use` is an open-source `Computer Use` service exposed over `MCP`, so any AI agent or MCP client can call it directly and use computer interaction capabilities on macOS. Experimental Windows and Linux runtimes now live in this repo too, each exposing the same 9-tool surface through standalone Go-built binaries.
+`open-computer-use` is an open-source `Computer Use` service exposed over `MCP`, so any AI agent or MCP client can call it directly and use computer interaction capabilities on macOS, Linux, and Windows. The macOS runtime ships as an app bundle, while the Windows and Linux runtimes expose the same 9-tool surface through standalone Go-built binaries.
 
 This project was inspired by OpenAI's recently released [Codex Computer Use](https://openai.com/index/codex-for-almost-everything/). It showed that non-intrusive CUA can be built on top of macOS Accessibility, which is why I decided to build an open-source version.
 
@@ -16,16 +16,18 @@ I bootstrapped this repo with my earlier [harness template](https://github.com/i
 
 ## Quick Start
 
-The npm package currently ships the macOS app bundle. Install it globally first:
+The npm package installs a root launcher plus the native package that matches your current `os-arch`:
 
 ```bash
 npm i -g open-computer-use
 ```
 
-Before first use, grant macOS `Accessibility` and `Screen Recording` permission to the `Open Computer Use.app` you actually plan to keep installed. The CI-built release package remains the stable identity for distribution. Local debug/dev builds are intentionally packaged as `Open Computer Use (Dev).app`, so System Settings shows them as a separate development app instead of another indistinguishable `Open Computer Use`. If you are not sure about the current state, run:
+On macOS, grant `Accessibility` and `Screen Recording` permission to the `Open Computer Use.app` you actually plan to keep installed. The CI-built release package remains the stable identity for distribution. Local debug/dev builds are intentionally packaged as `Open Computer Use (Dev).app`, so System Settings shows them as a separate development app instead of another indistinguishable `Open Computer Use`.
+
+On Linux and Windows, run it in the signed-in desktop session so AT-SPI2 or UI Automation can see GUI apps. To confirm the installed native package is wired correctly, run:
 
 ```bash
-open-computer-use
+open-computer-use --version
 ```
 
 Then add it to your MCP client:

@@ -8,7 +8,7 @@ https://github.com/user-attachments/assets/eacb3b15-f939-46c7-b3b3-6f876977a58d
 
 <sub><em>Gemini CLI 作为 host 接入 `open-computer-use` MCP，并完整触发真实的 Computer Use 操作。</em></sub>
 
-`open-computer-use` 是一个开源的 `Computer Use` 服务，已经包装成 `MCP` 协议，支持所有的 AI Agent 或 MCP Client 快速调用，实现 macOS 上的 `Computer Use` 能力。仓库里也已经新增实验性的 Windows 和 Linux runtime，用 Go 生成独立二进制，暴露同样的 9 个 tool。
+`open-computer-use` 是一个开源的 `Computer Use` 服务，已经包装成 `MCP` 协议，支持所有的 AI Agent 或 MCP Client 快速调用，实现 macOS、Linux 和 Windows 上的 `Computer Use` 能力。macOS 侧以 app bundle 分发，Windows 和 Linux runtime 用 Go 生成独立二进制，暴露同样的 9 个 tool。
 
 项目的背后是 OpenAI 刚发布的 [Codex Computer Use](https://openai.com/index/codex-for-almost-everything/)，让我看到了基于 Accessibility 可以实现非抢占式 CUA 能力，因此决定复刻一个开源版本
 
@@ -16,16 +16,18 @@ https://github.com/user-attachments/assets/eacb3b15-f939-46c7-b3b3-6f876977a58d
 
 ## Quick Start
 
-当前 npm 包发布的是 macOS app bundle，先全局安装：
+当前 npm 包会安装 root launcher，并按当前 `os-arch` 拉起对应 native package：
 
 ```bash
 npm i -g open-computer-use
 ```
 
-第一次使用前，给你实际准备长期保留的那个 `Open Computer Use.app` 授予 macOS 的 `Accessibility` 和 `Screen Recording` 权限。CI 产出的 release 包继续作为正式分发身份；本地 debug/dev 构建会故意打成 `Open Computer Use (Dev).app`，这样系统设置里会明确显示成一个开发版 app，而不是再出现两个同名的 `Open Computer Use`。
+macOS 第一次使用前，给你实际准备长期保留的那个 `Open Computer Use.app` 授予 `Accessibility` 和 `Screen Recording` 权限。CI 产出的 release 包继续作为正式分发身份；本地 debug/dev 构建会故意打成 `Open Computer Use (Dev).app`，这样系统设置里会明确显示成一个开发版 app，而不是再出现两个同名的 `Open Computer Use`。
+
+Linux 和 Windows 需要跑在已登录桌面 session 里，这样 AT-SPI2 或 UI Automation 才能看到 GUI app。先用下面的命令确认 native package 已经接好：
 
 ```bash
-open-computer-use
+open-computer-use --version
 ```
 
 接着把它配到你的 MCP client 里：

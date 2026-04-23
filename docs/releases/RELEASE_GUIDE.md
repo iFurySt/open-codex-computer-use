@@ -31,7 +31,7 @@
 也就是说：
 
 - 只改 git tag，不改这个 manifest，不会得到新 npm 版本。
-- `scripts/npm/build-packages.mjs` 会从这个 manifest 读取版本，再生成三个 staging 包。
+- `scripts/npm/build-packages.mjs` 会从这个 manifest 读取版本，再生成三个 root/alias staging 包和六个 `open-computer-use-<os>-<arch>` platform staging 包。
 - 所以 release 前必须先把这份 manifest bump 到目标版本。
 - 如果要让 `CursorMotion` 的 DMG 文件名和 release 页面资产名正确落到目标版本，也必须使用目标 tag 推送，或本地显式传入同样的 `--version`。
 
@@ -45,6 +45,8 @@
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/OpenComputerUseVersion.swift`
 - `apps/OpenComputerUseSmokeSuite/Sources/OpenComputerUseSmokeSuite/main.swift`
 - `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/OpenComputerUseKitTests.swift`
+- `apps/OpenComputerUseLinux/main.go`
+- `apps/OpenComputerUseWindows/main.go`
 - `scripts/computer-use-cli/main.go`
 - `scripts/computer-use-cli/README.md`
 - `docs/releases/feature-release-notes.md`
@@ -65,7 +67,9 @@ node ./scripts/npm/build-packages.mjs --out-dir dist/release/npm-staging-check
 然后直接检查 staging 包版本和 DMG 文件名：
 
 ```bash
-node -p "require('./dist/release/npm-staging-check/open-codex-computer-use-mcp/package.json').version"
+node -p "require('./dist/release/npm-staging-check/open-computer-use/package.json').version"
+node -p "require('./dist/release/npm-staging-check/open-computer-use-linux-arm64/package.json').version"
+node -p "require('./dist/release/npm-staging-check/open-computer-use/package.json').optionalDependencies['open-computer-use-linux-arm64']"
 ls dist/release/cursor-motion/CursorMotion-0.1.14.dmg
 ```
 
@@ -142,6 +146,7 @@ gh run view -R iFurySt/open-codex-computer-use <run-id> --log-failed
 - `Open Computer Use` 的 npm release 产物在没有配置 `OPEN_COMPUTER_USE_CODESIGN_P12_BASE64` / `OPEN_COMPUTER_USE_CODESIGN_P12_PASSWORD` 等 secrets 时，仍会退回 ad-hoc signing；配置后会先导入 `Developer ID Application` 证书，再按该 identity 统一签名。
 - `Cursor Motion` 当前 release 资产会优先复用 `OPEN_COMPUTER_USE_CODESIGN_*` 对 app 做 `Developer ID Application` 签名；如果同时配置 `APPLE_NOTARY_API_KEY_P8_BASE64`、`APPLE_NOTARY_KEY_ID`、`APPLE_NOTARY_ISSUER_ID`、`APPLE_DEVELOPER_TEAM_ID`，workflow 会继续对 `.dmg` 执行 notarization 和 staple。
 - 如果上述 secrets 缺失，workflow 会分别退回 ad-hoc signing 或跳过 notarization，而不是阻塞整条 release。
+- `open-computer-use` npm root 包通过 `optionalDependencies` 拉取 platform packages。如果用户安装时使用 `--omit=optional`，root launcher 会缺少 native runtime 并给出重装提示；release 前要确认 platform packages 先于 root/alias packages 发布。
 
 ## 如果 tag 已经打错了
 

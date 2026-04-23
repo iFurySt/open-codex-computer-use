@@ -4,9 +4,10 @@
 
 ## 当前 release 入口
 
-- `scripts/release-package.sh`：构建 universal `Open Computer Use.app`，stage 三个 npm 包目录，并产出 `dist/release/npm/*.tgz` 与 `dist/release/release-manifest.json`。当前 CI 继续显式使用 ad-hoc signing，保持和此前发布链路一致；本地 debug/dev 构建则允许使用开发机自己的签名身份。
+- `scripts/release-package.sh`：构建 universal `Open Computer Use.app`，cross-compile Linux / Windows runtime，stage 三个 root npm 包和六个 `open-computer-use-<os>-<arch>` platform packages，并产出 `dist/release/npm/*.tgz` 与 `dist/release/release-manifest.json`。当前 CI 继续显式使用 ad-hoc signing，保持和此前发布链路一致；本地 debug/dev 构建则允许使用开发机自己的签名身份。
 - `scripts/build-cursor-motion-dmg.sh`：本地构建 `Cursor Motion.app` 并封装 `dist/release/cursor-motion/CursorMotion-<version>.dmg`，支持 `native` / `arm64` / `x86_64` / `universal`。
-- `scripts/build-open-computer-use-linux.sh`：本地构建实验性 Linux `open-computer-use` binary，支持 `arm64` / `amd64`；当前还没有接入正式 release package。
+- `scripts/build-open-computer-use-linux.sh`：本地构建实验性 Linux `open-computer-use` binary，支持 `arm64` / `amd64`；release package 会把这两个产物封装进对应 npm platform packages。
+- `scripts/build-open-computer-use-windows.sh`：本地构建实验性 Windows `open-computer-use.exe`，支持 `arm64` / `amd64`；release package 会把这两个产物封装进对应 npm platform packages。
 - `.github/workflows/release.yml`：支持 push semver tag 自动发布，也支持手动触发；tag push 时会同时跑 npm release 打包逻辑与 `Cursor Motion` 的 DMG 打包，并把 `.dmg` 上传到对应的 GitHub Releases 页面。`Open Computer Use` 的 npm 产物默认走 ad-hoc signing；如果配置了 `OPEN_COMPUTER_USE_CODESIGN_*` secrets，则会先导入 `Developer ID Application` 证书，再按同一 identity 对 release `.app` 统一签名。`Cursor Motion` 的 DMG 也会复用同一张 `Developer ID Application` 证书签 app；若同时配置 `APPLE_NOTARY_*` secrets，则会在上传前对 `.dmg` 做 notarization 和 staple。
 
 ## 设计原则
@@ -33,6 +34,12 @@
 - `dist/release/npm/open-computer-use-<version>.tgz`
 - `dist/release/npm/open-computer-use-mcp-<version>.tgz`
 - `dist/release/npm/open-codex-computer-use-mcp-<version>.tgz`
+- `dist/release/npm/open-computer-use-darwin-arm64-<version>.tgz`
+- `dist/release/npm/open-computer-use-darwin-x64-<version>.tgz`
+- `dist/release/npm/open-computer-use-linux-arm64-<version>.tgz`
+- `dist/release/npm/open-computer-use-linux-x64-<version>.tgz`
+- `dist/release/npm/open-computer-use-win32-arm64-<version>.tgz`
+- `dist/release/npm/open-computer-use-win32-x64-<version>.tgz`
 - `dist/release/cursor-motion/CursorMotion-<version>.dmg`
 - GitHub Actions 中上传的 npm release artifact
 - GitHub Releases 中和 tag 对齐的 `CursorMotion-<version>.dmg`

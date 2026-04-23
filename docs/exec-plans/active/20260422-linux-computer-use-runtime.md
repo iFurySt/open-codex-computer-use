@@ -15,7 +15,7 @@
   - 架构文档、README、质量说明和 history。
 - 不包含：
   - 替换 macOS Swift 主线。
-  - Linux installer、desktop entry、system package、code signing 或 npm release artifact。
+  - Linux installer、desktop entry、system package 或 code signing。
   - visual cursor overlay。
   - 完整 Linux fixture / 可重复 smoke runner。
 
@@ -51,7 +51,7 @@
 1. 确认 Linux 可用接口和边界。
 2. 完成 Linux Go runtime、Python AT-SPI bridge 和 9-tool 功能性实现。
 3. 完成本地单测、交叉编译和 Ubuntu GNOME VM 9-tool smoke。
-4. 后续补 Linux fixture、可重复 smoke runner、release artifact 和更稳定截图方案。
+4. 后续补 Linux fixture、可重复 smoke runner、system package 和更稳定截图方案。
 
 ## 验证方式
 
@@ -84,7 +84,7 @@
 - [x] 在 Ubuntu VM 中验证 8-tool sequence：`get_app_state`、`set_value`、`type_text`、`press_key`、`perform_secondary_action`、`click`、`scroll`、`drag` 均 `isError=false`。
 - [ ] 增加 Linux fixture 和可重复 smoke runner。
 - [ ] 评估 xdg-desktop-portal / compositor-specific screenshot 路径，补非黑图 capture。
-- [ ] 将 Linux artifact 接入 release packaging。
+- [x] 将 Linux artifact 接入 npm release packaging，通过 `open-computer-use-linux-arm64` / `open-computer-use-linux-x64` platform packages 分发。
 - [ ] 评估用原生 Go D-Bus/libatspi 替换 Python GI bridge 的收益和风险。
 
 ## 决策记录
@@ -94,3 +94,4 @@
 - 2026-04-22：Linux 默认使用 AT-SPI semantic action / editable text / value；coordinate mouse、drag、keyboard synthesis 作为 best-effort fallback，并在 MCP instructions 中明确不是通用 Wayland background input。
 - 2026-04-22：GNOME Text Editor 的 AT-SPI tree 深度超过 Windows runtime 沿用的 16 层，Linux bridge 单独把 traversal depth 放宽到 64。
 - 2026-04-22：GNOME Wayland 下 GDK root capture 在 VM 上返回黑图；Linux bridge 检测全黑采样后省略 image block，后续再评估 portal/compositor-specific capture。
+- 2026-04-23：Linux release artifact 接入 npm platform package，不新增系统 installer；root `open-computer-use` package 通过 optional dependency 按 `linux-arm64` / `linux-x64` 自动选择 binary。

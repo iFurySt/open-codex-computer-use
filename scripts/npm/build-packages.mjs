@@ -21,10 +21,66 @@ const repoRoot = path.resolve(__dirname, "..", "..");
 const defaultOutDir = path.join(repoRoot, "dist", "npm");
 const appBundleName = "Open Computer Use.app";
 const appExecutableName = "OpenComputerUse";
-const packageNames = [
+const metaPackageNames = [
   "open-computer-use",
   "open-computer-use-mcp",
   "open-codex-computer-use-mcp",
+];
+const platformPackages = [
+  {
+    name: "open-computer-use-darwin-arm64",
+    os: "darwin",
+    cpu: "arm64",
+    kind: "macos-app",
+    executablePath: ["dist", appBundleName, "Contents", "MacOS", appExecutableName],
+  },
+  {
+    name: "open-computer-use-darwin-x64",
+    os: "darwin",
+    cpu: "x64",
+    kind: "macos-app",
+    executablePath: ["dist", appBundleName, "Contents", "MacOS", appExecutableName],
+  },
+  {
+    name: "open-computer-use-linux-arm64",
+    os: "linux",
+    cpu: "arm64",
+    kind: "binary",
+    buildArch: "arm64",
+    sourcePath: ["dist", "linux", "arm64", "open-computer-use"],
+    executablePath: ["bin", "open-computer-use"],
+  },
+  {
+    name: "open-computer-use-linux-x64",
+    os: "linux",
+    cpu: "x64",
+    kind: "binary",
+    buildArch: "amd64",
+    sourcePath: ["dist", "linux", "amd64", "open-computer-use"],
+    executablePath: ["bin", "open-computer-use"],
+  },
+  {
+    name: "open-computer-use-win32-arm64",
+    os: "win32",
+    cpu: "arm64",
+    kind: "binary",
+    buildArch: "arm64",
+    sourcePath: ["dist", "windows", "arm64", "open-computer-use.exe"],
+    executablePath: ["bin", "open-computer-use.exe"],
+  },
+  {
+    name: "open-computer-use-win32-x64",
+    os: "win32",
+    cpu: "x64",
+    kind: "binary",
+    buildArch: "amd64",
+    sourcePath: ["dist", "windows", "amd64", "open-computer-use.exe"],
+    executablePath: ["bin", "open-computer-use.exe"],
+  },
+];
+const packageNames = [
+  ...metaPackageNames,
+  ...platformPackages.map((platformPackage) => platformPackage.name),
 ];
 
 function parseArgs(argv) {
@@ -82,10 +138,13 @@ function printHelp() {
 
 Options:
   --configuration debug|release
-  --arch native|arm64|x86_64|universal
+  --arch native|arm64|x86_64|universal  macOS app build arch. Defaults to universal.
   --out-dir <dir>
   --package <package-name>
   --skip-build
+
+Packages:
+${packageNames.map((name) => `  - ${name}`).join("\n")}
 `);
 }
 
@@ -130,6 +189,21 @@ function ensureBuilt(configuration, arch) {
     "--arch",
     arch,
   ]);
+
+  for (const buildArch of ["arm64", "amd64"]) {
+    run(path.join(repoRoot, "scripts", "build-open-computer-use-linux.sh"), [
+      "--configuration",
+      configuration,
+      "--arch",
+      buildArch,
+    ]);
+    run(path.join(repoRoot, "scripts", "build-open-computer-use-windows.sh"), [
+      "--configuration",
+      configuration,
+      "--arch",
+      buildArch,
+    ]);
+  }
 }
 
 function writeExecutable(filePath, content) {
@@ -137,13 +211,39 @@ function writeExecutable(filePath, content) {
   chmodSync(filePath, 0o755);
 }
 
-function renderLauncher() {
-  return `#!/usr/bin/env bash
-set -euo pipefail
+function platformLaunchTable() {
+  return Object.fromEntries(
+    platformPackages.map((platformPackage) => [
+      `${platformPackage.os}-${platformPackage.cpu}`,
+      {
+        packageName: platformPackage.name,
+        executablePath: platformPackage.executablePath,
+      },
+    ]),
+  );
+}
 
-print_launcher_help() {
-  cat <<'EOF'
-Open Computer Use
+function renderLauncher() {
+  return `#!/usr/bin/env node
+const { spawn } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
+
+const platformPackages = ${JSON.stringify(platformLaunchTable(), null, 2)};
+const packageRoot = path.resolve(__dirname, "..");
+const args = process.argv.slice(2);
+const command = args[0] || "";
+const installCommands = new Map([
+  ["install-claude-mcp", "install-claude-mcp.sh"],
+  ["install-clauce-mcp", "install-claude-mcp.sh"],
+  ["install-gemini-mcp", "install-gemini-mcp.sh"],
+  ["install-codex-mcp", "install-codex-mcp.sh"],
+  ["install-opencode-mcp", "install-opencode-mcp.sh"],
+  ["install-codex-plugin", "install-codex-plugin.sh"],
+]);
+
+function printLauncherHelp() {
+  console.log(\`Open Computer Use
 
 Usage:
   open-computer-use [command] [options]
@@ -151,10 +251,10 @@ Usage:
 
 Commands:
   mcp                  Start the stdio MCP server.
-  doctor               Print permission status and launch onboarding if needed.
+  doctor               Print permission status and launch onboarding if needed on macOS.
   list-apps            Print running or recently used apps.
   snapshot <app>       Print the current accessibility snapshot for an app.
-  call <tool>           Call one tool, or run a JSON array of tool calls.
+  call <tool>          Call one tool, or run a JSON array of tool calls.
   turn-ended           Notify the running MCP process that the host turn ended.
   install-claude-mcp   Install the MCP server into ~/.claude.json for this project.
   install-gemini-mcp   Install the MCP server into Gemini CLI config.
@@ -169,119 +269,128 @@ Global options:
   -v, --version        Show version.
 
 Notes:
-  Running without a command launches the permission onboarding app.
-  Use \`open-computer-use help <command>\` for command-specific help.
-EOF
+  This npm package installs a small launcher plus one platform package selected by npm.
+  Use 'open-computer-use help <command>' for command-specific help.\`);
 }
 
-script_path="\${BASH_SOURCE[0]}"
-while [[ -L "\${script_path}" ]]; do
-  script_dir="$(cd "$(dirname "\${script_path}")" && pwd)"
-  script_path="$(readlink "\${script_path}")"
-  if [[ "\${script_path}" != /* ]]; then
-    script_path="\${script_dir}/\${script_path}"
-  fi
-done
-package_root="$(cd "$(dirname "\${script_path}")/.." && pwd)"
-app_binary="\${package_root}/dist/${appBundleName}/Contents/MacOS/${appExecutableName}"
-install_claude_mcp_script="\${package_root}/scripts/install-claude-mcp.sh"
-install_gemini_mcp_script="\${package_root}/scripts/install-gemini-mcp.sh"
-install_mcp_script="\${package_root}/scripts/install-codex-mcp.sh"
-install_opencode_mcp_script="\${package_root}/scripts/install-opencode-mcp.sh"
-install_script="\${package_root}/scripts/install-codex-plugin.sh"
+function printInstallHelp(scriptName, usage) {
+  console.log(\`Usage:
+  \${usage}
 
-if [[ "\${1:-}" == "install-claude-mcp" || "\${1:-}" == "install-clauce-mcp" ]]; then
-  shift
-  exec "\${install_claude_mcp_script}" "$@"
-fi
+This helper updates a local MCP or plugin config to run:
+  open-computer-use mcp
 
-if [[ "\${1:-}" == "install-gemini-mcp" ]]; then
-  shift
-  exec "\${install_gemini_mcp_script}" "$@"
-fi
+Script:
+  \${scriptName}\`);
+}
 
-if [[ "\${1:-}" == "install-codex-mcp" ]]; then
-  shift
-  exec "\${install_mcp_script}" "$@"
-fi
+function fail(message) {
+  console.error(message);
+  process.exit(1);
+}
 
-if [[ "\${1:-}" == "install-opencode-mcp" ]]; then
-  shift
-  exec "\${install_opencode_mcp_script}" "$@"
-fi
+function spawnAndExit(executable, executableArgs) {
+  const child = spawn(executable, executableArgs, {
+    stdio: "inherit",
+    windowsHide: false,
+  });
 
-if [[ "\${1:-}" == "install-codex-plugin" ]]; then
-  shift
-  exec "\${install_script}" "$@"
-fi
+  child.on("error", (error) => {
+    fail(\`Failed to start \${executable}: \${error.message}\`);
+  });
 
-if [[ "\${1:-}" == "-h" || "\${1:-}" == "--help" ]]; then
-  print_launcher_help
-  exit 0
-fi
+  for (const signal of ["SIGINT", "SIGTERM"]) {
+    process.on(signal, () => {
+      child.kill(signal);
+    });
+  }
 
-if [[ "\${1:-}" == "help" && $# -le 1 ]]; then
-  print_launcher_help
-  exit 0
-fi
+  child.on("exit", (code, signal) => {
+    if (signal) {
+      process.exit(1);
+    }
+    process.exit(code ?? 0);
+  });
+}
 
-if [[ "\${1:-}" == "help" && "\${2:-}" == "install-codex-plugin" ]]; then
-  cat <<'EOF'
-Usage:
-  open-computer-use install-codex-plugin
+function runInstallCommand(scriptName, scriptArgs) {
+  if (process.platform === "win32") {
+    fail(\`\${command} currently requires a POSIX shell. Configure your MCP client with command "open-computer-use" and args ["mcp"] on Windows.\`);
+  }
 
-Install this npm package into the local Codex plugin cache.
-EOF
-  exit 0
-fi
+  const scriptPath = path.join(packageRoot, "scripts", scriptName);
+  if (!fs.existsSync(scriptPath)) {
+    fail(\`Missing installer helper at \${scriptPath}.\`);
+  }
 
-if [[ "\${1:-}" == "help" && "\${2:-}" == "install-codex-mcp" ]]; then
-  cat <<'EOF'
-Usage:
-  open-computer-use install-codex-mcp
+  spawnAndExit(scriptPath, scriptArgs);
+}
 
-Install the open-computer-use MCP server into ~/.codex/config.toml.
-EOF
-  exit 0
-fi
+function resolveNativeExecutable() {
+  const platformKey = \`\${process.platform}-\${process.arch}\`;
+  const target = platformPackages[platformKey];
+  if (!target) {
+    const supported = Object.keys(platformPackages).sort().join(", ");
+    fail(\`Unsupported platform \${platformKey}. Supported platforms: \${supported}.\`);
+  }
 
-if [[ "\${1:-}" == "help" && "\${2:-}" == "install-gemini-mcp" ]]; then
-  cat <<'EOF'
-Usage:
-  open-computer-use install-gemini-mcp [--scope project|user]
+  let manifestPath;
+  try {
+    manifestPath = require.resolve(\`\${target.packageName}/package.json\`, { paths: [packageRoot] });
+  } catch (error) {
+    fail(\`Missing platform package \${target.packageName}.
 
-Install the open-computer-use MCP server into Gemini CLI config.
-EOF
-  exit 0
-fi
+This usually means npm optional dependencies were omitted or pruned. Reinstall with:
+  npm install -g open-computer-use
 
-if [[ "\${1:-}" == "help" && "\${2:-}" == "install-opencode-mcp" ]]; then
-  cat <<'EOF'
-Usage:
-  open-computer-use install-opencode-mcp
+If you intentionally use --omit=optional, install the matching platform package too.\`);
+  }
 
-Install the open-computer-use MCP server into ~/.config/opencode.
-EOF
-  exit 0
-fi
+  const platformRoot = path.dirname(manifestPath);
+  const executablePath = path.join(platformRoot, ...target.executablePath);
+  if (!fs.existsSync(executablePath)) {
+    fail(\`Platform package \${target.packageName} is installed, but its executable is missing at \${executablePath}.\`);
+  }
 
-if [[ "\${1:-}" == "help" && ( "\${2:-}" == "install-claude-mcp" || "\${2:-}" == "install-clauce-mcp" ) ]]; then
-  cat <<'EOF'
-Usage:
-  open-computer-use install-claude-mcp
-  open-computer-use install-clauce-mcp
+  return executablePath;
+}
 
-Install the open-computer-use MCP server into ~/.claude.json for the current project.
-EOF
-  exit 0
-fi
+if (command === "-h" || command === "--help" || (command === "help" && args.length <= 1)) {
+  printLauncherHelp();
+  process.exit(0);
+}
 
-if [[ ! -x "\${app_binary}" ]]; then
-  echo "open-computer-use could not find a runnable app bundle at \${app_binary}." >&2
-  exit 1
-fi
+if (command === "help" && args[1] === "install-codex-plugin") {
+  printInstallHelp("install-codex-plugin.sh", "open-computer-use install-codex-plugin");
+  process.exit(0);
+}
 
-exec "\${app_binary}" "$@"
+if (command === "help" && args[1] === "install-codex-mcp") {
+  printInstallHelp("install-codex-mcp.sh", "open-computer-use install-codex-mcp");
+  process.exit(0);
+}
+
+if (command === "help" && args[1] === "install-gemini-mcp") {
+  printInstallHelp("install-gemini-mcp.sh", "open-computer-use install-gemini-mcp [--scope project|user]");
+  process.exit(0);
+}
+
+if (command === "help" && args[1] === "install-opencode-mcp") {
+  printInstallHelp("install-opencode-mcp.sh", "open-computer-use install-opencode-mcp");
+  process.exit(0);
+}
+
+if (command === "help" && (args[1] === "install-claude-mcp" || args[1] === "install-clauce-mcp")) {
+  printInstallHelp("install-claude-mcp.sh", "open-computer-use install-claude-mcp");
+  process.exit(0);
+}
+
+if (installCommands.has(command)) {
+  const scriptName = installCommands.get(command);
+  runInstallCommand(scriptName, args.slice(1));
+} else {
+  spawnAndExit(resolveNativeExecutable(), args);
+}
 `;
 }
 
@@ -300,13 +409,14 @@ const lines = [
   "Installed ${packageName}@${version}.",
   "Package: https://www.npmjs.com/package/${packageName}",
   "Commands: open-computer-use, open-computer-use-mcp, open-codex-computer-use-mcp",
+  "Native package is selected by npm optionalDependencies for " + process.platform + "-" + process.arch + ".",
   "",
   "Next:",
-  "1. Run open-computer-use doctor",
-  "2. In macOS System Settings, grant Accessibility and Screen Recording to your host terminal or MCP client",
-  "3. Run open-computer-use install-claude-mcp, install-gemini-mcp, install-codex-mcp, or install-opencode-mcp for your host CLI, or install-codex-plugin for the local Codex plugin cache",
+  "1. Run open-computer-use --version",
+  "2. Add the MCP config below to your host client",
+  "3. On macOS, run open-computer-use doctor and grant Accessibility / Screen Recording if prompted",
   "",
-  "You can add this to any MCP-capable client:",
+  "MCP config:",
   JSON.stringify(mcpConfig, null, 2),
   "",
 ];
@@ -319,9 +429,13 @@ for (const line of lines) {
 function renderReadme(packageName, version) {
   return `# ${packageName}
 
-Prebuilt macOS npm distribution for the open-source **Open Computer Use** MCP server.
+Cross-platform npm distribution for the open-source **Open Computer Use** MCP server.
 
-This package bundles a ready-to-run \`${appBundleName}\`, the Codex plugin metadata, and three global command aliases:
+This package installs a small Node launcher and lets npm choose one native package through \`optionalDependencies\`:
+
+${platformPackages.map((platformPackage) => `- \`${platformPackage.name}\` for \`${platformPackage.os}-${platformPackage.cpu}\``).join("\n")}
+
+Global command aliases:
 
 - \`open-computer-use\`
 - \`open-computer-use-mcp\`
@@ -333,7 +447,7 @@ This package bundles a ready-to-run \`${appBundleName}\`, the Codex plugin metad
 npm install -g ${packageName}
 \`\`\`
 
-After install, run \`open-computer-use doctor\` first. If macOS \`Accessibility\` or \`Screen Recording\` permission is missing, it will open the permission onboarding window and tell you what still needs to be granted. If everything is already granted, it just prints the status and exits.
+The root launcher resolves the current \`process.platform\` / \`process.arch\` pair and runs the matching native runtime. Do not install with \`--omit=optional\` unless you also install the matching platform package yourself.
 
 ## MCP config
 
@@ -350,81 +464,91 @@ If your MCP client accepts a stdio-style \`mcpServers\` JSON config, this is the
 }
 \`\`\`
 
-In practice, using this package as MCP is: global install, add the JSON config, then grant macOS \`Accessibility\` and \`Screen Recording\` permission to the bundled npm-installed \`Open Computer Use.app\` on first use.
-
 Package page: https://www.npmjs.com/package/${packageName}
 
 ## Use
 
 \`\`\`bash
-# Show global help, command help, and version
-open-computer-use --help
-open-computer-use help snapshot
 open-computer-use --version
+open-computer-use --help
+open-computer-use mcp
+open-computer-use call list_apps
 
-# Install into Claude Code for the current project
-open-computer-use install-claude-mcp
-
-# Install into Gemini CLI for the current project or user config
-open-computer-use install-gemini-mcp
-open-computer-use install-gemini-mcp --scope user
-
-# Install into Codex as a plain MCP entry in ~/.codex/config.toml
-open-computer-use install-codex-mcp
-
-# Install into opencode in ~/.config/opencode
-open-computer-use install-opencode-mcp
-
-# Check permissions first; if Accessibility / Screen Recording is missing, open the permission onboarding window
-# If both are already granted, this just prints the status and exits
+# macOS permission check and onboarding
 open-computer-use doctor
 
-# Start the stdio MCP server for Claude Desktop, Cursor, Cline, or another MCP client
-open-computer-use mcp
-
-# Call tools directly; the JSON-array form keeps state in one process for follow-up actions
-open-computer-use call list_apps
-open-computer-use call get_app_state --args '{"app":"TextEdit"}'
-open-computer-use call --calls '[{"tool":"get_app_state","args":{"app":"TextEdit"}},{"tool":"press_key","args":{"app":"TextEdit","key":"Return"}}]'
-
-# Install this package into the local Codex plugin marketplace/cache
+# Installer helpers for MCP-capable CLIs
+open-computer-use install-claude-mcp
+open-computer-use install-gemini-mcp
+open-computer-use install-gemini-mcp --scope user
+open-computer-use install-codex-mcp
+open-computer-use install-opencode-mcp
 open-computer-use install-codex-plugin
 \`\`\`
 
 ## Notes
 
 - Version: \`${version}\`
-- Platform: macOS 14+
-- Architectures: \`arm64\` and \`x64\` via a universal app bundle
-- The host terminal or app still needs macOS \`Accessibility\` and \`Screen Recording\` permissions
+- Supported npm platforms: \`darwin-arm64\`, \`darwin-x64\`, \`linux-arm64\`, \`linux-x64\`, \`win32-arm64\`, \`win32-x64\`
+- macOS still requires \`Accessibility\` and \`Screen Recording\` permissions.
+- Linux requires a signed-in desktop session with AT-SPI2 / D-Bus accessibility available for real app control.
+- Windows requires a signed-in desktop session for UI Automation access.
 
 Source repository: https://github.com/iFurySt/open-codex-computer-use
 `;
 }
 
-function renderPackageJson(packageName, version) {
+function renderPlatformReadme(platformPackage, version) {
+  const platformKey = `${platformPackage.os}-${platformPackage.cpu}`;
+  return `# ${platformPackage.name}
+
+Native Open Computer Use runtime package for \`${platformKey}\`.
+
+This package is installed automatically as an optional dependency of \`open-computer-use@${version}\` when npm runs on \`${platformKey}\`. Most users should install the root package instead:
+
+\`\`\`bash
+npm install -g open-computer-use
+\`\`\`
+
+Source repository: https://github.com/iFurySt/open-codex-computer-use
+`;
+}
+
+function packageKeywords(extraKeywords = []) {
+  return [
+    "computer-use",
+    "codex",
+    "mcp",
+    "macos",
+    "linux",
+    "windows",
+    "automation",
+    ...extraKeywords,
+  ];
+}
+
+function platformOptionalDependencies(version) {
+  return Object.fromEntries(
+    platformPackages.map((platformPackage) => [platformPackage.name, version]),
+  );
+}
+
+function renderMetaPackageJson(packageName, version) {
   return {
     name: packageName,
     version,
-    description: "Prebuilt macOS Computer Use MCP server. After install, run open-computer-use doctor.",
+    description: "Cross-platform Computer Use MCP server launcher. After install, configure open-computer-use mcp.",
     license: "MIT",
     homepage: "https://github.com/iFurySt/open-codex-computer-use",
     repository: {
       type: "git",
-      url: "https://github.com/iFurySt/open-codex-computer-use",
+      url: "git+https://github.com/iFurySt/open-codex-computer-use.git",
     },
     bugs: {
       url: "https://github.com/iFurySt/open-codex-computer-use/issues",
     },
-    keywords: [
-      "computer-use",
-      "codex",
-      "mcp",
-      "macos",
-      "automation",
-    ],
-    os: ["darwin"],
-    cpu: ["arm64", "x64"],
+    keywords: packageKeywords(),
+    optionalDependencies: platformOptionalDependencies(version),
     preferGlobal: true,
     publishConfig: {
       access: "public",
@@ -440,7 +564,6 @@ function renderPackageJson(packageName, version) {
     files: [
       ".agents/plugins/marketplace.json",
       "bin/",
-      `dist/${appBundleName}/`,
       "plugins/open-computer-use/.codex-plugin/",
       "plugins/open-computer-use/.mcp.json",
       "plugins/open-computer-use/assets/",
@@ -458,44 +581,124 @@ function renderPackageJson(packageName, version) {
   };
 }
 
-function stagePackage(packageName, version, outDir) {
-  const packageRoot = path.join(outDir, packageName);
-  rmSync(packageRoot, { recursive: true, force: true });
+function renderPlatformPackageJson(platformPackage, version) {
+  const platformKey = `${platformPackage.os}-${platformPackage.cpu}`;
+  const files = platformPackage.kind === "macos-app"
+    ? [`dist/${appBundleName}/`, "README.md", "LICENSE"]
+    : ["bin/", "README.md", "LICENSE"];
+  return {
+    name: platformPackage.name,
+    version,
+    description: `Native Open Computer Use runtime for ${platformKey}.`,
+    license: "MIT",
+    homepage: "https://github.com/iFurySt/open-codex-computer-use",
+    repository: {
+      type: "git",
+      url: "git+https://github.com/iFurySt/open-codex-computer-use.git",
+    },
+    bugs: {
+      url: "https://github.com/iFurySt/open-codex-computer-use/issues",
+    },
+    keywords: packageKeywords([platformPackage.os, platformPackage.cpu]),
+    os: [platformPackage.os],
+    cpu: [platformPackage.cpu],
+    publishConfig: {
+      access: "public",
+    },
+    files,
+  };
+}
 
-  mkdirSync(path.join(packageRoot, ".agents", "plugins"), { recursive: true });
-  mkdirSync(path.join(packageRoot, "bin"), { recursive: true });
-  mkdirSync(path.join(packageRoot, "dist"), { recursive: true });
-  mkdirSync(path.join(packageRoot, "plugins"), { recursive: true });
-  mkdirSync(path.join(packageRoot, "scripts"), { recursive: true });
-
-  cpSync(path.join(repoRoot, ".agents", "plugins", "marketplace.json"), path.join(packageRoot, ".agents", "plugins", "marketplace.json"));
-  cpSync(path.join(repoRoot, "dist", appBundleName), path.join(packageRoot, "dist", appBundleName), {
-    recursive: true,
-  });
-  cpSync(path.join(repoRoot, "plugins", "open-computer-use"), path.join(packageRoot, "plugins", "open-computer-use"), {
-    recursive: true,
-  });
+function copyInstallerScripts(packageRoot) {
   cpSync(path.join(repoRoot, "scripts", "install-claude-mcp.sh"), path.join(packageRoot, "scripts", "install-claude-mcp.sh"));
   cpSync(path.join(repoRoot, "scripts", "install-gemini-mcp.sh"), path.join(packageRoot, "scripts", "install-gemini-mcp.sh"));
   cpSync(path.join(repoRoot, "scripts", "install-config-helper.mjs"), path.join(packageRoot, "scripts", "install-config-helper.mjs"));
   cpSync(path.join(repoRoot, "scripts", "install-codex-mcp.sh"), path.join(packageRoot, "scripts", "install-codex-mcp.sh"));
   cpSync(path.join(repoRoot, "scripts", "install-opencode-mcp.sh"), path.join(packageRoot, "scripts", "install-opencode-mcp.sh"));
   cpSync(path.join(repoRoot, "scripts", "install-codex-plugin.sh"), path.join(packageRoot, "scripts", "install-codex-plugin.sh"));
-  cpSync(path.join(repoRoot, "LICENSE"), path.join(packageRoot, "LICENSE"));
 
-  writeExecutable(path.join(packageRoot, "bin", "open-computer-use"), renderLauncher());
-  writeExecutable(path.join(packageRoot, "bin", "open-computer-use-mcp"), renderLauncher());
-  writeExecutable(path.join(packageRoot, "bin", "open-codex-computer-use-mcp"), renderLauncher());
+  for (const scriptName of [
+    "install-claude-mcp.sh",
+    "install-gemini-mcp.sh",
+    "install-codex-mcp.sh",
+    "install-opencode-mcp.sh",
+    "install-codex-plugin.sh",
+  ]) {
+    chmodSync(path.join(packageRoot, "scripts", scriptName), 0o755);
+  }
+}
+
+function stageMetaPackage(packageName, version, outDir) {
+  const packageRoot = path.join(outDir, packageName);
+  rmSync(packageRoot, { recursive: true, force: true });
+
+  mkdirSync(path.join(packageRoot, ".agents", "plugins"), { recursive: true });
+  mkdirSync(path.join(packageRoot, "bin"), { recursive: true });
+  mkdirSync(path.join(packageRoot, "plugins"), { recursive: true });
+  mkdirSync(path.join(packageRoot, "scripts"), { recursive: true });
+
+  cpSync(path.join(repoRoot, ".agents", "plugins", "marketplace.json"), path.join(packageRoot, ".agents", "plugins", "marketplace.json"));
+  cpSync(path.join(repoRoot, "plugins", "open-computer-use"), path.join(packageRoot, "plugins", "open-computer-use"), {
+    recursive: true,
+  });
+  cpSync(path.join(repoRoot, "LICENSE"), path.join(packageRoot, "LICENSE"));
+  copyInstallerScripts(packageRoot);
+
+  const launcher = renderLauncher();
+  writeExecutable(path.join(packageRoot, "bin", "open-computer-use"), launcher);
+  writeExecutable(path.join(packageRoot, "bin", "open-computer-use-mcp"), launcher);
+  writeExecutable(path.join(packageRoot, "bin", "open-codex-computer-use-mcp"), launcher);
   writeFileSync(path.join(packageRoot, "scripts", "postinstall.mjs"), renderPostinstall(packageName, version), "utf-8");
   writeFileSync(path.join(packageRoot, "README.md"), renderReadme(packageName, version), "utf-8");
-  writeFileSync(path.join(packageRoot, "package.json"), `${JSON.stringify(renderPackageJson(packageName, version), null, 2)}\n`, "utf-8");
+  writeFileSync(path.join(packageRoot, "package.json"), `${JSON.stringify(renderMetaPackageJson(packageName, version), null, 2)}\n`, "utf-8");
 
-  chmodSync(path.join(packageRoot, "scripts", "install-claude-mcp.sh"), 0o755);
-  chmodSync(path.join(packageRoot, "scripts", "install-gemini-mcp.sh"), 0o755);
-  chmodSync(path.join(packageRoot, "scripts", "install-codex-mcp.sh"), 0o755);
-  chmodSync(path.join(packageRoot, "scripts", "install-opencode-mcp.sh"), 0o755);
-  chmodSync(path.join(packageRoot, "scripts", "install-codex-plugin.sh"), 0o755);
   removeJunkFiles(packageRoot);
+}
+
+function assertFileExists(filePath, packageName) {
+  if (!existsSync(filePath)) {
+    throw new Error(`Missing artifact for ${packageName}: ${filePath}. Run without --skip-build first.`);
+  }
+}
+
+function stagePlatformPackage(platformPackage, version, outDir) {
+  const packageRoot = path.join(outDir, platformPackage.name);
+  rmSync(packageRoot, { recursive: true, force: true });
+
+  mkdirSync(path.join(packageRoot, "bin"), { recursive: true });
+  mkdirSync(path.join(packageRoot, "dist"), { recursive: true });
+
+  if (platformPackage.kind === "macos-app") {
+    const sourcePath = path.join(repoRoot, "dist", appBundleName);
+    assertFileExists(sourcePath, platformPackage.name);
+    cpSync(sourcePath, path.join(packageRoot, "dist", appBundleName), {
+      recursive: true,
+    });
+  } else {
+    const sourcePath = path.join(repoRoot, ...platformPackage.sourcePath);
+    const destinationPath = path.join(packageRoot, ...platformPackage.executablePath);
+    assertFileExists(sourcePath, platformPackage.name);
+    cpSync(sourcePath, destinationPath);
+    chmodSync(destinationPath, 0o755);
+  }
+
+  cpSync(path.join(repoRoot, "LICENSE"), path.join(packageRoot, "LICENSE"));
+  writeFileSync(path.join(packageRoot, "README.md"), renderPlatformReadme(platformPackage, version), "utf-8");
+  writeFileSync(path.join(packageRoot, "package.json"), `${JSON.stringify(renderPlatformPackageJson(platformPackage, version), null, 2)}\n`, "utf-8");
+  removeJunkFiles(packageRoot);
+}
+
+function stagePackage(packageName, version, outDir) {
+  if (metaPackageNames.includes(packageName)) {
+    stageMetaPackage(packageName, version, outDir);
+    return;
+  }
+
+  const platformPackage = platformPackages.find((candidate) => candidate.name === packageName);
+  if (!platformPackage) {
+    throw new Error(`Unsupported package name: ${packageName}`);
+  }
+  stagePlatformPackage(platformPackage, version, outDir);
 }
 
 function main() {

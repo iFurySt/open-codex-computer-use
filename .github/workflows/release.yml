@@ -35,9 +35,15 @@ jobs:
         with:
           node-version: "24"
 
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version: "1.22.x"
+
       - name: Check npm trusted publishing CLI
         run: |
           node --version
+          go version
           npm_version="$(npm --version)"
           echo "npm ${npm_version}"
           node -e 'const [major, minor] = process.argv[1].split(".").map(Number); if (major < 11 || (major === 11 && minor < 5)) { console.error(`npm ${process.argv[1]} is too old for trusted publishing; need 11.5.1+`); process.exit(1); }' "${npm_version}"

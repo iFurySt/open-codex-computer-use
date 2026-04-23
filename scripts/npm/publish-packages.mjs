@@ -95,6 +95,13 @@ function readPackageMetadata(packageDir) {
   };
 }
 
+function publishPriority(packageName) {
+  if (/^open-computer-use-(darwin|linux|win32)-/.test(packageName)) {
+    return 0;
+  }
+  return 1;
+}
+
 function npmPackageVersionExists(packageName, version, env) {
   const result = spawnSync("npm", ["view", `${packageName}@${version}`, "version", "--json"], {
     cwd: repoRoot,
@@ -229,7 +236,11 @@ function main() {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
-    .sort();
+    .sort((left, right) => {
+      const leftName = JSON.parse(readFileSync(path.join(left, "package.json"), "utf-8")).name;
+      const rightName = JSON.parse(readFileSync(path.join(right, "package.json"), "utf-8")).name;
+      return publishPriority(leftName) - publishPriority(rightName) || leftName.localeCompare(rightName);
+    });
 
   for (const packageDir of packageDirs) {
     const { name: packageName, version } = readPackageMetadata(packageDir);
