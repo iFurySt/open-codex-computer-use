@@ -68,9 +68,9 @@
   - staging 包包含 `dist/Open Computer Use.app`、`dist/linux/` 和 `dist/windows/`。
   - npm tarball 数量为 3，和 release manifest 对齐。
 - 观测检查：
-  - GitHub Actions release workflow 成功。
-  - npm registry 最新版可见。
-  - Linux VM `npm i -g open-computer-use@<version>` 后 raw MCP `tools/list` 返回 9 个 tools。
+  - GitHub Actions release workflow 成功：`24816330343`。
+  - npm registry `open-computer-use@0.1.35`、`open-computer-use-mcp@0.1.35`、`open-codex-computer-use-mcp@0.1.35` 可见。
+  - Linux VM `npm i -g open-computer-use@0.1.35` 后 raw MCP `tools/list` 返回 9 个 tools。
 
 ## 进度记录
 
@@ -79,8 +79,8 @@
 - [x] 完成 publish 面收敛到既有三个 npm 包，并保留 CI Go toolchain 调整。
 - [x] 完成版本、文档、history 同步。
 - [x] 完成本地验证：staging / release tarballs / dry-run publish / Swift tests / Linux Go tests / Windows Go tests / macOS npm prefix install / MCP tools list。
-- [ ] 完成 tag release、CI 跟踪、npm registry 验证。
-- [ ] 完成 Linux VM npm install 与 MCP tools/list 验证。
+- [x] 完成 tag release、CI 跟踪、npm registry 验证。
+- [x] 完成 Linux VM npm install 与 MCP tools/list 验证。
 
 ## 决策记录
 

@@ -41,5 +41,7 @@
 - 通过：`(cd apps/OpenComputerUseWindows && go test ./...)`
 - 通过：`node ./scripts/npm/publish-packages.mjs --skip-build --out-dir dist/release/npm-staging --dry-run`，发布面为三个既有 root/alias packages。
 - 通过：`git diff --check`
-- 待补：GitHub Actions release workflow。
-- 待补：Linux VM npm 全局安装和 MCP `tools/list`。
+- 通过：GitHub Actions release workflow `24816330343`，`package-npm` 与 `release-cursor-motion-dmg` 均成功。
+- 通过：`npm view open-computer-use@0.1.35`、`open-computer-use-mcp@0.1.35`、`open-codex-computer-use-mcp@0.1.35` 均可见；`open-computer-use@0.1.35` 不再声明 `optionalDependencies` / `os` / `cpu`。
+- 通过：Ubuntu aarch64 VM 里 `npm i -g open-computer-use@0.1.35` 成功，`open-computer-use --version` 输出 `0.1.35`，并确认 `/usr/local/lib/node_modules/open-computer-use/dist/linux/arm64/open-computer-use` 是 aarch64 ELF。
+- 通过：Ubuntu aarch64 VM 里 raw MCP `initialize` / `tools/list` 返回 9 个 tools。
