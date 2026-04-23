@@ -2,6 +2,10 @@
 
 [中文说明](./README.zh-CN.md)
 
+<a href="https://llmapis.com?source=https%3A%2F%2Fgithub.com%2FiFurySt%2Fopen-codex-computer-use" target="_blank"><img src="https://llmapis.com/api/badge/iFurySt/open-codex-computer-use" alt="LLMAPIS" width="80" /></a>
+
+*Partnership with [https://llmapis.com](https://llmapis.com) - Discover more AI tools and resources*
+
 [![Open Computer Use custom demo cover](./docs/generated/readme-assets/open-computer-use-demo-cover.png)](https://youtu.be/2s6aVpGiwaQ)
 
 https://github.com/user-attachments/assets/eacb3b15-f939-46c7-b3b3-6f876977a58d
