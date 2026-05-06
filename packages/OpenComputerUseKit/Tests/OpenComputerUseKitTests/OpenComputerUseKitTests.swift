@@ -313,6 +313,20 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(resolved, running)
     }
 
+    func testPreferredPermissionAppBundleURLCanPreferRunningReleaseCopyOverStaleInstalledCopy() {
+        let staleInstalled = URL(fileURLWithPath: "/Users/example/projects/open-codex-computer-use/dist/npm/open-computer-use/dist/Open Computer Use.app")
+        let running = URL(fileURLWithPath: "/opt/homebrew/lib/node_modules/open-computer-use/dist/Open Computer Use.app")
+
+        let resolved = PermissionSupport.preferredPermissionAppBundleURL(
+            preferredInstalledBundleURL: staleInstalled,
+            runningBundleURL: running,
+            fallbackDevelopmentBundleURL: nil,
+            preferRunningBundle: true
+        )
+
+        XCTAssertEqual(resolved, running)
+    }
+
     func testPreferredInstalledAppBundleURLUsesFirstDiscoveredInstalledCopy() {
         let applications = URL(fileURLWithPath: "/Applications/Open Computer Use.app")
         let npm = URL(fileURLWithPath: "/opt/homebrew/lib/node_modules/open-computer-use/dist/Open Computer Use.app")
@@ -387,7 +401,7 @@ final class OpenComputerUseKitTests: XCTestCase {
 
     func testInitializeResponseContainsToolsCapability() throws {
         let server = StdioMCPServer(service: ComputerUseService())
-        let response = server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"0.1.37"},"capabilities":{}}}"#)
+        let response = server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"0.1.38"},"capabilities":{}}}"#)
         XCTAssertNotNil(response)
         XCTAssertTrue(response!.contains(#""name":"open-computer-use""#))
         XCTAssertTrue(response!.contains(#""tools":{"listChanged":false}"#))
@@ -396,7 +410,7 @@ final class OpenComputerUseKitTests: XCTestCase {
     func testInitializeResponseContainsComputerUseInstructions() throws {
         let server = StdioMCPServer(service: ComputerUseService())
         let response = try XCTUnwrap(
-            server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"0.1.37"},"capabilities":{}}}"#)
+            server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"0.1.38"},"capabilities":{}}}"#)
         )
         let data = try XCTUnwrap(response.data(using: .utf8))
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])

@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-05-06 | npm 安装后的 app-agent 启动 | `npm install -g open-computer-use` 后，`open-computer-use doctor` 不会再因为本机残留旧 staging `.app` 而启动错副本并超时。 | 发布 `0.1.38`，当当前进程已经来自合法 `Open Computer Use.app` bundle 时，代理启动优先复用正在执行的 bundle，再回退到 LaunchServices / 标准安装目录发现的其它副本。 |
 | 2026-05-06 | macOS 权限身份 | macOS 用户重新安装新版 npm 包后，只需要授权 `Open Computer Use.app`，不再要求给 iTerm / Terminal 单独授予 Accessibility 或 Screen Recording。 | 发布 `0.1.37`，将 `mcp`、`doctor`、`call`、`snapshot` 和 `list-apps` 通过 LaunchServices 启动的 app-agent 执行，让真实 AX / ScreenCaptureKit 调用落在 `.app` 权限主体上，并同步更新权限文案和版本源。 |
 
 ## 2026-04

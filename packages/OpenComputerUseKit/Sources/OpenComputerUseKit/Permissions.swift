@@ -129,7 +129,7 @@ public enum PermissionSupport {
             preferredInstalledBundleURL: preferredInstalledAppBundleURL(),
             runningBundleURL: runningBundleURL,
             fallbackDevelopmentBundleURL: fallbackDevelopmentAppBundleURL(),
-            preferRunningBundle: isDevelopmentAppBundle(runningBundleURL)
+            preferRunningBundle: runningBundleURL != nil
         )
     }
 
