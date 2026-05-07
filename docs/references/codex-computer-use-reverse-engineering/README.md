@@ -26,6 +26,8 @@
   - 针对视频里 5 个 slider，记录 shipping bundle 中是否还带对应 label phrase、它们与当前 binary-confirmed 几何 / spring 量的映射关系，以及对实际曲线的敏感性分析。
 - `permission-onboarding.md`
   - 对 Accessibility / Screen Recording 权限引导和 System Settings accessory window 的分析。
+- `state-rendering-1.0.770.md`
+  - 对官方 `computer-use` 1.0.770 state renderer 字符串、AX 字段、tree transform 和窗口恢复线索的整理，用于继续收敛 Lark / Electron app state 输出。
 - `assets/README.md`
   - 直接从官方 bundle 导出的可视资源归档，包括 `SoftwareCursor`、`HintArrow` 和 cursor icon 资产。
 
