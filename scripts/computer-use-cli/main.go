@@ -21,7 +21,7 @@ import (
 
 const (
 	cliName                  = "computer-use-cli"
-	cliVersion               = "0.1.44"
+	cliVersion               = "0.1.45"
 	defaultTimeout           = 60 * time.Second
 	pluginRootEnvVar         = "COMPUTER_USE_PLUGIN_ROOT"
 	pluginVersionEnvVar      = "COMPUTER_USE_PLUGIN_VERSION"

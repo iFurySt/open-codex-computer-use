@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-05-07 | 可见窗口匹配 | `get_app_state` 在 app 没有可见窗口、窗口已最小化，或 AX 窗口无法匹配到 on-screen CGWindow 时会更接近官方 `computer-use` 的 `cgWindowNotFound` 语义，避免返回没有截图坐标基础的半残状态。 | 发布 `0.1.45`，基于官方 `1.0.770` 逆向字符串中的 `cgWindowNotFound`、`noWindowsAvailable`、`matchingWindowNotFound` 和 `AXWindowMiniaturized` 线索，要求真实 app snapshot 同时满足未最小化 `AXWindow` 与可见 `CGWindow`。 |
 | 2026-05-07 | 无可用窗口状态对齐 | 当 Lark / Feishu 这类 app 暂时没有可用 AX 窗口时，`get_app_state` 会明确返回不可用错误，不再输出只有 application / menu bar 的误导性树，后续工具不会拿到不可操作的 element index。 | 发布 `0.1.44`，对 focused window 和 first window 候选做 `AXWindow` 角色过滤，并要求真实 AX window 才渲染 accessibility tree；该行为与官方 `computer-use` 在相同 Lark 状态下的失败语义对齐。 |
 | 2026-05-07 | WebArea 状态树结构 | Feishu / Lark 这类 Electron app 的 `HTML 内容` 区域会保留更接近官方 `computer-use` 的浅层 layout container 和分支结构，减少过度扁平化，便于后续按上下文定位消息、公告和输入区域。 | 发布 `0.1.43`，基于官方 `computer-use` `1.0.770` 对比和二进制字符串线索调整 WebArea generic wrapper elision：保留浅层容器和深层分支容器，同时继续压缩深层单子链噪声。 |
 | 2026-05-07 | Electron 状态树细节对齐 | Feishu / Lark 消息列表里带头像或图片的紧凑行更接近官方 `computer-use`，会保留 `container -> text + image` 结构，后续点击和读树时更容易定位图片子节点。 | 发布 `0.1.42`，在短文本摘要容器含 image descendant 时将摘要渲染成 synthetic child text，并保留最多四个 image 子节点；补充 Lark 对比采样和单元测试。 |
