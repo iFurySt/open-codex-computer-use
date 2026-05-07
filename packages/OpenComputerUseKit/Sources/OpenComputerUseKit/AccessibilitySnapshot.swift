@@ -30,6 +30,7 @@ enum SnapshotMode {
 let accessibilityTreeMaxNodeCount = 1200
 let accessibilityTreeMaxDepth = 64
 let screenshotCaptureTimeout: TimeInterval = 5
+private let windowVisibilityRecoveryDelay: TimeInterval = 0.7
 private let axWebAreaRole = "AXWebArea"
 
 public struct AppSnapshot {
@@ -90,17 +91,54 @@ enum SnapshotBuilder {
         let appElement = AXUIElementCreateApplication(app.pid)
         enableBestEffortAccessibilityModes(appElement)
         let systemWide = AXUIElementCreateSystemWide()
-        let focusedApplication = copyElement(systemWide, attribute: kAXFocusedApplicationAttribute)
-        guard let focusedWindow = preferredFocusedWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide) else {
+        var focusedApplication = copyElement(systemWide, attribute: kAXFocusedApplicationAttribute)
+        var focusedWindow = preferredFocusedWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
+        if focusedWindow == nil, recoverVisibleWindow(for: app, appElement: appElement, preferredWindow: nil) {
+            focusedApplication = copyElement(systemWide, attribute: kAXFocusedApplicationAttribute)
+            focusedWindow = preferredFocusedWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
+        }
+
+        var rootWindow: AXUIElement
+        guard let resolvedFocusedWindow = focusedWindow else {
+            throw ComputerUseError.stateUnavailable(computerUseNoWindowFoundMessage)
+        }
+        rootWindow = resolvedFocusedWindow
+
+        var windowTitle = stringValue(of: rootWindow, attribute: kAXTitleAttribute)
+        var windowCapture = WindowCapture.resolve(for: app.pid, titleHint: windowTitle)
+        if windowCapture == nil, recoverVisibleWindow(for: app, appElement: appElement, preferredWindow: rootWindow) {
+            focusedApplication = copyElement(systemWide, attribute: kAXFocusedApplicationAttribute)
+            if let recoveredWindow = preferredFocusedWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide) {
+                rootWindow = recoveredWindow
+                windowTitle = stringValue(of: recoveredWindow, attribute: kAXTitleAttribute)
+                windowCapture = WindowCapture.resolve(for: app.pid, titleHint: windowTitle)
+            }
+        }
+
+        guard let windowCapture else {
             throw ComputerUseError.stateUnavailable(computerUseNoWindowFoundMessage)
         }
 
-        let windowTitle = stringValue(of: focusedWindow, attribute: kAXTitleAttribute)
-        guard let windowCapture = WindowCapture.resolve(for: app.pid, titleHint: windowTitle) else {
-            throw ComputerUseError.stateUnavailable(computerUseNoWindowFoundMessage)
-        }
+        return buildAccessibilitySnapshot(
+            app: app,
+            appElement: appElement,
+            rootElement: rootWindow,
+            windowTitle: windowTitle,
+            windowCapture: windowCapture,
+            focusedApplication: focusedApplication,
+            systemWide: systemWide
+        )
+    }
 
-        let rootElement = focusedWindow
+    private static func buildAccessibilitySnapshot(
+        app: RunningAppDescriptor,
+        appElement: AXUIElement,
+        rootElement: AXUIElement,
+        windowTitle: String?,
+        windowCapture: WindowCapture,
+        focusedApplication: AXUIElement?,
+        systemWide: AXUIElement
+    ) -> AppSnapshot {
         let windowBounds = windowCapture.bounds
         let screenshotPNGData = windowCapture.pngDataIfAvailable()
         let focusedElement = preferredFocusedElement(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
@@ -130,12 +168,79 @@ enum SnapshotBuilder {
         )
     }
 
+    private static func recoverVisibleWindow(for app: RunningAppDescriptor, appElement: AXUIElement, preferredWindow: AXUIElement?) -> Bool {
+        var recovered = false
+
+        if let runningApplication = NSRunningApplication(processIdentifier: app.pid) {
+            recovered = runningApplication.unhide() || recovered
+            recovered = runningApplication.activate(options: [.activateAllWindows]) || recovered
+        }
+
+        if let bundleIdentifier = app.bundleIdentifier {
+            recovered = openBundleIdentifier(bundleIdentifier) || recovered
+        }
+
+        if let window = preferredWindow ?? firstAnyWindow(for: appElement) {
+            recovered = unminimize(window) || recovered
+            recovered = raise(window) || recovered
+            recovered = setBoolAttribute(named: kAXMainAttribute as String, on: window) || recovered
+            recovered = setBoolAttribute(named: kAXFocusedAttribute as String, on: window) || recovered
+        }
+
+        if recovered {
+            Thread.sleep(forTimeInterval: windowVisibilityRecoveryDelay)
+        }
+
+        return recovered
+    }
+
+    private static func openBundleIdentifier(_ bundleIdentifier: String) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-b", bundleIdentifier]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
+    }
+
     private static func firstWindow(for appElement: AXUIElement) -> AXUIElement? {
         guard let windows = copyArray(appElement, attribute: kAXWindowsAttribute) else {
             return nil
         }
 
         return windows.first(where: isUsableWindowElement(_:))
+    }
+
+    private static func firstAnyWindow(for appElement: AXUIElement) -> AXUIElement? {
+        copyElement(appElement, attribute: kAXFocusedWindowAttribute)
+            ?? copyArray(appElement, attribute: kAXWindowsAttribute)?.first(where: { stringValue(of: $0, attribute: kAXRoleAttribute) == kAXWindowRole as String })
+    }
+
+    private static func unminimize(_ window: AXUIElement) -> Bool {
+        guard boolValue(of: window, attribute: kAXMinimizedAttribute) == true else {
+            return false
+        }
+
+        return AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse) == .success
+    }
+
+    private static func raise(_ window: AXUIElement) -> Bool {
+        guard copyActions(window)?.contains(where: { $0.caseInsensitiveCompare(kAXRaiseAction as String) == .orderedSame }) == true else {
+            return false
+        }
+
+        return AXUIElementPerformAction(window, kAXRaiseAction as CFString) == .success
+    }
+
+    private static func setBoolAttribute(named attribute: String, on element: AXUIElement) -> Bool {
+        AXUIElementSetAttributeValue(element, attribute as CFString, kCFBooleanTrue) == .success
     }
 
     private static func preferredFocusedWindow(appElement: AXUIElement, appPID: pid_t, focusedApplication: AXUIElement?, systemWide: AXUIElement) -> AXUIElement? {
