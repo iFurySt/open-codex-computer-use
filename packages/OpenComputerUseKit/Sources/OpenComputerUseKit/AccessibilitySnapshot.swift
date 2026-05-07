@@ -91,11 +91,13 @@ enum SnapshotBuilder {
         enableBestEffortAccessibilityModes(appElement)
         let systemWide = AXUIElementCreateSystemWide()
         let focusedApplication = copyElement(systemWide, attribute: kAXFocusedApplicationAttribute)
-        let focusedWindow = preferredFocusedWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
-        let rootElement = focusedWindow ?? appElement
-        let windowTitle = stringValue(of: focusedWindow ?? appElement, attribute: kAXTitleAttribute)
+        guard let focusedWindow = preferredFocusedWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide) else {
+            throw ComputerUseError.stateUnavailable("No key window is available for \(app.bundleIdentifier ?? app.name). Bring the app window on screen and call get_app_state again.")
+        }
 
+        let windowTitle = stringValue(of: focusedWindow, attribute: kAXTitleAttribute)
         let windowCapture = WindowCapture.resolve(for: app.pid, titleHint: windowTitle)
+        let rootElement = focusedWindow
         let windowBounds = windowCapture?.bounds
         let screenshotPNGData = windowCapture?.pngDataIfAvailable()
         let focusedElement = preferredFocusedElement(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
@@ -104,8 +106,7 @@ enum SnapshotBuilder {
 
         var renderer = TreeRenderer(context: context)
         renderer.render(rootElement)
-        if focusedWindow != nil,
-           let menuBar = copyElement(appElement, attribute: kAXMenuBarAttribute),
+        if let menuBar = copyElement(appElement, attribute: kAXMenuBarAttribute),
            !CFEqual(menuBar, rootElement)
         {
             renderer.render(menuBar)
@@ -131,19 +132,31 @@ enum SnapshotBuilder {
             return nil
         }
 
-        return windows.first
+        return windows.first(where: isWindowElement(_:))
     }
 
     private static func preferredFocusedWindow(appElement: AXUIElement, appPID: pid_t, focusedApplication: AXUIElement?, systemWide: AXUIElement) -> AXUIElement? {
         if let focusedApplication, pid(of: focusedApplication) == appPID {
-            return copyElement(systemWide, attribute: kAXFocusedWindowAttribute)
-                ?? copyElement(focusedApplication, attribute: kAXFocusedWindowAttribute)
+            return windowElement(from: copyElement(systemWide, attribute: kAXFocusedWindowAttribute))
+                ?? windowElement(from: copyElement(focusedApplication, attribute: kAXFocusedWindowAttribute))
                 ?? firstWindow(for: focusedApplication)
-                ?? copyElement(appElement, attribute: kAXFocusedWindowAttribute)
+                ?? windowElement(from: copyElement(appElement, attribute: kAXFocusedWindowAttribute))
                 ?? firstWindow(for: appElement)
         }
 
-        return copyElement(appElement, attribute: kAXFocusedWindowAttribute) ?? firstWindow(for: appElement)
+        return windowElement(from: copyElement(appElement, attribute: kAXFocusedWindowAttribute)) ?? firstWindow(for: appElement)
+    }
+
+    private static func windowElement(from element: AXUIElement?) -> AXUIElement? {
+        guard let element, isWindowElement(element) else {
+            return nil
+        }
+
+        return element
+    }
+
+    private static func isWindowElement(_ element: AXUIElement) -> Bool {
+        stringValue(of: element, attribute: kAXRoleAttribute) == kAXWindowRole as String
     }
 
     private static func preferredFocusedElement(appElement: AXUIElement, appPID: pid_t, focusedApplication: AXUIElement?, systemWide: AXUIElement) -> AXUIElement? {
