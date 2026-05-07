@@ -284,6 +284,41 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertTrue(diagnostics.missingPermissions.isEmpty)
     }
 
+    func testListedAppDescriptorRendersFrontmostBeforeRunning() {
+        let descriptor = ListedAppDescriptor(
+            name: "Sample",
+            bundleIdentifier: "com.example.Sample",
+            isRunning: true,
+            isFrontmost: true,
+            lastUsed: nil,
+            uses: nil
+        )
+
+        XCTAssertEqual(descriptor.renderedLine, "Sample — com.example.Sample [frontmost, running]")
+    }
+
+    func testListedAppSortingPrefersFrontmostRunningApp() {
+        let frontmost = ListedAppDescriptor(
+            name: "Front",
+            bundleIdentifier: "com.example.Front",
+            isRunning: true,
+            isFrontmost: true,
+            lastUsed: nil,
+            uses: nil
+        )
+        let frequent = ListedAppDescriptor(
+            name: "Frequent",
+            bundleIdentifier: "com.example.Frequent",
+            isRunning: true,
+            isFrontmost: false,
+            lastUsed: Date(),
+            uses: 999
+        )
+
+        XCTAssertTrue(AppDiscovery.compareListedApps(frontmost, frequent))
+        XCTAssertFalse(AppDiscovery.compareListedApps(frequent, frontmost))
+    }
+
     func testPreferredPermissionAppBundleURLPrefersInstalledCopyOverTransientRunningCopy() {
         let installed = URL(fileURLWithPath: "/opt/homebrew/lib/node_modules/open-computer-use/dist/Open Computer Use.app")
         let running = URL(fileURLWithPath: "/Users/example/projects/open-codex-computer-use/dist/Open Computer Use.app")

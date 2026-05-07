@@ -13,11 +13,15 @@ struct ListedAppDescriptor {
     let name: String
     let bundleIdentifier: String
     let isRunning: Bool
+    let isFrontmost: Bool
     let lastUsed: Date?
     let uses: Int?
 
     var renderedLine: String {
         var markers: [String] = []
+        if isFrontmost {
+            markers.append("frontmost")
+        }
         if isRunning {
             markers.append("running")
         }
@@ -67,6 +71,7 @@ enum AppDiscovery {
 
     static func listCatalog() -> [ListedAppDescriptor] {
         let running = userFacingRunningApps()
+        let frontmostBundleIdentifier = NSWorkspace.shared.frontmostApplication?.bundleIdentifier?.lowercased()
         let runningByBundle = running.reduce(into: [String: RunningAppDescriptor]()) { result, descriptor in
             guard let bundleIdentifier = listedBundleIdentifier(for: descriptor) else {
                 return
@@ -87,6 +92,7 @@ enum AppDiscovery {
                 name: runningDescriptor?.name ?? record.name,
                 bundleIdentifier: record.bundleIdentifier,
                 isRunning: runningDescriptor != nil,
+                isFrontmost: key == frontmostBundleIdentifier,
                 lastUsed: record.lastUsed,
                 uses: record.uses
             )
@@ -103,6 +109,7 @@ enum AppDiscovery {
                 name: descriptor.name,
                 bundleIdentifier: bundleIdentifier,
                 isRunning: true,
+                isFrontmost: key == frontmostBundleIdentifier,
                 lastUsed: existing?.lastUsed,
                 uses: existing?.uses
             )
@@ -212,7 +219,11 @@ enum AppDiscovery {
         return fixtureListBundleIdentifier
     }
 
-    private static func compareListedApps(_ lhs: ListedAppDescriptor, _ rhs: ListedAppDescriptor) -> Bool {
+    static func compareListedApps(_ lhs: ListedAppDescriptor, _ rhs: ListedAppDescriptor) -> Bool {
+        if lhs.isFrontmost != rhs.isFrontmost {
+            return lhs.isFrontmost && !rhs.isFrontmost
+        }
+
         if lhs.isRunning != rhs.isRunning {
             return lhs.isRunning && !rhs.isRunning
         }
