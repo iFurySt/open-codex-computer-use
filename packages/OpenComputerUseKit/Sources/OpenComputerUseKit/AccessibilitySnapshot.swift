@@ -602,7 +602,7 @@ private struct TreeRenderer {
         let linePrefix = roleText.isEmpty ? "\(index)" : "\(index) \(roleText)"
 
         let lineBody = "\(linePrefix)\(traitsSegment)\(titleSegment)\(rowSummarySegment)\(labelSegment)\(helpSegment)\(urlSegment)\(identifierSegment)\(valueSegment)"
-        lines.append("\(String(repeating: "\t", count: depth + 1))\(lineBody)\(actionsSegment)")
+        lines.append("\(String(repeating: "\t", count: depth))\(lineBody)\(actionsSegment)")
 
         let record = ElementRecord(
             index: index,
@@ -653,7 +653,7 @@ private struct TreeRenderer {
 
         let index = nextIndex
         nextIndex += 1
-        lines.append("\(String(repeating: "\t", count: depth + 1))\(index) text \(text)")
+        lines.append("\(String(repeating: "\t", count: depth))\(index) text \(text)")
 
         records[index] = ElementRecord(
             index: index,
