@@ -531,10 +531,12 @@ private struct TreeRenderer {
             explicitValue: value,
             rowTexts: rowTexts
         )
+        let linkText = role == "AXLink" ? markdownLinkText(for: root, title: title, label: label, value: value) : nil
+        let displayTitle = linkText ?? title
         let inlineRowSummary = outlineRowSummary(for: root, role: role)
         let hidesChildren = shouldSuppressChildren(
             role: role,
-            title: title,
+            title: displayTitle,
             label: label,
             help: help,
             value: value,
@@ -547,14 +549,14 @@ private struct TreeRenderer {
         let roleText = displayRoleText(
             baseRoleText: baseRoleText,
             role: role,
-            title: title,
+            title: displayTitle,
             label: label,
             suppressChildren: hidesChildren
         )
 
         if shouldElideNode(
             role: role,
-            title: title,
+            title: displayTitle,
             label: label,
             value: value,
             identifier: axIdentifier,
@@ -573,35 +575,35 @@ private struct TreeRenderer {
         nextIndex += 1
 
         let traitsSegment = traits.isEmpty ? "" : " (\(traits.joined(separator: ", ")))"
-        let titleSegment = title.map { " \($0)" } ?? ""
+        let titleSegment = displayTitle.map { " \($0)" } ?? ""
         let rowSummary = inlineRowSummary ?? (rendersSummaryAsChildren ? nil : genericTextSummary)
         let rowSummarySegment = rowSummary.map { " \($0)" } ?? ""
-        let labelSegment = label != nil && label != title ? " Description: \(label!)" : ""
+        let labelSegment = formattedLabelSegment(label, title: displayTitle, linkText: linkText)
         let helpSegment = {
             guard let help else {
                 return ""
             }
-            if help == title || help == label {
+            if help == displayTitle || help == label {
                 return ""
             }
             return " Help: \(help)"
         }()
-        let urlSegment = formattedURLSegment(for: root, title: title, label: label)
-        let identifierSegment = displayIdentifierSegment(for: root, role: role, identifier: axIdentifier, title: title)
-        let rawValueSegment = formattedValueSegment(for: root, roleText: roleText, title: title, value: value)
+        let urlSegment = formattedURLSegment(for: root, title: displayTitle, label: label)
+        let identifierSegment = displayIdentifierSegment(for: root, role: role, identifier: axIdentifier, title: displayTitle)
+        let rawValueSegment = formattedValueSegment(for: root, roleText: roleText, title: displayTitle, value: value)
         let valueSegment = formattedValueSegmentWithSeparator(
             rawValueSegment,
             precedingSegments: [labelSegment, helpSegment, urlSegment, identifierSegment]
         )
         let placeholderSegment = formattedPlaceholderSegment(
             placeholder,
-            title: title,
+            title: displayTitle,
             label: label,
             value: value,
             precedingSegments: [labelSegment, helpSegment, urlSegment, identifierSegment, valueSegment]
         )
         let actionsPrefix = shouldCommaSeparateActions(
-            title: title,
+            title: displayTitle,
             inlineRowSummary: inlineRowSummary,
             genericTextSummary: genericTextSummary,
             segments: [labelSegment, helpSegment, urlSegment, identifierSegment, valueSegment, placeholderSegment]
@@ -983,6 +985,39 @@ private func preferredDisplayTitle(
     return explicitValue
 }
 
+private func markdownLinkText(for element: AXUIElement, title: String?, label: String?, value: String?) -> String? {
+    guard let url = urlValue(of: element, attribute: kAXURLAttribute), !url.isEmpty else {
+        return nil
+    }
+
+    let text = [label, title, value]
+        .compactMap { candidate -> String? in
+            guard let candidate else {
+                return nil
+            }
+            let sanitized = sanitizeText(candidate)
+            return sanitized.isEmpty ? nil : sanitized
+        }
+        .first
+
+    guard let text else {
+        return nil
+    }
+
+    if text == url {
+        return url
+    }
+
+    return "[\(markdownEscapedLinkText(text))](\(url))"
+}
+
+private func markdownEscapedLinkText(_ text: String) -> String {
+    text
+        .replacingOccurrences(of: "\\", with: "\\\\")
+        .replacingOccurrences(of: "[", with: "\\[")
+        .replacingOccurrences(of: "]", with: "\\]")
+}
+
 private func outlineRowSummary(for element: AXUIElement, role: String) -> String? {
     guard role == kAXOutlineRole as String || role == kAXListRole as String else {
         return nil
@@ -1022,6 +1057,18 @@ private func formattedValueSegment(for element: AXUIElement, roleText: String, t
     }
 
     return " Value: \(value)"
+}
+
+private func formattedLabelSegment(_ label: String?, title: String?, linkText: String?) -> String {
+    guard let label, label != title else {
+        return ""
+    }
+
+    if let linkText, linkText.hasPrefix("[\(markdownEscapedLinkText(label))](") {
+        return ""
+    }
+
+    return " Description: \(label)"
 }
 
 private func formattedValueSegmentWithSeparator(_ valueSegment: String, precedingSegments: [String]) -> String {
@@ -1191,6 +1238,10 @@ private func shouldSuppressChildren(
         return true
     }
 
+    if role == "AXLink", title?.hasPrefix("[") == true {
+        return true
+    }
+
     return genericTextSummary != nil
 }
 
@@ -1342,6 +1393,10 @@ private func roleDescription(of element: AXUIElement, role: String, subrole: Str
 
     if role == kAXMenuBarItemRole as String {
         return ""
+    }
+
+    if role == "AXLink" {
+        return "link"
     }
 
     if role == "AXWebArea" {
