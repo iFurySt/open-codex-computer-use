@@ -650,6 +650,7 @@ final class OpenComputerUseKitTests: XCTestCase {
             "🍒水果：黄瓜",
             "※注意：餐食饮品等仅供职场便利，请勿带离工区",
         ]))
+        XCTAssertFalse(shouldMergeTextOnlySiblings(["消息", "126/126"]))
     }
 
     func testAccessibilityRendererRendersSummariesWithImagesAsChildren() {

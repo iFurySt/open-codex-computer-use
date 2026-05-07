@@ -1264,8 +1264,16 @@ func shouldMergeTextOnlySiblings(_ texts: [String]) -> Bool {
         return false
     }
 
+    if texts.contains(where: isSiblingCounterText(_:)) {
+        return false
+    }
+
     let totalLength = texts.reduce(0) { $0 + $1.count }
     return texts.count <= 8 && totalLength <= 220
+}
+
+private func isSiblingCounterText(_ text: String) -> Bool {
+    text.range(of: #"^\d+\s*/\s*\d+$"#, options: .regularExpression) != nil
 }
 
 private func isPlainGenericTextContainer(_ element: AXUIElement, children: [AXUIElement], depth: Int = 0) -> Bool {
