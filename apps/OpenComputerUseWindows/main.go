@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-var version = "0.1.40"
+var version = "0.1.41"
 
 //go:embed runtime.ps1
 var windowsRuntimeScript string

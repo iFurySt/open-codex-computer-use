@@ -49,6 +49,9 @@ The official `computer-use` Feishu/Lark result preserves deep WebView content, s
 - Current Codex MCP session may still be connected to older installed app-agent processes until those processes are restarted.
 - The latest sample is close in coverage and action-critical regions, but exact wrapper density and element numbering still differ from official output.
 
+### Release Follow-up
+- Prepared patch release `0.1.41` so npm-installed `open-computer-use` users can receive the Electron snapshot parity fixes instead of staying on the `0.1.40` app-agent behavior.
+
 ### Files Modified
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AccessibilitySnapshot.swift`
 - `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/OpenComputerUseKitTests.swift`

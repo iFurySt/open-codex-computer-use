@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-05-07 | Electron 状态树对齐 | Feishu / Lark 这类 Electron app 的 `get_app_state` 更接近官方 `computer-use`：消息列表、聊天输入框、侧边栏、菜单栏和 WebArea URL 会同时保留，内部图片资源 URL 不再泄漏到可读树里。 | 发布 `0.1.41`，结合官方 app 逆向线索启用 Electron accessibility 模式，调整 AX 遍历去重、短文本合并、menu bar 渲染、boolean tab 和 image/WebArea 格式，并补充 Feishu 对比验证。 |
 | 2026-05-07 | Feishu / Electron 状态稳定性 | Feishu 这类 Electron/WebView app 的 `get_app_state` 更容易返回可操作的消息内容和输入框，不再只给截图却缺 UI tree 关键节点；截图捕获异常时也不会卡住整个状态读取。 | 发布 `0.1.40`，放宽 macOS AX tree 深度预算，压缩空 wrapper、过滤 `AXScrollToVisible` 和空字符串噪音，并为 ScreenCaptureKit 截图增加超时；同时让 smoke suite 直测当前构建产物。 |
 | 2026-05-07 | macOS app 安全边界 | Chrome、终端、Atlas 和系统组件不再被硬编码 denylist 拦住，常规 app 自动化路径更少误伤；密码管理器仍保持内置阻止。 | 发布 `0.1.39`，将 macOS `AppSafetyPolicy` 收缩到 1Password、Bitwarden、Dashlane、LastPass、NordPass 和 Proton Pass，并同步测试、架构和安全文档。 |
 | 2026-05-06 | npm 安装后的 app-agent 启动 | `npm install -g open-computer-use` 后，`open-computer-use doctor` 不会再因为本机残留旧 staging `.app` 而启动错副本并超时。 | 发布 `0.1.38`，当当前进程已经来自合法 `Open Computer Use.app` bundle 时，代理启动优先复用正在执行的 bundle，再回退到 LaunchServices / 标准安装目录发现的其它副本。 |
