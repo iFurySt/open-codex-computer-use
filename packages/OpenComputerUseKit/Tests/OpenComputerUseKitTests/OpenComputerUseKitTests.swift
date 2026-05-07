@@ -683,6 +683,19 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(meaningfulActions(["AXZoomWindow"], role: kAXButtonRole as String), ["zoom the window"])
     }
 
+    func testAccessibilityRendererKeepsLinkRoleWhenSuppressingChildren() {
+        XCTAssertEqual(
+            displayRoleText(
+                baseRoleText: "link",
+                role: "AXLink",
+                title: "[Docs](https://example.com)",
+                label: "Docs",
+                suppressChildren: true
+            ),
+            "link"
+        )
+    }
+
     func testAccessibilityRendererFormatsPlaceholderSegment() {
         XCTAssertEqual(
             formattedPlaceholderSegment(

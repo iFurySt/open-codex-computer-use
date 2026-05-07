@@ -1351,7 +1351,7 @@ private func isPlainGenericTextContainer(_ element: AXUIElement, children: [AXUI
     return true
 }
 
-private func displayRoleText(
+func displayRoleText(
     baseRoleText: String,
     role: String,
     title: String?,
@@ -1360,6 +1360,10 @@ private func displayRoleText(
 ) -> String {
     if role == kAXMenuBarItemRole as String {
         return ""
+    }
+
+    if role == "AXLink" {
+        return baseRoleText
     }
 
     if suppressChildren {
