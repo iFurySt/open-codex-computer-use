@@ -488,9 +488,8 @@ enum AppDiscovery {
     }
 }
 
-private enum AppSafetyPolicy {
+enum AppSafetyPolicy {
     private static let blockedBundleIdentifiers: Set<String> = [
-        "com.apple.ScreenContinuity",
         "com.1password.1password",
         "com.1password.safari",
         "com.bitwarden.desktop",
@@ -499,20 +498,6 @@ private enum AppSafetyPolicy {
         "com.nordsec.nordpass",
         "me.proton.pass.electron",
         "me.proton.pass.catalyst",
-        "com.apple.Terminal",
-        "com.googlecode.iterm2",
-        "dev.warp.Warp-Stable",
-        "net.kovidgoyal.kitty",
-        "com.github.wez.wezterm",
-        "com.mitchellh.ghostty",
-        "com.raphaelamorim.rio",
-        "dev.commandline.waveterm",
-        "com.google.Chrome",
-        "com.openai.atlas.alpha",
-        "com.openai.atlas.beta",
-        "com.apple.UserNotificationCenter",
-        "com.apple.LocalAuthenticationRemoteService",
-        "com.apple.SecurityAgent",
     ]
 
     static func isBlocked(bundleIdentifier: String?) -> Bool {

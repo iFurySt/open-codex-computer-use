@@ -545,6 +545,19 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertTrue(ComputerUseError.invalidArguments("bad").toolResultIsError)
     }
 
+    func testAppSafetyPolicyDoesNotBlockNonPasswordApps() {
+        XCTAssertFalse(AppSafetyPolicy.isBlocked(bundleIdentifier: "com.google.Chrome"))
+        XCTAssertFalse(AppSafetyPolicy.isBlocked(bundleIdentifier: "com.googlecode.iterm2"))
+        XCTAssertFalse(AppSafetyPolicy.isBlocked(bundleIdentifier: "com.openai.atlas.beta"))
+        XCTAssertFalse(AppSafetyPolicy.isBlocked(bundleIdentifier: "com.apple.SecurityAgent"))
+    }
+
+    func testAppSafetyPolicyKeepsPasswordManagerBlocks() {
+        XCTAssertTrue(AppSafetyPolicy.isBlocked(bundleIdentifier: "com.1password.1password"))
+        XCTAssertTrue(AppSafetyPolicy.isBlocked(bundleIdentifier: "com.bitwarden.desktop"))
+        XCTAssertTrue(AppSafetyPolicy.isBlocked(bundleIdentifier: "me.proton.pass.electron"))
+    }
+
     func testVisualCursorEnvFlagDefaultsToEnabled() {
         XCTAssertTrue(visualCursorEnabled(environment: [:]))
         XCTAssertTrue(visualCursorEnabled(environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR": "1"]))
