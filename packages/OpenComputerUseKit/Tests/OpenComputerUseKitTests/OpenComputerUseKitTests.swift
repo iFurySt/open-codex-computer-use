@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 import XCTest
 @testable import OpenComputerUseKit
 
@@ -134,6 +135,29 @@ final class OpenComputerUseKitTests: XCTestCase {
 
     func testResolvedVersionFallsBackWhenBundleHasNoVersionMetadata() {
         XCTAssertEqual(resolvedOpenComputerUseVersion(bundle: Bundle(for: Self.self)), openComputerUseVersion)
+    }
+
+    func testBoundedScreenshotPNGDataShrinksLargeScreenshots() throws {
+        let image = try makeNoisyTestImage(width: 800, height: 600)
+        let data = try XCTUnwrap(boundedScreenshotPNGData(
+            for: image,
+            maxBytes: 50_000,
+            maxDimension: 320,
+            minScale: 0.05
+        ))
+        let size = try imageSize(in: data)
+
+        XCTAssertLessThanOrEqual(data.count, 50_000)
+        XCTAssertLessThanOrEqual(max(size.width, size.height), 320)
+    }
+
+    func testBoundedScreenshotPNGDataKeepsSmallScreenshotsAtOriginalSize() throws {
+        let image = try makeSolidTestImage(width: 32, height: 24)
+        let data = try XCTUnwrap(boundedScreenshotPNGData(for: image, maxBytes: 1_000_000, maxDimension: 320))
+        let size = try imageSize(in: data)
+
+        XCTAssertEqual(size.width, 32)
+        XCTAssertEqual(size.height, 24)
     }
 
     func testToolDefinitionCount() {
@@ -436,7 +460,7 @@ final class OpenComputerUseKitTests: XCTestCase {
 
     func testInitializeResponseContainsToolsCapability() throws {
         let server = StdioMCPServer(service: ComputerUseService())
-        let response = server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"0.1.47"},"capabilities":{}}}"#)
+        let response = server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"0.1.48"},"capabilities":{}}}"#)
         XCTAssertNotNil(response)
         XCTAssertTrue(response!.contains(#""name":"open-computer-use""#))
         XCTAssertTrue(response!.contains(#""tools":{"listChanged":false}"#))
@@ -445,7 +469,7 @@ final class OpenComputerUseKitTests: XCTestCase {
     func testInitializeResponseContainsComputerUseInstructions() throws {
         let server = StdioMCPServer(service: ComputerUseService())
         let response = try XCTUnwrap(
-            server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"0.1.47"},"capabilities":{}}}"#)
+            server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"0.1.48"},"capabilities":{}}}"#)
         )
         let data = try XCTUnwrap(response.data(using: .utf8))
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -1419,5 +1443,60 @@ final class OpenComputerUseKitTests: XCTestCase {
         let dy = end.y - start.y
         let length = max(hypot(dx, dy), 0.001)
         return CGVector(dx: dx / length, dy: dy / length)
+    }
+
+    private func makeNoisyTestImage(width: Int, height: Int) throws -> CGImage {
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        for y in 0..<height {
+            for x in 0..<width {
+                let offset = (y * width + x) * 4
+                pixels[offset] = UInt8((x * 37 + y * 17) & 0xFF)
+                pixels[offset + 1] = UInt8((x * 11 + y * 43) & 0xFF)
+                pixels[offset + 2] = UInt8((x * 71 + y * 5) & 0xFF)
+                pixels[offset + 3] = 255
+            }
+        }
+
+        return try makeTestImage(width: width, height: height, pixels: pixels)
+    }
+
+    private func makeSolidTestImage(width: Int, height: Int) throws -> CGImage {
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        for index in stride(from: 0, to: pixels.count, by: 4) {
+            pixels[index] = 80
+            pixels[index + 1] = 140
+            pixels[index + 2] = 220
+            pixels[index + 3] = 255
+        }
+
+        return try makeTestImage(width: width, height: height, pixels: pixels)
+    }
+
+    private func makeTestImage(width: Int, height: Int, pixels: [UInt8]) throws -> CGImage {
+        let data = Data(pixels)
+        let provider = try XCTUnwrap(CGDataProvider(data: data as CFData))
+        let image = CGImage(
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        )
+
+        return try XCTUnwrap(image)
+    }
+
+    private func imageSize(in data: Data) throws -> (width: Int, height: Int) {
+        let source = try XCTUnwrap(CGImageSourceCreateWithData(data as CFData, nil))
+        let properties = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])
+        let width = try XCTUnwrap(properties[kCGImagePropertyPixelWidth] as? Int)
+        let height = try XCTUnwrap(properties[kCGImagePropertyPixelHeight] as? Int)
+        return (width, height)
     }
 }

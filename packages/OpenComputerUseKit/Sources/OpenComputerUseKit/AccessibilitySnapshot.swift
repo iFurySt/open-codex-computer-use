@@ -30,6 +30,9 @@ enum SnapshotMode {
 let accessibilityTreeMaxNodeCount = 1200
 let accessibilityTreeMaxDepth = 64
 let screenshotCaptureTimeout: TimeInterval = 5
+let screenshotResultMaxPNGBytes = 900_000
+let screenshotResultMaxDimension: CGFloat = 1280
+let screenshotResultMinScale: CGFloat = 0.25
 private let windowVisibilityRecoveryDelay: TimeInterval = 0.7
 private let axWebAreaRole = "AXWebArea"
 
@@ -412,9 +415,73 @@ private struct WindowCapture {
             return nil
         }
 
-        let bitmap = NSBitmapImageRep(cgImage: image)
-        return bitmap.representation(using: .png, properties: [:])
+        return boundedScreenshotPNGData(for: image)
     }
+}
+
+func boundedScreenshotPNGData(
+    for image: CGImage,
+    maxBytes: Int = screenshotResultMaxPNGBytes,
+    maxDimension: CGFloat = screenshotResultMaxDimension,
+    minScale: CGFloat = screenshotResultMinScale
+) -> Data? {
+    guard image.width > 0, image.height > 0, maxBytes > 0 else {
+        return nil
+    }
+
+    let original = pngData(for: image)
+    let largestDimension = CGFloat(max(image.width, image.height))
+    var scale = min(1, maxDimension / largestDimension)
+
+    if scale >= 1, let original, original.count <= maxBytes {
+        return original
+    }
+
+    var best = original
+    while scale >= minScale {
+        guard let resized = resizedCGImage(image, scale: scale),
+              let data = pngData(for: resized)
+        else {
+            break
+        }
+
+        best = data
+        if data.count <= maxBytes {
+            return data
+        }
+
+        scale *= 0.85
+    }
+
+    return best
+}
+
+private func pngData(for image: CGImage) -> Data? {
+    let bitmap = NSBitmapImageRep(cgImage: image)
+    return bitmap.representation(using: .png, properties: [:])
+}
+
+private func resizedCGImage(_ image: CGImage, scale: CGFloat) -> CGImage? {
+    let width = max(1, Int((CGFloat(image.width) * scale).rounded()))
+    let height = max(1, Int((CGFloat(image.height) * scale).rounded()))
+    let colorSpace = CGColorSpaceCreateDeviceRGB()
+    let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+
+    guard let context = CGContext(
+        data: nil,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: 0,
+        space: colorSpace,
+        bitmapInfo: bitmapInfo
+    ) else {
+        return nil
+    }
+
+    context.interpolationQuality = .medium
+    context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+    return context.makeImage()
 }
 
 private final class AsyncResultBox<T>: @unchecked Sendable {

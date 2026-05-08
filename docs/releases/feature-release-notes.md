@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-05-08 | MCP 结果大小控制 | Chrome / Electron 等复杂窗口返回截图时更不容易触发 Codex 的大结果降级，历史记录和上层工具消费里会继续保持正常的 `text + image` 结构，而不是把整个 MCP result 塞进 text 字符串。 | 发布 `0.1.48`，macOS `ScreenCaptureKit` 截图在编码为 MCP image block 前会按最大尺寸和目标字节数自适应缩小，并补测试锁住大图压缩、小图保真路径。 |
 | 2026-05-08 | Smoke 测试静默运行 | 开发者运行 `./scripts/run-tool-smoke-tests.sh` 时不再被内部 fixture 的橙色测试窗口打断，回归验证更安静，也不会让用户误以为桌面上弹出了额外应用。 | 发布 `0.1.47`，smoke suite 默认以 headless 模式启动内部 fixture，并保留 fixture 在 `list_apps` smoke 路径里的可发现性。 |
 | 2026-05-07 | 窗口不可用错误文案 | Lark / Chrome 等 no-window 场景下，开源版 `get_app_state` 的返回文本与官方 `computer-use` 当前输出一致，减少上层 prompt、测试和用户排查时的差异噪音。 | 发布 `0.1.46`，将 missing AX window 和 missing visible CGWindow 两条路径统一为 `Apple event error -10005: cgWindowNotFound`，并补单元测试锁住该官方风格文本。 |
 | 2026-05-07 | 可见窗口匹配 | `get_app_state` 在 app 没有可见窗口、窗口已最小化，或 AX 窗口无法匹配到 on-screen CGWindow 时会更接近官方 `computer-use` 的 `cgWindowNotFound` 语义，避免返回没有截图坐标基础的半残状态。 | 发布 `0.1.45`，基于官方 `1.0.770` 逆向字符串中的 `cgWindowNotFound`、`noWindowsAvailable`、`matchingWindowNotFound` 和 `AXWindowMiniaturized` 线索，要求真实 app snapshot 同时满足未最小化 `AXWindow` 与可见 `CGWindow`。 |
