@@ -7,7 +7,7 @@
 <a href="https://llmapis.com?source=https%3A%2F%2Fgithub.com%2FiFurySt%2Fopen-codex-computer-use" target="_blank"><img src="https://llmapis.com/api/badge/iFurySt/open-codex-computer-use" alt="LLMAPIS" width="20" /></a>
 
 > [!TIP]
-> 对 Browser Use 感兴趣的话，可以看看 [open-codex-browser-use](https://github.com/iFurySt/open-codex-browser-use)。
+> 对 Browser Use 感兴趣的话，可以看看 [open-browser-use](https://github.com/iFurySt/open-codex-browser-use)。
 
 ---
 
