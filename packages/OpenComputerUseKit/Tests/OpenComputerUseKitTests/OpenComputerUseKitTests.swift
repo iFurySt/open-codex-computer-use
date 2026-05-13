@@ -539,6 +539,27 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(emptyResult.primaryText, "Missing required argument: text")
     }
 
+    func testTypeTextUnicodeChunksPreserveGraphemeClusters() {
+        let text = "（ocu发的）👩🏽‍💻e\u{301}𠀀"
+        let chunks = InputSimulation.keyboardUnicodeChunks(for: text, maxUTF16Units: 8)
+        let decoded = chunks
+            .map { String(decoding: $0, as: UTF16.self) }
+            .joined()
+
+        XCTAssertEqual(decoded, text)
+        XCTAssertTrue(chunks.count > 1)
+        XCTAssertTrue(chunks.allSatisfy { chunk in
+            let decodedChunk = String(decoding: chunk, as: UTF16.self)
+            return decodedChunk.unicodeScalars.allSatisfy { $0.value != 0xFFFD }
+        })
+        for cluster in ["👩🏽‍💻", "e\u{301}", "𠀀"] {
+            XCTAssertEqual(
+                chunks.filter { String(decoding: $0, as: UTF16.self).contains(cluster) }.count,
+                1
+            )
+        }
+    }
+
     func testScrollRejectsInvalidDirectionWithOfficialMessage() {
         let dispatcher = ComputerUseToolDispatcher()
         let result = dispatcher.callToolAsResult(
@@ -565,6 +586,190 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(
             invalidSecondaryActionErrorMessage(action: "NoSuchAction", elementIndex: 14),
             "NoSuchAction is not a valid secondary action for 14"
+        )
+    }
+
+    func testSyntheticTextClickUsesLeadingSafePointOnly() {
+        let frame = CGRect(x: 40, y: 20, width: 300, height: 48)
+        let points = localClickActionPoints(frame: frame, isSyntheticText: true)
+
+        XCTAssertEqual(points, [CGPoint(x: 130, y: 44)])
+        XCTAssertFalse(points.contains(CGPoint(x: 190, y: 44)))
+    }
+
+    func testNormalClickKeepsCenterThenLeadingFallback() {
+        let frame = CGRect(x: 40, y: 20, width: 300, height: 48)
+
+        XCTAssertEqual(
+            localClickActionPoints(frame: frame, isSyntheticText: false),
+            [CGPoint(x: 190, y: 44), CGPoint(x: 130, y: 44)]
+        )
+    }
+
+    func testSyntheticSideActionFilterRejectsTrailingDoneButton() {
+        XCTAssertTrue(
+            isLikelySyntheticSideActionCandidate(
+                parentFrame: CGRect(x: 40, y: 20, width: 300, height: 48),
+                candidateFrame: CGRect(x: 296, y: 24, width: 36, height: 36),
+                hasPrimaryAction: true,
+                labels: ["完成"]
+            )
+        )
+    }
+
+    func testSyntheticSideActionFilterKeepsMainRowPreviewContainingDone() {
+        XCTAssertFalse(
+            isLikelySyntheticSideActionCandidate(
+                parentFrame: CGRect(x: 40, y: 20, width: 300, height: 48),
+                candidateFrame: CGRect(x: 48, y: 22, width: 236, height: 44),
+                hasPrimaryAction: true,
+                labels: ["AK账号管控 @所有人 变更完成，如果有问题，请联系我"]
+            )
+        )
+    }
+
+    func testSyntheticSideActionFilterKeepsLargeRowNamedDone() {
+        XCTAssertFalse(
+            isLikelySyntheticSideActionCandidate(
+                parentFrame: CGRect(x: 40, y: 20, width: 300, height: 48),
+                candidateFrame: CGRect(x: 40, y: 20, width: 300, height: 48),
+                hasPrimaryAction: true,
+                labels: ["完成"]
+            )
+        )
+    }
+
+    func testHitRecordDescendantScanRejectsBroadWebAreaHit() {
+        XCTAssertFalse(
+            shouldScanDescendantsOfHitRecord(
+                originalFrame: CGRect(x: 40, y: 120, width: 300, height: 48),
+                hitFrame: CGRect(x: 0, y: 0, width: 1200, height: 800)
+            )
+        )
+    }
+
+    func testHitRecordDescendantScanKeepsNearbyRowHit() {
+        XCTAssertTrue(
+            shouldScanDescendantsOfHitRecord(
+                originalFrame: CGRect(x: 40, y: 120, width: 300, height: 48),
+                hitFrame: CGRect(x: 32, y: 112, width: 320, height: 56)
+            )
+        )
+    }
+
+    func testContainingRowActionAcceptsTightClickableAncestor() {
+        XCTAssertTrue(
+            isLikelyContainingRowActionFrame(
+                targetFrame: CGRect(x: 132, y: 381, width: 268, height: 44),
+                candidateFrame: CGRect(x: 124, y: 373, width: 284, height: 60),
+                hasPrimaryAction: true
+            )
+        )
+    }
+
+    func testContainingRowActionRejectsBroadWebArea() {
+        XCTAssertFalse(
+            isLikelyContainingRowActionFrame(
+                targetFrame: CGRect(x: 132, y: 381, width: 268, height: 44),
+                candidateFrame: CGRect(x: 0, y: 0, width: 1200, height: 800),
+                hasPrimaryAction: true
+            )
+        )
+    }
+
+    func testContainingRowActionRequiresPrimaryAction() {
+        XCTAssertFalse(
+            isLikelyContainingRowActionFrame(
+                targetFrame: CGRect(x: 132, y: 381, width: 268, height: 44),
+                candidateFrame: CGRect(x: 124, y: 373, width: 284, height: 60),
+                hasPrimaryAction: false
+            )
+        )
+    }
+
+    func testContainingWebRowOptimizationRejectsChromeWebGroups() {
+        XCTAssertFalse(
+            shouldPreferContainingWebRowAXClickCandidate(
+                role: kAXGroupRole as String,
+                isSyntheticText: false,
+                hasWebAreaAncestor: true,
+                appName: "Google Chrome",
+                bundleIdentifier: "com.google.Chrome"
+            )
+        )
+    }
+
+    func testContainingWebRowOptimizationRejectsChromeSyntheticText() {
+        XCTAssertFalse(
+            shouldPreferContainingWebRowAXClickCandidate(
+                role: kAXStaticTextRole as String,
+                isSyntheticText: true,
+                hasWebAreaAncestor: true,
+                appName: "Google Chrome",
+                bundleIdentifier: "com.google.Chrome"
+            )
+        )
+    }
+
+    func testContainingWebRowOptimizationKeepsLarkSyntheticRows() {
+        XCTAssertTrue(
+            shouldPreferContainingWebRowAXClickCandidate(
+                role: kAXStaticTextRole as String,
+                isSyntheticText: true,
+                hasWebAreaAncestor: true,
+                appName: "Lark",
+                bundleIdentifier: "com.electron.lark"
+            )
+        )
+    }
+
+    func testContainingWebRowOptimizationRequiresWebAreaAncestor() {
+        XCTAssertFalse(
+            shouldPreferContainingWebRowAXClickCandidate(
+                role: kAXGroupRole as String,
+                isSyntheticText: false,
+                hasWebAreaAncestor: false,
+                appName: "Lark",
+                bundleIdentifier: "com.electron.lark"
+            )
+        )
+    }
+
+    func testActivationOnlyClickFallbackRejectsPlainStaticText() {
+        XCTAssertFalse(canUseActivationOnlyClickFallback(role: kAXStaticTextRole as String))
+    }
+
+    func testActivationOnlyClickFallbackKeepsWindowRaisePath() {
+        XCTAssertTrue(canUseActivationOnlyClickFallback(role: kAXWindowRole as String))
+    }
+
+    func testKeyboardTextFallbackRejectsPlainWebArea() {
+        XCTAssertFalse(
+            canUseKeyboardTextFallback(
+                role: "AXWebArea",
+                roleDescription: "HTML content",
+                isValueSettable: false
+            )
+        )
+    }
+
+    func testKeyboardTextFallbackAcceptsEditableTextRole() {
+        XCTAssertTrue(
+            canUseKeyboardTextFallback(
+                role: kAXTextFieldRole as String,
+                roleDescription: "text field",
+                isValueSettable: false
+            )
+        )
+    }
+
+    func testKeyboardTextFallbackAcceptsSettableValueElement() {
+        XCTAssertTrue(
+            canUseKeyboardTextFallback(
+                role: kAXGroupRole as String,
+                roleDescription: "text entry area",
+                isValueSettable: true
+            )
         )
     }
 
@@ -973,6 +1178,24 @@ final class OpenComputerUseKitTests: XCTestCase {
         )
 
         XCTAssertEqual(point, CGPoint(x: 2415, y: 1783))
+    }
+
+    func testInputEventPointKeepsCoreGraphicsScreenStateCoordinates() {
+        let point = inputEventPoint(
+            fromScreenStatePoint: CGPoint(x: -1311, y: 701),
+            screenMappings: [
+                VisualCursorScreenMapping(
+                    screenStateFrame: CGRect(x: 0, y: 0, width: 2560, height: 1440),
+                    appKitFrame: CGRect(x: 0, y: 0, width: 2560, height: 1440)
+                ),
+                VisualCursorScreenMapping(
+                    screenStateFrame: CGRect(x: -1512, y: 458, width: 1512, height: 982),
+                    appKitFrame: CGRect(x: -1512, y: 0, width: 1512, height: 982)
+                ),
+            ]
+        )
+
+        XCTAssertEqual(point, CGPoint(x: -1311, y: 701))
     }
 
     func testScreenshotPixelScaleUsesRetinaSizedImageAgainstWindowBounds() {
@@ -1449,6 +1672,7 @@ final class OpenComputerUseKitTests: XCTestCase {
             mode: .accessibility,
             treeLines: treeLines,
             focusedSummary: focusedSummary,
+            focusedElement: nil,
             selectedText: selectedText,
             elements: [:]
         )

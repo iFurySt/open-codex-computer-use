@@ -43,6 +43,8 @@ enum MouseButtonKind: String {
 }
 
 enum InputSimulation {
+    static let maxKeyboardUnicodeChunkLength = 64
+
     static func prepareAppForGlobalPointerInput(_ app: RunningAppDescriptor) {
         if raiseAppWindowViaAccessibility(pid: app.pid) {
             Thread.sleep(forTimeInterval: 0.12)
@@ -138,19 +140,48 @@ enum InputSimulation {
     }
 
     static func typeText(_ text: String, pid: pid_t) throws {
-        for character in text.utf16 {
-            var mutableCharacter = character
+        for chunk in keyboardUnicodeChunks(for: text) {
+            var mutableChunk = chunk
             guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true),
                   let up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false) else {
                 throw ComputerUseError.message("Failed to create keyboard event.")
             }
 
-            down.keyboardSetUnicodeString(stringLength: 1, unicodeString: &mutableCharacter)
-            up.keyboardSetUnicodeString(stringLength: 1, unicodeString: &mutableCharacter)
+            mutableChunk.withUnsafeMutableBufferPointer { buffer in
+                guard let baseAddress = buffer.baseAddress else {
+                    return
+                }
+
+                down.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: baseAddress)
+                up.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: baseAddress)
+            }
             down.postToPid(pid)
             up.postToPid(pid)
             Thread.sleep(forTimeInterval: 0.02)
         }
+    }
+
+    static func keyboardUnicodeChunks(for text: String, maxUTF16Units: Int = maxKeyboardUnicodeChunkLength) -> [[UniChar]] {
+        precondition(maxUTF16Units > 0, "maxUTF16Units must be positive")
+
+        var chunks: [[UniChar]] = []
+        var current: [UniChar] = []
+
+        for character in text {
+            let units = Array(String(character).utf16)
+            if !current.isEmpty, current.count + units.count > maxUTF16Units {
+                chunks.append(current)
+                current.removeAll(keepingCapacity: true)
+            }
+
+            current.append(contentsOf: units)
+        }
+
+        if !current.isEmpty {
+            chunks.append(current)
+        }
+
+        return chunks
     }
 
     static func pressKey(_ specification: String, pid: pid_t) throws {

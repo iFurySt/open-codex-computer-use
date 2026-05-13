@@ -11,14 +11,24 @@ final class ElementRecord {
     let localFrame: CGRect?
     let rawActions: [String]
     let prettyActions: [String]
+    let isSyntheticText: Bool
 
-    init(index: Int, identifier: String?, element: AXUIElement?, localFrame: CGRect?, rawActions: [String], prettyActions: [String]) {
+    init(
+        index: Int,
+        identifier: String?,
+        element: AXUIElement?,
+        localFrame: CGRect?,
+        rawActions: [String],
+        prettyActions: [String],
+        isSyntheticText: Bool = false
+    ) {
         self.index = index
         self.identifier = identifier
         self.element = element
         self.localFrame = localFrame
         self.rawActions = rawActions
         self.prettyActions = prettyActions
+        self.isSyntheticText = isSyntheticText
     }
 }
 
@@ -48,6 +58,7 @@ public struct AppSnapshot {
     let mode: SnapshotMode
     let treeLines: [String]
     let focusedSummary: String?
+    let focusedElement: AXUIElement?
     let selectedText: String?
 
     let elements: [Int: ElementRecord]
@@ -168,6 +179,7 @@ enum SnapshotBuilder {
             mode: .accessibility,
             treeLines: renderer.lines,
             focusedSummary: renderer.focusedSummary,
+            focusedElement: focusedElement,
             selectedText: selectedText,
             elements: renderer.records
         )
@@ -322,6 +334,7 @@ enum SnapshotBuilder {
             mode: .fixture,
             treeLines: lines,
             focusedSummary: focusedSummary,
+            focusedElement: nil,
             selectedText: nil,
             elements: records
         )
@@ -776,7 +789,8 @@ private struct TreeRenderer {
             element: element,
             localFrame: resolveLocalFrame(of: element, windowBounds: context.windowBounds),
             rawActions: [],
-            prettyActions: []
+            prettyActions: [],
+            isSyntheticText: true
         )
     }
 

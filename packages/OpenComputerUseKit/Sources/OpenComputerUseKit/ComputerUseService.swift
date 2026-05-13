@@ -53,6 +53,13 @@ func visualCursorAppKitPoint(
     )
 }
 
+func inputEventPoint(
+    fromScreenStatePoint point: CGPoint,
+    screenMappings: [VisualCursorScreenMapping] = currentVisualCursorScreenMappings()
+) -> CGPoint {
+    point
+}
+
 func makeVisualCursorTarget(
     at point: CGPoint,
     targetWindowID: CGWindowID?,
@@ -163,6 +170,183 @@ func invalidSecondaryActionErrorMessage(action: String, elementIndex: Int) -> St
     "\(action) is not a valid secondary action for \(elementIndex)"
 }
 
+func localClickActionPoints(frame: CGRect, isSyntheticText: Bool) -> [CGPoint] {
+    let center = CGPoint(x: frame.midX, y: frame.midY)
+    let leading = CGPoint(
+        x: frame.minX + min(max(frame.width * 0.3, 20), max(frame.width - 4, 20)),
+        y: frame.midY
+    )
+
+    if isSyntheticText {
+        return [leading]
+    }
+
+    if abs(leading.x - center.x) < 1 {
+        return [center]
+    }
+
+    return [center, leading]
+}
+
+func isLikelySyntheticSideActionCandidate(
+    parentFrame: CGRect?,
+    candidateFrame: CGRect?,
+    hasPrimaryAction: Bool,
+    labels: [String]
+) -> Bool {
+    let hasSideActionLabel = labels.contains { label in
+        let normalized = label.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else {
+            return false
+        }
+
+        if normalized == "完成" || normalized == "done" || normalized == "complete" || normalized == "archive" {
+            return true
+        }
+
+        if normalized.count <= 24 {
+            if normalized.contains("完成") {
+                return true
+            }
+
+            if normalized.contains("mark") && (normalized.contains("done") || normalized.contains("complete")) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    guard let parentFrame, let candidateFrame else {
+        return false
+    }
+
+    let trailingBandWidth = min(max(parentFrame.width * 0.22, 56), 140)
+    let isTrailing = candidateFrame.midX >= parentFrame.maxX - trailingBandWidth
+    let compactWidth = candidateFrame.width <= max(88, parentFrame.width * 0.18)
+    let compactHeight = candidateFrame.height <= max(44, parentFrame.height * 1.2)
+    let isCompact = compactWidth && compactHeight
+
+    if hasSideActionLabel && hasPrimaryAction && isCompact {
+        return true
+    }
+
+    return isTrailing && isCompact && (hasPrimaryAction || hasSideActionLabel)
+}
+
+func shouldScanDescendantsOfHitRecord(originalFrame: CGRect?, hitFrame: CGRect?) -> Bool {
+    guard let originalFrame, let hitFrame else {
+        return true
+    }
+
+    let originalArea = max(originalFrame.width * originalFrame.height, 1)
+    let hitArea = hitFrame.width * hitFrame.height
+    if hitArea > max(originalArea * 12, 20_000) {
+        return false
+    }
+
+    if hitFrame.height > max(originalFrame.height * 4, 96),
+       hitFrame.width > max(originalFrame.width * 2, 240)
+    {
+        return false
+    }
+
+    return true
+}
+
+func isLikelyContainingRowActionFrame(
+    targetFrame: CGRect,
+    candidateFrame: CGRect?,
+    hasPrimaryAction: Bool
+) -> Bool {
+    let targetCenter = CGPoint(x: targetFrame.midX, y: targetFrame.midY)
+    guard
+        hasPrimaryAction,
+        let candidateFrame,
+        candidateFrame.insetBy(dx: -2, dy: -2).contains(targetCenter),
+        candidateFrame.width >= targetFrame.width,
+        candidateFrame.height >= targetFrame.height,
+        candidateFrame.height <= max(targetFrame.height + 32, targetFrame.height * 2)
+    else {
+        return false
+    }
+
+    return true
+}
+
+func canUseActivationOnlyClickFallback(role: String?) -> Bool {
+    guard let role else {
+        return false
+    }
+
+    return role == kAXWindowRole as String
+}
+
+func canUseKeyboardTextFallback(role: String?, roleDescription: String?, isValueSettable: Bool) -> Bool {
+    if isValueSettable {
+        return true
+    }
+
+    guard let role else {
+        return false
+    }
+
+    if role == kAXTextFieldRole as String || role == "AXTextArea" || role == "AXTextView" {
+        return true
+    }
+
+    guard let roleDescription = roleDescription?.lowercased() else {
+        return false
+    }
+
+    return roleDescription.contains("text field")
+        || roleDescription.contains("text area")
+        || roleDescription.contains("text entry")
+}
+
+func isElectronScopedWebRowClickOptimizationTarget(appName: String, bundleIdentifier: String?) -> Bool {
+    let normalizedBundleIdentifier = bundleIdentifier?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+    let normalizedName = appName
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+
+    if let normalizedBundleIdentifier,
+       normalizedBundleIdentifier.hasPrefix("com.electron.")
+            || normalizedBundleIdentifier.contains(".electron.")
+            || normalizedBundleIdentifier.contains("lark")
+            || normalizedBundleIdentifier.contains("feishu")
+    {
+        return true
+    }
+
+    return normalizedName == "lark" || normalizedName == "feishu" || normalizedName == "飞书"
+}
+
+func shouldPreferContainingWebRowAXClickCandidate(
+    role: String?,
+    isSyntheticText: Bool,
+    hasWebAreaAncestor: Bool,
+    appName: String,
+    bundleIdentifier: String?
+) -> Bool {
+    guard hasWebAreaAncestor,
+          isElectronScopedWebRowClickOptimizationTarget(
+            appName: appName,
+            bundleIdentifier: bundleIdentifier
+          )
+    else {
+        return false
+    }
+
+    guard let role else {
+        return isSyntheticText
+    }
+
+    return role == kAXStaticTextRole as String || role == kAXGroupRole as String || isSyntheticText
+}
+
 public final class ComputerUseService {
     private var snapshotsByApp: [String: AppSnapshot] = [:]
 
@@ -209,7 +393,7 @@ public final class ComputerUseService {
 
         if let elementIndex {
             let record = try lookupElement(snapshot: snapshot, index: elementIndex)
-            guard let targetPoint = try globalPoint(for: record, snapshot: snapshot) else {
+            guard let targetPoint = try globalClickPoint(for: record, snapshot: snapshot) else {
                 throw ComputerUseError.stateUnavailable("element \(elementIndex) has no clickable frame")
             }
             let cursorTarget = makeVisualCursorTarget(
@@ -393,6 +577,15 @@ public final class ComputerUseService {
             return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
         }
 
+        if try typeTextBySettingFocusedValueIfAvailable(text, in: snapshot) {
+            Thread.sleep(forTimeInterval: 0.1)
+            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+        }
+
+        guard try canTypeTextUsingKeyboardFallback(in: snapshot) else {
+            throw ComputerUseError.stateUnavailable("type_text requires a focused editable text element. Click a text entry area first, or use set_value on a settable text element.")
+        }
+
         try InputSimulation.typeText(text, pid: snapshot.app.pid)
         return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
     }
@@ -510,7 +703,10 @@ public final class ComputerUseService {
 
         switch button {
         case .left:
-            if clickCount <= 1, try selectContainingListItem(for: element) {
+            if clickCount <= 1,
+               !hasAncestorRole("AXWebArea", of: element),
+               try selectContainingListItem(for: element)
+            {
                 return true
             }
 
@@ -614,43 +810,77 @@ public final class ComputerUseService {
         includeNearbyHitTesting: Bool,
         allowActivationFallback: Bool
     ) throws -> Bool {
-        if try performPreferredClick(on: record, button: button, clickCount: clickCount) {
+        let preferContainingWebRowAXClick = shouldPreferContainingWebRowAXClick(record, in: snapshot)
+        debugClickDecision("record=\(clickDebugDescription(record)) preferContainingWebRowAXClick=\(preferContainingWebRowAXClick)")
+
+        if preferContainingWebRowAXClick,
+           try performContainingWebRowClick(for: record, snapshot: snapshot, button: button, clickCount: clickCount)
+        {
             Thread.sleep(forTimeInterval: 0.15)
             return true
         }
 
-        for candidate in descendantClickCandidates(for: record, snapshot: snapshot) {
-            if try performPreferredClick(on: candidate, button: button, clickCount: clickCount) {
+        if !preferContainingWebRowAXClick {
+            if try performPreferredClick(on: record, button: button, clickCount: clickCount) {
+                debugClickDecision("handled by preferred target \(clickDebugDescription(record))")
                 Thread.sleep(forTimeInterval: 0.15)
                 return true
             }
-        }
 
-        if includeNearbyHitTesting {
-            for localPoint in clickActionPoints(for: record) {
-                guard let hitRecord = try hitTestElement(at: localPoint, in: snapshot) ?? bestElement(containing: localPoint, in: snapshot) else {
-                    continue
-                }
-
-                if try performPreferredClick(on: hitRecord, button: button, clickCount: clickCount) {
+            for candidate in descendantClickCandidates(for: record, snapshot: snapshot) {
+                if try performPreferredClick(on: candidate, button: button, clickCount: clickCount) {
+                    debugClickDecision("handled by descendant \(clickDebugDescription(candidate))")
                     Thread.sleep(forTimeInterval: 0.15)
                     return true
                 }
+            }
 
-                for candidate in descendantClickCandidates(for: hitRecord, snapshot: snapshot) {
-                    if try performPreferredClick(on: candidate, button: button, clickCount: clickCount) {
+            if includeNearbyHitTesting {
+                for localPoint in clickActionPoints(for: record, snapshot: snapshot) {
+                    guard let hitRecord = try hitTestElement(at: localPoint, in: snapshot) ?? bestElement(containing: localPoint, in: snapshot) else {
+                        continue
+                    }
+
+                    if !isLikelySyntheticSideAction(hitRecord, in: record),
+                       try performPreferredClick(on: hitRecord, button: button, clickCount: clickCount)
+                    {
+                        debugClickDecision("handled by hit record \(clickDebugDescription(hitRecord))")
                         Thread.sleep(forTimeInterval: 0.15)
                         return true
+                    }
+
+                    if shouldScanDescendantsOfHitRecord(
+                        originalFrame: clickFrame(for: record, snapshot: snapshot),
+                        hitFrame: hitRecord.localFrame
+                    ) {
+                        for candidate in descendantClickCandidates(
+                            for: hitRecord,
+                            snapshot: snapshot,
+                            sideActionScope: record
+                        ) {
+                            if try performPreferredClick(on: candidate, button: button, clickCount: clickCount) {
+                                debugClickDecision("handled by hit descendant \(clickDebugDescription(candidate))")
+                                Thread.sleep(forTimeInterval: 0.15)
+                                return true
+                            }
+                        }
                     }
                 }
             }
         }
 
-        guard allowActivationFallback, button == .left, let element = record.element else {
+        guard
+            allowActivationFallback,
+            !record.isSyntheticText,
+            button == .left,
+            let element = record.element,
+            canUseActivationOnlyClickFallback(role: stringValue(of: element, attribute: kAXRoleAttribute))
+        else {
             return false
         }
 
         if try activateClickTarget(element: element, availableActions: record.rawActions) {
+            debugClickDecision("handled by activation fallback \(clickDebugDescription(record))")
             Thread.sleep(forTimeInterval: 0.15)
             return true
         }
@@ -799,30 +1029,28 @@ public final class ComputerUseService {
         return CGPoint(x: frame.midX, y: frame.midY)
     }
 
-    private func clickActionPoints(for record: ElementRecord) -> [CGPoint] {
-        guard let frame = record.localFrame else {
+    private func clickActionPoints(for record: ElementRecord, snapshot: AppSnapshot) -> [CGPoint] {
+        guard let frame = clickFrame(for: record, snapshot: snapshot) else {
             return []
         }
 
-        let center = CGPoint(x: frame.midX, y: frame.midY)
-        let leading = CGPoint(
-            x: frame.minX + min(max(frame.width * 0.3, 20), max(frame.width - 4, 20)),
-            y: frame.midY
-        )
-
-        if abs(leading.x - center.x) < 1 {
-            return [center]
-        }
-
-        return [center, leading]
+        return localClickActionPoints(frame: frame, isSyntheticText: record.isSyntheticText)
     }
 
-    private func descendantClickCandidates(for record: ElementRecord, snapshot: AppSnapshot) -> [ElementRecord] {
+    private func descendantClickCandidates(
+        for record: ElementRecord,
+        snapshot: AppSnapshot,
+        sideActionScope: ElementRecord? = nil
+    ) -> [ElementRecord] {
         guard let element = record.element else {
             return []
         }
 
+        let sideActionParent = sideActionScope ?? record
         return descendantClickCandidates(of: element, windowBounds: snapshot.windowBounds)
+            .filter { candidate in
+                !isLikelySyntheticSideAction(candidate, in: sideActionParent)
+            }
             .sorted { lhs, rhs in
                 let lhsPriority = clickPriority(for: lhs)
                 let rhsPriority = clickPriority(for: rhs)
@@ -856,6 +1084,285 @@ public final class ComputerUseService {
         }
 
         return results
+    }
+
+    private func isLikelySyntheticSideAction(_ candidate: ElementRecord, in parent: ElementRecord) -> Bool {
+        isLikelySyntheticSideActionCandidate(
+            parentFrame: parent.localFrame,
+            candidateFrame: candidate.localFrame,
+            hasPrimaryAction: hasPrimaryClickAction(candidate),
+            labels: accessibilityLabels(for: candidate.element)
+        )
+    }
+
+    private func hasPrimaryClickAction(_ record: ElementRecord) -> Bool {
+        record.rawActions.contains { action in
+            action.caseInsensitiveCompare(kAXPressAction as String) == .orderedSame ||
+                action.caseInsensitiveCompare(kAXConfirmAction as String) == .orderedSame ||
+                action.caseInsensitiveCompare("AXOpen") == .orderedSame ||
+                action.caseInsensitiveCompare(kAXShowMenuAction as String) == .orderedSame
+        }
+    }
+
+    private func shouldPreferContainingWebRowAXClick(_ record: ElementRecord, in snapshot: AppSnapshot) -> Bool {
+        guard
+            let element = record.element
+        else {
+            return false
+        }
+
+        return shouldPreferContainingWebRowAXClickCandidate(
+            role: stringValue(of: element, attribute: kAXRoleAttribute),
+            isSyntheticText: record.isSyntheticText,
+            hasWebAreaAncestor: hasAncestorRole("AXWebArea", of: element),
+            appName: snapshot.app.name,
+            bundleIdentifier: snapshot.app.bundleIdentifier
+        )
+    }
+
+    private func performContainingWebRowClick(
+        for record: ElementRecord,
+        snapshot: AppSnapshot,
+        button: MouseButtonKind,
+        clickCount: Int
+    ) throws -> Bool {
+        guard
+            button == .left,
+            clickCount <= 1,
+            let element = record.element,
+            let targetFrame = record.localFrame
+        else {
+            return false
+        }
+
+        var current = element
+
+        for _ in 0..<6 {
+            guard let parent = copyParent(of: current) else {
+                return false
+            }
+
+            let rawActions = copyActions(for: parent) ?? []
+            let candidate = ElementRecord(
+                index: -1,
+                identifier: nil,
+                element: parent,
+                localFrame: localFrame(of: parent, windowBounds: snapshot.windowBounds),
+                rawActions: rawActions,
+                prettyActions: rawActions
+            )
+
+            if isLikelyContainingWebRowAction(targetFrame: targetFrame, candidate: candidate),
+               !isLikelySyntheticSideAction(candidate, in: record),
+               try performAction(named: kAXPressAction as String, on: parent, availableActions: rawActions)
+            {
+                debugClickDecision("handled by containing web row \(clickDebugDescription(candidate))")
+                return true
+            }
+
+            current = parent
+        }
+
+        return false
+    }
+
+    private func isLikelyContainingWebRowAction(
+        targetFrame: CGRect,
+        candidate: ElementRecord
+    ) -> Bool {
+        isLikelyContainingRowActionFrame(
+            targetFrame: targetFrame,
+            candidateFrame: candidate.localFrame,
+            hasPrimaryAction: hasPrimaryClickAction(candidate)
+        )
+    }
+
+    private func hasAncestorRole(_ role: String, of element: AXUIElement) -> Bool {
+        var current = element
+
+        for _ in 0..<12 {
+            guard let parent = copyParent(of: current) else {
+                return false
+            }
+
+            if stringValue(of: parent, attribute: kAXRoleAttribute) == role {
+                return true
+            }
+
+            current = parent
+        }
+
+        return false
+    }
+
+    private func accessibilityLabels(for element: AXUIElement?) -> [String] {
+        guard let element else {
+            return []
+        }
+
+        return [
+            kAXTitleAttribute as String,
+            kAXDescriptionAttribute as String,
+            kAXHelpAttribute as String,
+            kAXValueAttribute as String,
+            "AXIdentifier"
+        ].compactMap { attribute in
+            stringValue(of: element, attribute: attribute)
+        }
+    }
+
+    private func typeTextBySettingFocusedValueIfAvailable(_ text: String, in snapshot: AppSnapshot) throws -> Bool {
+        guard let element = snapshot.focusedElement else {
+            return false
+        }
+
+        guard try isSettableForSetValue(element: element, attribute: kAXValueAttribute) else {
+            return false
+        }
+
+        let baseValue = editableBaseValue(for: element)
+        let result = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, (baseValue + text) as CFString)
+        switch result {
+        case .success:
+            return true
+        case .failure, .attributeUnsupported, .actionUnsupported, .cannotComplete, .noValue, .invalidUIElement, .illegalArgument:
+            return false
+        default:
+            throw ComputerUseError.message("AXUIElementSetAttributeValue failed with \(result.rawValue)")
+        }
+    }
+
+    private func canTypeTextUsingKeyboardFallback(in snapshot: AppSnapshot) throws -> Bool {
+        guard let element = snapshot.focusedElement else {
+            return false
+        }
+
+        let role = stringValue(of: element, attribute: kAXRoleAttribute)
+        let roleDescription = role.flatMap {
+            stringValue(of: element, attribute: kAXRoleDescriptionAttribute) ?? humanizedRoleDescription(for: $0)
+        }
+        return canUseKeyboardTextFallback(
+            role: role,
+            roleDescription: roleDescription,
+            isValueSettable: try isSettableForSetValue(element: element, attribute: kAXValueAttribute)
+        )
+    }
+
+    private func humanizedRoleDescription(for role: String) -> String {
+        if role == kAXTextFieldRole as String {
+            return "text field"
+        }
+
+        switch role {
+        case "AXTextArea", "AXTextView":
+            return "text entry area"
+        default:
+            return ""
+        }
+    }
+
+    private func editableBaseValue(for element: AXUIElement) -> String {
+        let childTextValues = editableDescendantTextValues(in: element)
+            .filter { !looksLikeEditablePlaceholder($0) }
+        if !childTextValues.isEmpty {
+            return childTextValues.joined()
+        }
+
+        guard let currentValue = stringValue(of: element, attribute: kAXValueAttribute) else {
+            return ""
+        }
+
+        let normalizedValue = normalizeEditablePlaceholderText(currentValue)
+        if normalizedValue.isEmpty || looksLikeEditablePlaceholder(normalizedValue) {
+            return ""
+        }
+
+        for attribute in ["AXPlaceholderValue", "AXPlaceholder"] {
+            guard let placeholder = stringValue(of: element, attribute: attribute) else {
+                continue
+            }
+
+            if normalizedValue == normalizeEditablePlaceholderText(placeholder) {
+                return ""
+            }
+        }
+
+        return currentValue
+    }
+
+    private func editableDescendantTextValues(in element: AXUIElement, depth: Int = 0) -> [String] {
+        guard depth < 4 else {
+            return []
+        }
+
+        var values: [String] = []
+        for child in copyChildren(of: element) {
+            if stringValue(of: child, attribute: kAXRoleAttribute) == kAXStaticTextRole as String,
+               let value = stringValue(of: child, attribute: kAXValueAttribute)
+                    ?? stringValue(of: child, attribute: kAXTitleAttribute)
+            {
+                let normalized = normalizeEditablePlaceholderText(value)
+                if !normalized.isEmpty {
+                    values.append(normalized)
+                }
+            }
+
+            values.append(contentsOf: editableDescendantTextValues(in: child, depth: depth + 1))
+        }
+
+        return values
+    }
+
+    private func looksLikeEditablePlaceholder(_ value: String) -> Bool {
+        let normalized = normalizeEditablePlaceholderText(value)
+        return normalized == "沟通时请保持“公开可接受”"
+    }
+
+    private func normalizeEditablePlaceholderText(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\u{200B}", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func clickFrame(for record: ElementRecord, snapshot: AppSnapshot) -> CGRect? {
+        guard let frame = record.localFrame else {
+            return nil
+        }
+
+        guard
+            !record.isSyntheticText,
+            let element = record.element,
+            stringValue(of: element, attribute: kAXRoleAttribute) == kAXStaticTextRole as String,
+            let rowFrame = containingRowFrame(for: element, textFrame: frame, windowBounds: snapshot.windowBounds)
+        else {
+            return frame
+        }
+
+        return rowFrame
+    }
+
+    private func containingRowFrame(for element: AXUIElement, textFrame: CGRect, windowBounds: CGRect?) -> CGRect? {
+        let textCenter = CGPoint(x: textFrame.midX, y: textFrame.midY)
+        var current = element
+
+        for _ in 0..<4 {
+            guard let parent = copyParent(of: current) else {
+                return nil
+            }
+
+            if let frame = localFrame(of: parent, windowBounds: windowBounds),
+               frame.insetBy(dx: -2, dy: -2).contains(textCenter),
+               frame.width >= textFrame.width + 40,
+               frame.height >= textFrame.height,
+               frame.height <= max(textFrame.height * 4, 96)
+            {
+                return frame
+            }
+
+            current = parent
+        }
+
+        return nil
     }
 
     private func copyActions(for element: AXUIElement) -> [String]? {
@@ -938,6 +1445,14 @@ public final class ComputerUseService {
             snapshot: snapshot,
             point: CGPoint(x: frame.midX, y: frame.midY)
         )
+    }
+
+    private func globalClickPoint(for record: ElementRecord, snapshot: AppSnapshot) throws -> CGPoint? {
+        guard let point = clickActionPoints(for: record, snapshot: snapshot).first ?? localCenter(for: record) else {
+            return nil
+        }
+
+        return try windowPointToGlobalPoint(snapshot: snapshot, point: point)
     }
 
     private func screenshotToGlobalPoint(snapshot: AppSnapshot, x: Double, y: Double) throws -> CGPoint {
@@ -1060,6 +1575,21 @@ public final class ComputerUseService {
         )
     }
 
+    private func debugClickDecision(_ message: String) {
+        guard inputFallbackDebugEnabled(environment: ProcessInfo.processInfo.environment) else {
+            return
+        }
+
+        fputs("[open-computer-use] click decision \(message)\n", stderr)
+    }
+
+    private func clickDebugDescription(_ record: ElementRecord) -> String {
+        let role = record.element.flatMap { stringValue(of: $0, attribute: kAXRoleAttribute) } ?? "nil"
+        let actions = record.rawActions.joined(separator: ",")
+        let frame = record.localFrame.map { "x=\(Int($0.minX)) y=\(Int($0.minY)) w=\(Int($0.width)) h=\(Int($0.height))" } ?? "nil"
+        return "index=\(record.index) role=\(role) synthetic=\(record.isSyntheticText) actions=[\(actions)] frame=\(frame)"
+    }
+
     private func integralScrollPageCount(_ pages: Double) -> Int? {
         let rounded = pages.rounded(.toNearestOrAwayFromZero)
         guard abs(pages - rounded) < 0.000001 else {
@@ -1075,6 +1605,8 @@ public final class ComputerUseService {
         targetDescription: String,
         snapshot: AppSnapshot
     ) throws {
+        let eventPoint = inputEventPoint(fromScreenStatePoint: point)
+
         if globalPointerFallbacksEnabled(environment: ProcessInfo.processInfo.environment) {
             debugInputFallback(
                 tool: "scroll",
@@ -1082,11 +1614,11 @@ public final class ComputerUseService {
                 snapshot: snapshot
             )
             InputSimulation.prepareAppForGlobalPointerInput(snapshot.app)
-            try InputSimulation.scrollGlobally(at: point, direction: direction, pages: pages)
+            try InputSimulation.scrollGlobally(at: eventPoint, direction: direction, pages: pages)
             return
         }
 
-        try InputSimulation.scrollTargeted(at: point, direction: direction, pages: pages, pid: snapshot.app.pid)
+        try InputSimulation.scrollTargeted(at: eventPoint, direction: direction, pages: pages, pid: snapshot.app.pid)
     }
 
     private func performDragEvent(
@@ -1095,6 +1627,9 @@ public final class ComputerUseService {
         targetDescription: String,
         snapshot: AppSnapshot
     ) throws {
+        let eventStart = inputEventPoint(fromScreenStatePoint: start)
+        let eventEnd = inputEventPoint(fromScreenStatePoint: end)
+
         if globalPointerFallbacksEnabled(environment: ProcessInfo.processInfo.environment) {
             debugInputFallback(
                 tool: "drag",
@@ -1102,11 +1637,11 @@ public final class ComputerUseService {
                 snapshot: snapshot
             )
             InputSimulation.prepareAppForGlobalPointerInput(snapshot.app)
-            try InputSimulation.dragGlobally(from: start, to: end)
+            try InputSimulation.dragGlobally(from: eventStart, to: eventEnd)
             return
         }
 
-        try InputSimulation.dragTargeted(from: start, to: end, pid: snapshot.app.pid)
+        try InputSimulation.dragTargeted(from: eventStart, to: eventEnd, pid: snapshot.app.pid)
     }
 
     private func performNonAXClickFallback(
@@ -1116,9 +1651,22 @@ public final class ComputerUseService {
         targetDescription: String,
         snapshot: AppSnapshot
     ) throws {
+        let eventPoint = inputEventPoint(fromScreenStatePoint: point)
+
+        if globalPointerFallbacksEnabled(environment: ProcessInfo.processInfo.environment) {
+            debugInputFallback(
+                tool: "click",
+                targetDescription: targetDescription,
+                snapshot: snapshot
+            )
+            InputSimulation.prepareAppForGlobalPointerInput(snapshot.app)
+            try InputSimulation.clickGlobally(at: eventPoint, button: button, clickCount: clickCount)
+            return
+        }
+
         do {
             try InputSimulation.clickTargeted(
-                at: point,
+                at: eventPoint,
                 button: button,
                 clickCount: clickCount,
                 pid: snapshot.app.pid
@@ -1131,20 +1679,6 @@ public final class ComputerUseService {
                 )
             }
         }
-
-        guard globalPointerFallbacksEnabled(environment: ProcessInfo.processInfo.environment) else {
-            throw ComputerUseError.message(
-                "click could not be handled through accessibility, and global pointer fallback is disabled. Set OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 to allow physical-pointer fallback for this process."
-            )
-        }
-
-        debugInputFallback(
-            tool: "click",
-            targetDescription: targetDescription,
-            snapshot: snapshot
-        )
-        InputSimulation.prepareAppForGlobalPointerInput(snapshot.app)
-        try InputSimulation.clickGlobally(at: point, button: button, clickCount: clickCount)
     }
 
     private func snapshotResult(for snapshot: AppSnapshot, style: SnapshotTextStyle) -> ToolCallResult {

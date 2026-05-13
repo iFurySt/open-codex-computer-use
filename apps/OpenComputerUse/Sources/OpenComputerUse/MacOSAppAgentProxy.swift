@@ -128,6 +128,7 @@ enum MacOSAppAgentProxy {
         let response = try client.request([
             "kind": "cli",
             "arguments": arguments,
+            "environment": proxiedEnvironment(),
         ])
 
         return CLIProxyResponse(
@@ -135,6 +136,12 @@ enum MacOSAppAgentProxy {
             stderr: response["stderr"] as? String ?? "",
             exitCode: Int32(response["exitCode"] as? Int ?? 1)
         )
+    }
+
+    private static func proxiedEnvironment() -> [String: String] {
+        ProcessInfo.processInfo.environment.filter { key, _ in
+            key.hasPrefix("OPEN_COMPUTER_USE_")
+        }
     }
 }
 
@@ -332,7 +339,10 @@ private final class AppAgentConnection: @unchecked Sendable {
                 return ["response": NSNull()]
             case "cli":
                 let arguments = request["arguments"] as? [String] ?? []
-                let response = runCLI(arguments: arguments)
+                let environment = request["environment"] as? [String: String] ?? [:]
+                let response = AppAgentEnvironment.withOverrides(environment) {
+                    runCLI(arguments: arguments)
+                }
                 return [
                     "stdout": response.stdout,
                     "stderr": response.stderr,
@@ -394,6 +404,40 @@ private final class AppAgentConnection: @unchecked Sendable {
             let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             return CLIProxyResponse(stdout: "", stderr: message + "\n", exitCode: EXIT_FAILURE)
         }
+    }
+}
+
+private enum AppAgentEnvironment {
+    private static let lock = NSLock()
+
+    static func withOverrides<T>(_ overrides: [String: String], _ body: () throws -> T) rethrows -> T {
+        guard !overrides.isEmpty else {
+            return try body()
+        }
+
+        lock.lock()
+        defer { lock.unlock() }
+
+        let previousValues = Dictionary(
+            uniqueKeysWithValues: overrides.keys.map { key in
+                (key, ProcessInfo.processInfo.environment[key])
+            }
+        )
+        for (key, value) in overrides {
+            setenv(key, value, 1)
+        }
+
+        defer {
+            for (key, previousValue) in previousValues {
+                if let previousValue {
+                    setenv(key, previousValue, 1)
+                } else {
+                    unsetenv(key)
+                }
+            }
+        }
+
+        return try body()
     }
 }
 
