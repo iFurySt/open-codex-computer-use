@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-05-13 | macOS 点击与输入稳定性 | 飞书 / Lark 会话列表点击不再误触右侧“完成”动作，中文、emoji 等富文本输入更稳定；同时 Chrome/GitHub 这类普通浏览器页面的 container/link 点击保持原有行为不退化。 | 发布 `0.1.50`，macOS `type_text` 按 grapheme cluster 批量投递 Unicode，并在 Electron 可设置输入框上优先写 `AXValue`；点击链路增加 synthetic row 左侧安全锚点、side action 过滤和 Electron-scoped 行级 `AXPress` 优化，同时用 Chrome/GitHub pinned repo 对照验证避免浏览器 WebArea 退化。 |
 | 2026-05-11 | macOS 文件选择弹窗 | 上传/打开文件弹窗里右侧文件列表现在可被读取和点击，选择图片后 Open 按钮能正常触发，不再只能操作左侧目录。 | 发布 `0.1.49`，macOS AX snapshot 补上 `AXContents` / `AXVisibleChildren` 遍历，coordinate click 优先选择原生 `AXList` 子项，并让截图窗口在重叠 sheet 场景下优先绑定前台 open panel；补对应单元测试和 history。 |
 | 2026-05-08 | MCP 结果大小控制 | Chrome / Electron 等复杂窗口返回截图时更不容易触发 Codex 的大结果降级，历史记录和上层工具消费里会继续保持正常的 `text + image` 结构，而不是把整个 MCP result 塞进 text 字符串。 | 发布 `0.1.48`，macOS `ScreenCaptureKit` 截图在编码为 MCP image block 前会按最大尺寸和目标字节数自适应缩小，并补测试锁住大图压缩、小图保真路径。 |
 | 2026-05-08 | Smoke 测试静默运行 | 开发者运行 `./scripts/run-tool-smoke-tests.sh` 时不再被内部 fixture 的橙色测试窗口打断，回归验证更安静，也不会让用户误以为桌面上弹出了额外应用。 | 发布 `0.1.47`，smoke suite 默认以 headless 模式启动内部 fixture，并保留 fixture 在 `list_apps` smoke 路径里的可发现性。 |
