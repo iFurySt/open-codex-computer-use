@@ -67,6 +67,29 @@ open-computer-use install-codex-mcp
 }
 ```
 
+### Skill
+
+一键安装skill：
+
+```bash
+# 安装到 Codex
+npx skills add iFurySt/open-codex-computer-use -g -a codex --skill open-computer-use -y
+npx skills ls -g -a codex | rg 'open-computer-use'
+```
+
+安装到 Claude Code
+```
+npx skills add iFurySt/open-codex-computer-use -g -a claude-code --skill open-computer-use -y
+```
+
+更新已有的全局安装，包括上面安装到 Codex 的那份：
+
+```bash
+npx skills update open-computer-use -g -y
+```
+
+也可以手动下载 [`open-computer-use` skill](./skills/open-computer-use) 安装
+
 ## 更多
 
 除了直接用上面的 MCP JSON 配置，你也可以用一些内置子命令：

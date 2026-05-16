@@ -28,6 +28,8 @@
   新的独立 Swift cursor viewer，直接复用 `scripts/cursor-motion-re/official_cursor_motion.py` 里收敛出来的候选路径、score 与 raw spring timeline，用来观察更贴近 binary lift 的表现。
 - `scripts/`
   仓库级自动化命令，包括 smoke test、`.app` 打包入口、Windows `.exe` / Linux binary 构建入口、npm 分发脚本，以及 `scripts/computer-use-cli/` 这个用于探测官方 bundled `computer-use` 的 Go helper。
+- `skills/`
+  面向 agent runtime 的可安装 skill。当前 `skills/open-computer-use/SKILL.md` 只作为轻量入口和目录，安装、MCP/CLI 使用、排障等细节拆到相邻 `references/` 文件里按需加载；`scripts/package-skill.sh` 负责校验并打包 `.zip` / `.skill` 制品。
 - `docs/`
   逆向分析、执行计划、history 和项目约束。
 
@@ -138,6 +140,7 @@
 - app 打包：`./scripts/build-open-computer-use-app.sh debug`
 - npm staging：`node ./scripts/npm/build-packages.mjs`
 - release tgz：`./scripts/release-package.sh`
+- skill 打包：`npm run package:skill`
 - Windows runtime 单测：`(cd apps/OpenComputerUseWindows && go test ./...)`
 - Windows exe 构建：`./scripts/build-open-computer-use-windows.sh --arch arm64`
 - Linux runtime 单测：`(cd apps/OpenComputerUseLinux && go test ./...)`

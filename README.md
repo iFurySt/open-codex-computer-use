@@ -69,6 +69,31 @@ Or add it to your own client manually:
 }
 ```
 
+### Skill
+
+Install the skill directly:
+
+```bash
+# Install for Codex
+npx skills add iFurySt/open-codex-computer-use -g -a codex --skill open-computer-use -y
+npx skills ls -g -a codex | rg 'open-computer-use'
+```
+
+Install for Claude Code:
+
+```bash
+npx skills add iFurySt/open-codex-computer-use -g -a claude-code --skill open-computer-use -y
+```
+
+Update an existing global install, including the Codex install created above:
+
+```bash
+npx skills update open-computer-use -g -y
+```
+
+You can also manually download and install the
+[`open-computer-use` skill](./skills/open-computer-use).
+
 ## More
 
 Besides the MCP JSON config above, you can also use the built-in commands:
