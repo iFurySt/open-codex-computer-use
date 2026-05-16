@@ -21,6 +21,10 @@ I started this repo with my [harness template](https://github.com/iFurySt/harnes
 
 ### Codex App and Codex CLI
 
+<a href="https://llmapis.com?source=https%3A%2F%2Fgithub.com%2FiFurySt%2Fopen-codex-computer-use" target="_blank"><img src="https://llmapis.com/api/badge/iFurySt/open-codex-computer-use" alt="LLMAPIS" width="80" /></a>
+
+*Partnership with [https://llmapis.com](https://llmapis.com) - Discover more AI tools and resources*
+
 [![Open Computer Use custom demo cover](./docs/generated/readme-assets/open-computer-use-demo-cover.png)](https://youtu.be/2s6aVpGiwaQ)
 
 <sub><em>`open-computer-use` used as Computer Use in Codex App and Codex CLI, matching the official experience.</em></sub>
