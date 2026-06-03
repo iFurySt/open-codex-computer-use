@@ -1,5 +1,11 @@
 # 功能发布记录
 
+## 2026-06
+
+| 日期 | 功能域 | 用户价值 | 变更摘要 |
+| --- | --- | --- | --- |
+| 2026-06-03 | CLI element index 容错 | 手写 `open-computer-use call` JSON 时，`element_index` 写成数字也能正常点击、滚动或设置值，不再因为 JSON 数字类型被误认为缺少索引。 | 发布 `0.1.52`，macOS Swift dispatcher 与 Windows / Linux Go runtime 统一把整数型 `element_index` 规范化为字符串，同时继续拒绝空值和小数，并同步测试、skill 示例和 history。 |
+
 ## 2026-05
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
