@@ -104,3 +104,13 @@ func TestWindowsRuntimeForegroundActionsRequireOptIn(t *testing.T) {
 		t.Fatal("MCP instructions must document the Windows background-focus policy")
 	}
 }
+
+func TestUTF8EncodingInPowerShellScript(t *testing.T) {
+	// Verify that the PowerShell script sets UTF-8 encoding
+	if !strings.Contains(windowsRuntimeScript, "$OutputEncoding = [System.Text.Encoding]::UTF8") {
+		t.Fatal("PowerShell script must set $OutputEncoding to UTF-8 for proper non-ASCII character handling")
+	}
+	if !strings.Contains(windowsRuntimeScript, "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8") {
+		t.Fatal("PowerShell script must set [Console]::OutputEncoding to UTF-8 for proper non-ASCII character handling")
+	}
+}
