@@ -852,7 +852,12 @@ function Invoke-TypeText($process, [string]$text) {
     return $false
 }
 
-$operation = Get-Content -Raw -Path $OperationPath | ConvertFrom-Json
+# Read the operation file as UTF-8 explicitly. Windows PowerShell 5.1's
+# Get-Content defaults to the system ANSI code page (e.g. GBK on Chinese
+# systems) for files without a BOM, which corrupts non-ASCII input such as
+# Chinese text passed to set_value/type_text.
+$operationJson = [System.IO.File]::ReadAllText($OperationPath, [System.Text.Encoding]::UTF8)
+$operation = $operationJson | ConvertFrom-Json
 
 try {
     if ($operation.tool -eq "list_apps") {
