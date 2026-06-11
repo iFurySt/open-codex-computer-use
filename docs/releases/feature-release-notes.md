@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-06-11 | 快照长文本与 Windows 编码稳定性 | `snapshot` / `get_app_state` 默认文本截断在 macOS、Linux、Windows 上保持一致；需要读取完整长消息时可以显式打开 full-text 模式。Windows runtime 处理中文等非 ASCII tool 参数和 MCP 输出也更稳定。 | 发布 `0.1.53`，新增 `show_full_text` / `--show-full-text`，默认统一 500 字符并追加 `...`；修复 Windows operation JSON 读取和 PowerShell 输出编码；同时补 agent smoke 与 stress 验证脚本。 |
 | 2026-06-03 | CLI element index 容错 | 手写 `open-computer-use call` JSON 时，`element_index` 写成数字也能正常点击、滚动或设置值，不再因为 JSON 数字类型被误认为缺少索引。 | 发布 `0.1.52`，macOS Swift dispatcher 与 Windows / Linux Go runtime 统一把整数型 `element_index` 规范化为字符串，同时继续拒绝空值和小数，并同步测试、skill 示例和 history。 |
 
 ## 2026-05
