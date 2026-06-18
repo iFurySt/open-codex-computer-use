@@ -37,6 +37,19 @@ Common causes:
 
 Ask the user to bring the target app/window into a visible state when automation cannot do so safely.
 
+## Truncated Text
+
+Snapshot text is limited to 500 characters by default. If a visible chat message, email body, document paragraph, or form value ends with `...`, do not assume the page itself is missing content.
+
+Request full accessibility text explicitly:
+
+```sh
+open-computer-use call get_app_state --args '{"app":"TextEdit","show_full_text":true}'
+open-computer-use snapshot --show-full-text TextEdit
+```
+
+`show_full_text` only disables the text character limit. It does not remove node count, tree depth, screenshot size, permission, or desktop-session protections.
+
 ## Element Action Fails
 
 If an element-targeted action fails:

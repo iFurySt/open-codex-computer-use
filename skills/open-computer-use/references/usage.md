@@ -65,6 +65,21 @@ Use `--calls-file` when the sequence is too large for a readable shell command:
 open-computer-use call --calls-file examples/textedit-overlay-seq.json --sleep 0.5
 ```
 
+## Full Text Snapshots
+
+Snapshot text is truncated to 500 characters by default and ends with `...` when truncation happens. This keeps normal UI state compact for agent planning and element-targeted actions.
+
+Use full-text mode when the task depends on complete semantic text, such as chat histories, email bodies, document text, or long form content:
+
+```sh
+open-computer-use call get_app_state --args '{"app":"TextEdit","show_full_text":true}'
+open-computer-use snapshot --show-full-text TextEdit
+```
+
+The same `show_full_text` tool argument and `--show-full-text` snapshot flag apply on macOS, Linux, and Windows.
+
+Action tools return refreshed app state with the default 500 character text limit. If full text is still needed after an action, run `get_app_state` again with `show_full_text: true`.
+
 ## Choosing Targets
 
 - Prefer app names or bundle identifiers returned by `list_apps`.

@@ -25,3 +25,17 @@ Default truncation protects snapshot size and preserves upstream-compatible beha
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/OpenComputerUseCLI.swift`
 - `apps/OpenComputerUseLinux/runtime.py`
 - `apps/OpenComputerUseWindows/runtime.ps1`
+
+### Follow-up 2026-06-18
+
+**Scope:** Agent-facing Open Computer Use skill docs.
+
+**Key Actions:**
+- Documented when agents should request full text with `show_full_text: true`.
+- Added CLI examples for `get_app_state` full-text mode and `snapshot --show-full-text`.
+- Added troubleshooting guidance for visible text ending in `...`, clarifying that full-text mode only removes the text character limit and does not relax other snapshot protections.
+
+**Files Modified:**
+- `skills/open-computer-use/SKILL.md`
+- `skills/open-computer-use/references/usage.md`
+- `skills/open-computer-use/references/troubleshooting.md`

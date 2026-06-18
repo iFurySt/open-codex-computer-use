@@ -18,11 +18,12 @@ It supports the same core tool surface across macOS, Linux, and Windows:
 1. Check the CLI is installed with `open-computer-use -h`. If installation or setup is missing, read [references/installation.md](references/installation.md).
 2. On macOS, run `open-computer-use doctor` before the first real GUI task. If permissions are missing, ask the user to approve Accessibility and Screen Recording in the onboarding UI.
 3. Inspect available apps before acting: `open-computer-use call list_apps`.
-4. Capture current UI state with `open-computer-use call get_app_state --args '{"app":"TextEdit"}'`.
-5. Prefer element-targeted actions using `element_index` from the latest `get_app_state` result.
-6. For multi-step CLI work, use `open-computer-use call --calls '<json-array>'` so one process can reuse the latest element index mapping.
-7. For agent runtimes that support local MCP servers, configure `open-computer-use mcp` and call the exposed Computer Use tools directly. Read [references/usage.md](references/usage.md).
-8. If communication, permission, or desktop-session access fails, read [references/troubleshooting.md](references/troubleshooting.md).
+4. Capture current UI state with `open-computer-use call get_app_state --args '{"app":"TextEdit"}'`. The default state is usually enough for UI operation.
+5. When the task needs complete long text, such as chat history, email bodies, document text, or long form content, call `get_app_state` with `show_full_text: true`.
+6. Prefer element-targeted actions using `element_index` from the latest `get_app_state` result.
+7. For multi-step CLI work, use `open-computer-use call --calls '<json-array>'` so one process can reuse the latest element index mapping.
+8. For agent runtimes that support local MCP servers, configure `open-computer-use mcp` and call the exposed Computer Use tools directly. Read [references/usage.md](references/usage.md).
+9. If communication, permission, or desktop-session access fails, read [references/troubleshooting.md](references/troubleshooting.md).
 
 ## Operating Rules
 
@@ -41,6 +42,7 @@ open-computer-use -h
 open-computer-use doctor
 open-computer-use call list_apps
 open-computer-use call get_app_state --args '{"app":"TextEdit"}'
+open-computer-use call get_app_state --args '{"app":"TextEdit","show_full_text":true}'
 open-computer-use call click --args '{"app":"TextEdit","element_index":"0"}'
 open-computer-use call type_text --args '{"app":"TextEdit","text":"Hello from Open Computer Use"}'
 ```
