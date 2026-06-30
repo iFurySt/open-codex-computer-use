@@ -24,7 +24,7 @@ except (ImportError, ValueError):
 from gi.repository import Atspi
 
 
-MAX_ELEMENTS = 500
+MAX_ELEMENTS = 1200
 MAX_DEPTH = 64
 TEXT_CHARACTER_LIMIT = 500
 

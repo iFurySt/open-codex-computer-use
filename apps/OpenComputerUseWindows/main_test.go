@@ -158,6 +158,18 @@ func TestWindowsRuntimeTextLimitSupportsFullTextMode(t *testing.T) {
 	}
 }
 
+func TestWindowsRuntimeTreeBudgetDefaultsMatchMacOS(t *testing.T) {
+	if !strings.Contains(windowsRuntimeScript, "$AccessibilityTreeMaxNodeCount = 1200") {
+		t.Fatal("Windows runtime should default to the shared 1200 node tree budget")
+	}
+	if !strings.Contains(windowsRuntimeScript, "$AccessibilityTreeMaxDepth = 64") {
+		t.Fatal("Windows runtime should default to the shared 64 level tree depth")
+	}
+	if !strings.Contains(windowsRuntimeScript, "$script:nextIndex -ge $script:AccessibilityTreeMaxNodeCount -or $depth -gt $script:AccessibilityTreeMaxDepth") {
+		t.Fatal("Windows runtime should use shared tree budget constants while rendering")
+	}
+}
+
 func findToolDefinition(t *testing.T, name string) toolDefinition {
 	t.Helper()
 	for _, tool := range toolDefinitions() {

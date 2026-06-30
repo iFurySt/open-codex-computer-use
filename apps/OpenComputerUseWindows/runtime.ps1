@@ -5,6 +5,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 $TextCharacterLimit = 500
+$AccessibilityTreeMaxNodeCount = 1200
+$AccessibilityTreeMaxDepth = 64
 
 # Set output encoding to UTF-8 to properly handle non-ASCII characters
 $OutputEncoding = [System.Text.Encoding]::UTF8
@@ -479,7 +481,7 @@ function Render-Tree($element, $windowBounds, [bool]$ShowFullText = $false) {
     $nextIndex = 0
 
     function Visit($node, [int]$depth) {
-        if ($script:nextIndex -ge 500 -or $depth -gt 16) {
+        if ($script:nextIndex -ge $script:AccessibilityTreeMaxNodeCount -or $depth -gt $script:AccessibilityTreeMaxDepth) {
             return
         }
         $runtime = ""

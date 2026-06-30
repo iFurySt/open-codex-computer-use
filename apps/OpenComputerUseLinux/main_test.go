@@ -148,6 +148,15 @@ func TestLinuxRuntimeTextLimitSupportsFullTextMode(t *testing.T) {
 	}
 }
 
+func TestLinuxRuntimeTreeBudgetDefaultsMatchMacOS(t *testing.T) {
+	if !strings.Contains(linuxRuntimeScript, "MAX_ELEMENTS = 1200") {
+		t.Fatal("Linux runtime should default to the shared 1200 node tree budget")
+	}
+	if !strings.Contains(linuxRuntimeScript, "MAX_DEPTH = 64") {
+		t.Fatal("Linux runtime should default to the shared 64 level tree depth")
+	}
+}
+
 func TestLinuxRuntimeEnvironmentDiscoversDesktopSession(t *testing.T) {
 	runtimeDir := shortTempDir(t)
 	listenUnixSocket(t, filepath.Join(runtimeDir, "bus"))

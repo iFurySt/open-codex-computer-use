@@ -48,7 +48,7 @@ open-computer-use call get_app_state --args '{"app":"TextEdit","show_full_text":
 open-computer-use snapshot --show-full-text TextEdit
 ```
 
-`show_full_text` only disables the text character limit. It does not remove node count, tree depth, screenshot size, permission, or desktop-session protections.
+`show_full_text` only disables the text character limit. It does not remove the default 1200 node count limit, 64 level tree depth limit, screenshot size, permission, or desktop-session protections.
 
 ## Element Action Fails
 
