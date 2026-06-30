@@ -61,13 +61,32 @@ public struct AccessibilityTreeLimits: Equatable, Sendable {
     }
 }
 
+@usableFromInline
+let defaultTextLimit = 500
+
+public struct SnapshotTextLimit: Equatable, Sendable {
+    public static let maxKeyword = "max"
+    public static let defaults = SnapshotTextLimit(maxCount: defaultTextLimit)
+    public static let max = SnapshotTextLimit(maxCount: nil)
+
+    public let maxCount: Int?
+
+    public init(maxCount: Int = defaultTextLimit) {
+        precondition(maxCount > 0, "text limit must be positive")
+        self.maxCount = maxCount
+    }
+
+    private init(maxCount: Int?) {
+        self.maxCount = maxCount
+    }
+}
+
 let accessibilityTreeMaxNodeCount = AccessibilityTreeLimits.defaultMaxNodeCount
 let accessibilityTreeMaxDepth = AccessibilityTreeLimits.defaultMaxDepth
 let screenshotCaptureTimeout: TimeInterval = 5
 let screenshotResultMaxPNGBytes = 900_000
 let screenshotResultMaxDimension: CGFloat = 1280
 let screenshotResultMinScale: CGFloat = 0.25
-let snapshotTextDefaultCharacterLimit = 500
 private let windowVisibilityRecoveryDelay: TimeInterval = 0.7
 private let axWebAreaRole = "AXWebArea"
 private let axContentsAttribute = "AXContents"
@@ -121,7 +140,7 @@ public enum SnapshotTextStyle {
 enum SnapshotBuilder {
     static func build(
         for app: RunningAppDescriptor,
-        showFullText: Bool = false,
+        textLimit: SnapshotTextLimit = .defaults,
         treeLimits: AccessibilityTreeLimits = .defaults
     ) throws -> AppSnapshot {
         if app.name == FixtureBridge.appName, let fixtureState = try FixtureBridge.readState() {
@@ -172,7 +191,7 @@ enum SnapshotBuilder {
             windowCapture: windowCapture,
             focusedApplication: focusedApplication,
             systemWide: systemWide,
-            showFullText: showFullText,
+            textLimit: textLimit,
             treeLimits: treeLimits
         )
     }
@@ -185,18 +204,17 @@ enum SnapshotBuilder {
         windowCapture: WindowCapture,
         focusedApplication: AXUIElement?,
         systemWide: AXUIElement,
-        showFullText: Bool,
+        textLimit: SnapshotTextLimit,
         treeLimits: AccessibilityTreeLimits
     ) -> AppSnapshot {
         let windowBounds = windowCapture.bounds
         let screenshotPNGData = windowCapture.pngDataIfAvailable()
         let focusedElement = preferredFocusedElement(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
-        let textCharacterLimit = showFullText ? nil : snapshotTextDefaultCharacterLimit
-        let selectedText = focusedElement.flatMap { copySelectedText($0, characterLimit: textCharacterLimit) }
+        let selectedText = focusedElement.flatMap { copySelectedText($0, textLimit: textLimit) }
         let context = RenderContext(
             windowBounds: windowBounds,
             focusedElement: focusedElement,
-            textCharacterLimit: textCharacterLimit,
+            textLimit: textLimit,
             treeLimits: treeLimits
         )
 
@@ -629,7 +647,7 @@ enum BlockingAsyncBridge {
 private struct RenderContext {
     let windowBounds: CGRect?
     let focusedElement: AXUIElement?
-    let textCharacterLimit: Int?
+    let textLimit: SnapshotTextLimit
     let treeLimits: AccessibilityTreeLimits
 }
 
@@ -661,24 +679,24 @@ private struct TreeRenderer {
         let subrole = stringValue(of: root, attribute: kAXSubroleAttribute)
         let baseRoleText = roleDescription(of: root, role: role, subrole: subrole)
         let label = stringValue(of: root, attribute: kAXDescriptionAttribute)
-            .map { sanitizeText($0, characterLimit: context.textCharacterLimit) }
+            .map { sanitizeText($0, textLimit: context.textLimit) }
         let help = stringValue(of: root, attribute: kAXHelpAttribute)
-            .map { sanitizeText($0, characterLimit: context.textCharacterLimit) }
-        let value = sanitizedValue(of: root, characterLimit: context.textCharacterLimit)
+            .map { sanitizeText($0, textLimit: context.textLimit) }
+        let value = sanitizedValue(of: root, textLimit: context.textLimit)
         let axIdentifier = displayIdentifier(stringValue(of: root, attribute: kAXIdentifierAttribute))
         let traits = summarizeTraits(of: root)
         let actions = copyActions(root) ?? []
         let prettyActions = meaningfulActions(actions, role: role)
-        let placeholder = placeholderValue(of: root, characterLimit: context.textCharacterLimit)
+        let placeholder = placeholderValue(of: root, textLimit: context.textLimit)
         let webAreaDepth = webAreaDepth(role: role, ancestors: ancestors)
         let localFrame = resolveLocalFrame(of: root, windowBounds: context.windowBounds)
-        let rowTexts = role == kAXRowRole as String ? flattenedRowTexts(of: root, characterLimit: context.textCharacterLimit) : []
+        let rowTexts = role == kAXRowRole as String ? flattenedRowTexts(of: root, textLimit: context.textLimit) : []
         let childElements = children(of: root)
         let genericTextSummary = summarizedGenericText(
             of: root,
             role: role,
             childElements: childElements,
-            characterLimit: context.textCharacterLimit
+            textLimit: context.textLimit
         )
         let summaryImageChildren = genericTextSummary == nil ? [] : summaryImageDescendants(of: root)
         let rendersSummaryAsChildren = shouldRenderGenericTextSummaryAsChildren(
@@ -692,9 +710,9 @@ private struct TreeRenderer {
             identifier: axIdentifier,
             explicitValue: value,
             rowTexts: rowTexts,
-            characterLimit: context.textCharacterLimit
+            textLimit: context.textLimit
         )
-        let linkText = role == "AXLink" ? markdownLinkText(for: root, title: title, label: label, value: value, characterLimit: context.textCharacterLimit) : nil
+        let linkText = role == "AXLink" ? markdownLinkText(for: root, title: title, label: label, value: value, textLimit: context.textLimit) : nil
         let displayTitle = linkText ?? title
         let inlineRowSummary = outlineRowSummary(for: root, role: role)
         let hidesChildren = shouldSuppressChildren(
@@ -741,7 +759,7 @@ private struct TreeRenderer {
         let titleSegment = displayTitle.map { " \($0)" } ?? ""
         let rowSummary = inlineRowSummary ?? (rendersSummaryAsChildren ? nil : genericTextSummary)
         let rowSummarySegment = rowSummary.map { " \($0)" } ?? ""
-        let labelSegment = formattedLabelSegment(label, title: displayTitle, linkText: linkText, characterLimit: context.textCharacterLimit)
+        let labelSegment = formattedLabelSegment(label, title: displayTitle, linkText: linkText, textLimit: context.textLimit)
         let helpSegment = {
             guard let help else {
                 return ""
@@ -751,7 +769,7 @@ private struct TreeRenderer {
             }
             return " Help: \(help)"
         }()
-        let urlSegment = formattedURLSegment(for: root, title: displayTitle, label: label, characterLimit: context.textCharacterLimit)
+        let urlSegment = formattedURLSegment(for: root, title: displayTitle, label: label, textLimit: context.textLimit)
         let identifierSegment = displayIdentifierSegment(for: root, role: role, identifier: axIdentifier, title: displayTitle)
         let rawValueSegment = formattedValueSegment(for: root, roleText: roleText, title: displayTitle, value: value)
         let valueSegment = formattedValueSegmentWithSeparator(
@@ -1042,12 +1060,12 @@ private func stringValue(of element: AXUIElement, attribute: String) -> String? 
     return nil
 }
 
-private func copySelectedText(_ element: AXUIElement, characterLimit: Int? = snapshotTextDefaultCharacterLimit) -> String? {
+private func copySelectedText(_ element: AXUIElement, textLimit: SnapshotTextLimit = .defaults) -> String? {
     guard let value = stringValue(of: element, attribute: kAXSelectedTextAttribute) else {
         return nil
     }
 
-    let sanitized = sanitizeText(value, characterLimit: characterLimit)
+    let sanitized = sanitizeText(value, textLimit: textLimit)
     return sanitized.isEmpty ? nil : sanitized
 }
 
@@ -1071,9 +1089,9 @@ private func isSettable(of element: AXUIElement, attribute: String) -> Bool {
     return error == .success && settable.boolValue
 }
 
-private func sanitizedValue(of element: AXUIElement, characterLimit: Int? = snapshotTextDefaultCharacterLimit) -> String? {
+private func sanitizedValue(of element: AXUIElement, textLimit: SnapshotTextLimit = .defaults) -> String? {
     if let string = stringValue(of: element, attribute: kAXValueAttribute) {
-        let sanitized = sanitizeText(string, characterLimit: characterLimit)
+        let sanitized = sanitizeText(string, textLimit: textLimit)
         return sanitized.isEmpty ? nil : sanitized
     }
 
@@ -1092,10 +1110,10 @@ private func sanitizedValue(of element: AXUIElement, characterLimit: Int? = snap
     return nil
 }
 
-private func placeholderValue(of element: AXUIElement, characterLimit: Int? = snapshotTextDefaultCharacterLimit) -> String? {
+private func placeholderValue(of element: AXUIElement, textLimit: SnapshotTextLimit = .defaults) -> String? {
     for attribute in ["AXPlaceholderValue", "AXPlaceholder"] {
         if let string = stringValue(of: element, attribute: attribute) {
-            let sanitized = sanitizeText(string, characterLimit: characterLimit)
+            let sanitized = sanitizeText(string, textLimit: textLimit)
             if !sanitized.isEmpty {
                 return sanitized
             }
@@ -1133,10 +1151,10 @@ private func preferredDisplayTitle(
     identifier: String?,
     explicitValue: String?,
     rowTexts: [String],
-    characterLimit: Int? = snapshotTextDefaultCharacterLimit
+    textLimit: SnapshotTextLimit = .defaults
 ) -> String? {
     if let title = stringValue(of: element, attribute: kAXTitleAttribute), !title.isEmpty {
-        return sanitizeText(title, characterLimit: characterLimit)
+        return sanitizeText(title, textLimit: textLimit)
     }
 
     if role == kAXRowRole as String {
@@ -1148,18 +1166,18 @@ private func preferredDisplayTitle(
     }
 
     if (role == kAXButtonRole as String || role == kAXPopUpButtonRole as String), let label, !label.isEmpty {
-        return sanitizeText(label, characterLimit: characterLimit)
+        return sanitizeText(label, textLimit: textLimit)
     }
 
     if role == kAXImageRole as String, let label, !label.isEmpty {
-        return sanitizeText(label, characterLimit: characterLimit)
+        return sanitizeText(label, textLimit: textLimit)
     }
 
     if (role == kAXGroupRole as String || role == kAXUnknownRole as String || role == "AXWebArea"),
        let label,
        !label.isEmpty
     {
-        return sanitizeText(label, characterLimit: characterLimit)
+        return sanitizeText(label, textLimit: textLimit)
     }
 
     guard roleDescription(of: element, role: role, subrole: stringValue(of: element, attribute: kAXSubroleAttribute)) == "search text field" else {
@@ -1174,9 +1192,9 @@ private func markdownLinkText(
     title: String?,
     label: String?,
     value: String?,
-    characterLimit: Int? = snapshotTextDefaultCharacterLimit
+    textLimit: SnapshotTextLimit = .defaults
 ) -> String? {
-    guard let url = urlValue(of: element, attribute: kAXURLAttribute, characterLimit: characterLimit), !url.isEmpty else {
+    guard let url = urlValue(of: element, attribute: kAXURLAttribute, textLimit: textLimit), !url.isEmpty else {
         return nil
     }
 
@@ -1185,7 +1203,7 @@ private func markdownLinkText(
             guard let candidate else {
                 return nil
             }
-            let sanitized = sanitizeText(candidate, characterLimit: characterLimit)
+            let sanitized = sanitizeText(candidate, textLimit: textLimit)
             return sanitized.isEmpty ? nil : sanitized
         }
         .first
@@ -1249,13 +1267,13 @@ func formattedLabelSegment(
     _ label: String?,
     title: String?,
     linkText: String?,
-    characterLimit: Int? = snapshotTextDefaultCharacterLimit
+    textLimit: SnapshotTextLimit = .defaults
 ) -> String {
     guard let label, label != title else {
         return ""
     }
 
-    let sanitizedLabel = sanitizeText(label, characterLimit: characterLimit)
+    let sanitizedLabel = sanitizeText(label, textLimit: textLimit)
     guard !sanitizedLabel.isEmpty, sanitizedLabel != title else {
         return ""
     }
@@ -1305,13 +1323,13 @@ private func formattedURLSegment(
     for element: AXUIElement,
     title: String?,
     label: String?,
-    characterLimit: Int? = snapshotTextDefaultCharacterLimit
+    textLimit: SnapshotTextLimit = .defaults
 ) -> String {
     guard stringValue(of: element, attribute: kAXRoleAttribute) == "AXWebArea" else {
         return ""
     }
 
-    guard let url = urlValue(of: element, attribute: kAXURLAttribute, characterLimit: characterLimit), !url.isEmpty else {
+    guard let url = urlValue(of: element, attribute: kAXURLAttribute, textLimit: textLimit), !url.isEmpty else {
         return ""
     }
 
@@ -1325,19 +1343,19 @@ private func formattedURLSegment(
 private func urlValue(
     of element: AXUIElement,
     attribute: String,
-    characterLimit: Int? = snapshotTextDefaultCharacterLimit
+    textLimit: SnapshotTextLimit = .defaults
 ) -> String? {
     guard let value = attributeValue(of: element, attribute: attribute) else {
         return nil
     }
 
     if CFGetTypeID(value) == CFStringGetTypeID(), let string = value as? String {
-        let sanitized = sanitizeText(string, characterLimit: characterLimit)
+        let sanitized = sanitizeText(string, textLimit: textLimit)
         return sanitized.isEmpty ? nil : sanitized
     }
 
     if CFGetTypeID(value) == CFURLGetTypeID(), let url = value as? URL {
-        let sanitized = sanitizeText(url.absoluteString, characterLimit: characterLimit)
+        let sanitized = sanitizeText(url.absoluteString, textLimit: textLimit)
         return sanitized.isEmpty ? nil : sanitized
     }
 
@@ -1470,7 +1488,7 @@ private func summarizedGenericText(
     of element: AXUIElement,
     role: String,
     childElements: [AXUIElement],
-    characterLimit: Int? = snapshotTextDefaultCharacterLimit
+    textLimit: SnapshotTextLimit = .defaults
 ) -> String? {
     guard role == kAXGroupRole as String || role == kAXUnknownRole as String else {
         return nil
@@ -1484,7 +1502,7 @@ private func summarizedGenericText(
         return nil
     }
 
-    let texts = descendantTextsForSummary(of: element, characterLimit: characterLimit)
+    let texts = descendantTextsForSummary(of: element, textLimit: textLimit)
     guard texts.count >= 2 else {
         return nil
     }
@@ -1493,7 +1511,7 @@ private func summarizedGenericText(
         return nil
     }
 
-    let joined = sanitizeText(texts.joined(separator: " "), characterLimit: characterLimit)
+    let joined = sanitizeText(texts.joined(separator: " "), textLimit: textLimit)
         .replacingOccurrences(of: " : ", with: " :  ")
     return joined.isEmpty ? nil : joined
 }
@@ -1715,13 +1733,13 @@ private func splitCamelCase(_ value: String) -> String {
     return result
 }
 
-func sanitizeText(_ value: String, characterLimit: Int? = snapshotTextDefaultCharacterLimit) -> String {
+func sanitizeText(_ value: String, textLimit: SnapshotTextLimit = .defaults) -> String {
     let collapsed = value
         .replacingOccurrences(of: "\n", with: "\\n")
         .trimmingCharacters(in: .whitespacesAndNewlines)
 
-    if let characterLimit, characterLimit >= 0, collapsed.count > characterLimit {
-        return String(collapsed.prefix(characterLimit)) + "..."
+    if let maxCount = textLimit.maxCount, collapsed.count > maxCount {
+        return String(collapsed.prefix(maxCount)) + "..."
     }
 
     return collapsed
@@ -1729,12 +1747,12 @@ func sanitizeText(_ value: String, characterLimit: Int? = snapshotTextDefaultCha
 
 private func flattenedRowTexts(
     of element: AXUIElement,
-    characterLimit: Int? = snapshotTextDefaultCharacterLimit
+    textLimit: SnapshotTextLimit = .defaults
 ) -> [String] {
     let cells = copyArray(element, attribute: kAXChildrenAttribute) ?? []
     let texts = cells
-        .flatMap { descendantTexts(of: $0, characterLimit: characterLimit) }
-        .map { sanitizeText($0, characterLimit: characterLimit) }
+        .flatMap { descendantTexts(of: $0, textLimit: textLimit) }
+        .map { sanitizeText($0, textLimit: textLimit) }
         .filter { !$0.isEmpty }
 
     var unique: [String] = []
@@ -1751,7 +1769,7 @@ private func flattenedRowTexts(
 private func descendantTexts(
     of element: AXUIElement,
     depth: Int = 0,
-    characterLimit: Int? = snapshotTextDefaultCharacterLimit
+    textLimit: SnapshotTextLimit = .defaults
 ) -> [String] {
     guard depth < 4 else {
         return []
@@ -1760,15 +1778,15 @@ private func descendantTexts(
     var values: [String] = []
     let role = stringValue(of: element, attribute: kAXRoleAttribute) ?? ""
     if role == kAXStaticTextRole as String || role == kAXTextFieldRole as String {
-        if let value = sanitizedValue(of: element, characterLimit: characterLimit) {
+        if let value = sanitizedValue(of: element, textLimit: textLimit) {
             values.append(value)
         } else if let title = stringValue(of: element, attribute: kAXTitleAttribute) {
-            values.append(sanitizeText(title, characterLimit: characterLimit))
+            values.append(sanitizeText(title, textLimit: textLimit))
         }
     }
 
     for child in copyArray(element, attribute: kAXChildrenAttribute) ?? [] {
-        values.append(contentsOf: descendantTexts(of: child, depth: depth + 1, characterLimit: characterLimit))
+        values.append(contentsOf: descendantTexts(of: child, depth: depth + 1, textLimit: textLimit))
     }
 
     return values
@@ -1777,44 +1795,44 @@ private func descendantTexts(
 private func descendantTextsForSummary(
     of element: AXUIElement,
     depth: Int = 0,
-    characterLimit: Int? = snapshotTextDefaultCharacterLimit
+    textLimit: SnapshotTextLimit = .defaults
 ) -> [String] {
     guard depth < 8 else {
         return []
     }
 
     let role = stringValue(of: element, attribute: kAXRoleAttribute) ?? ""
-    if role == "AXLink", let linkText = summaryTextForLink(element, characterLimit: characterLimit) {
+    if role == "AXLink", let linkText = summaryTextForLink(element, textLimit: textLimit) {
         return [linkText]
     }
 
     if role == kAXStaticTextRole as String || role == kAXTextFieldRole as String {
-        if let value = sanitizedValue(of: element, characterLimit: characterLimit), !value.isEmpty {
+        if let value = sanitizedValue(of: element, textLimit: textLimit), !value.isEmpty {
             return [value]
         }
 
         if let title = stringValue(of: element, attribute: kAXTitleAttribute) {
-            let sanitized = sanitizeText(title, characterLimit: characterLimit)
+            let sanitized = sanitizeText(title, textLimit: textLimit)
             return sanitized.isEmpty ? [] : [sanitized]
         }
     }
 
     return (copyArray(element, attribute: kAXChildrenAttribute) ?? [])
-        .flatMap { descendantTextsForSummary(of: $0, depth: depth + 1, characterLimit: characterLimit) }
+        .flatMap { descendantTextsForSummary(of: $0, depth: depth + 1, textLimit: textLimit) }
 }
 
 private func summaryTextForLink(
     _ element: AXUIElement,
-    characterLimit: Int? = snapshotTextDefaultCharacterLimit
+    textLimit: SnapshotTextLimit = .defaults
 ) -> String? {
-    guard let url = urlValue(of: element, attribute: kAXURLAttribute, characterLimit: characterLimit), !url.isEmpty else {
+    guard let url = urlValue(of: element, attribute: kAXURLAttribute, textLimit: textLimit), !url.isEmpty else {
         return nil
     }
 
     let childText = (copyArray(element, attribute: kAXChildrenAttribute) ?? [])
-        .flatMap { descendantTextsForSummary(of: $0, characterLimit: characterLimit) }
+        .flatMap { descendantTextsForSummary(of: $0, textLimit: textLimit) }
         .joined(separator: " ")
-    let sanitized = sanitizeText(childText, characterLimit: characterLimit)
+    let sanitized = sanitizeText(childText, textLimit: textLimit)
     guard !sanitized.isEmpty else {
         return nil
     }

@@ -50,7 +50,7 @@ public final class ComputerUseToolDispatcher {
         case "get_app_state":
             return try service.getAppState(
                 app: requireString("app", in: arguments),
-                showFullText: optionalBool("show_full_text", in: arguments) ?? false,
+                textLimit: try optionalTextLimit("text_limit", in: arguments) ?? .defaults,
                 treeLimits: AccessibilityTreeLimits.defaults.replacing(
                     maxNodeCount: try optionalPositiveInt("max_tree_nodes", in: arguments),
                     maxDepth: try optionalPositiveInt("max_tree_depth", in: arguments)
@@ -133,18 +133,20 @@ public final class ComputerUseToolDispatcher {
         arguments[key] as? String
     }
 
-    private func optionalBool(_ key: String, in arguments: [String: Any]) -> Bool? {
-        if let bool = arguments[key] as? Bool {
-            return bool
+    private func optionalTextLimit(_ key: String, in arguments: [String: Any]) throws -> SnapshotTextLimit? {
+        guard let value = arguments[key] else {
+            return nil
         }
 
-        if let number = arguments[key] as? NSNumber,
-           CFGetTypeID(number as CFTypeRef) == CFBooleanGetTypeID()
-        {
-            return number.boolValue
+        if let string = value as? String {
+            guard string.lowercased() == SnapshotTextLimit.maxKeyword else {
+                throw ComputerUseError.invalidArguments("\(key) must be a positive integer or max")
+            }
+            return .max
         }
 
-        return nil
+        let maxCount = try positiveInt(from: value, key: key, expectedDescription: "a positive integer or max")
+        return SnapshotTextLimit(maxCount: maxCount)
     }
 
     private func requireElementIndex(in arguments: [String: Any]) throws -> String {
@@ -188,39 +190,43 @@ public final class ComputerUseToolDispatcher {
             return nil
         }
 
+        return try positiveInt(from: value, key: key, expectedDescription: "a positive integer")
+    }
+
+    private func positiveInt(from value: Any, key: String, expectedDescription: String) throws -> Int {
         if let integer = value as? Int {
-            return try validatePositiveInt(integer, key: key)
+            return try validatePositiveInt(integer, key: key, expectedDescription: expectedDescription)
         }
 
         if let double = value as? Double {
-            return try validatePositiveWholeNumber(double, key: key)
+            return try validatePositiveWholeNumber(double, key: key, expectedDescription: expectedDescription)
         }
 
         if let number = value as? NSNumber {
             if CFGetTypeID(number as CFTypeRef) == CFBooleanGetTypeID() {
-                throw ComputerUseError.invalidArguments("\(key) must be a positive integer")
+                throw ComputerUseError.invalidArguments("\(key) must be \(expectedDescription)")
             }
-            return try validatePositiveWholeNumber(number.doubleValue, key: key)
+            return try validatePositiveWholeNumber(number.doubleValue, key: key, expectedDescription: expectedDescription)
         }
 
-        throw ComputerUseError.invalidArguments("\(key) must be a positive integer")
+        throw ComputerUseError.invalidArguments("\(key) must be \(expectedDescription)")
     }
 
-    private func validatePositiveWholeNumber(_ value: Double, key: String) throws -> Int {
+    private func validatePositiveWholeNumber(_ value: Double, key: String, expectedDescription: String) throws -> Int {
         guard value.isFinite, value.rounded(.towardZero) == value else {
-            throw ComputerUseError.invalidArguments("\(key) must be a positive integer")
+            throw ComputerUseError.invalidArguments("\(key) must be \(expectedDescription)")
         }
 
         guard value >= Double(Int.min), value <= Double(Int.max) else {
             throw ComputerUseError.invalidArguments("\(key) is outside the supported integer range")
         }
 
-        return try validatePositiveInt(Int(value), key: key)
+        return try validatePositiveInt(Int(value), key: key, expectedDescription: expectedDescription)
     }
 
-    private func validatePositiveInt(_ value: Int, key: String) throws -> Int {
+    private func validatePositiveInt(_ value: Int, key: String, expectedDescription: String) throws -> Int {
         guard value > 0 else {
-            throw ComputerUseError.invalidArguments("\(key) must be a positive integer")
+            throw ComputerUseError.invalidArguments("\(key) must be \(expectedDescription)")
         }
         return value
     }

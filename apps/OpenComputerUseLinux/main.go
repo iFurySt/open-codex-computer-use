@@ -151,9 +151,21 @@ type linuxRequest struct {
 	Key          string         `json:"key,omitempty"`
 	Value        string         `json:"value,omitempty"`
 	WindowBounds *frame         `json:"windowBounds,omitempty"`
-	ShowFullText bool           `json:"show_full_text,omitempty"`
+	TextLimit    any            `json:"text_limit,omitempty"`
 	MaxTreeNodes int            `json:"max_tree_nodes,omitempty"`
 	MaxTreeDepth int            `json:"max_tree_depth,omitempty"`
+}
+
+type textLimit struct {
+	max   bool
+	count int
+}
+
+func (limit textLimit) runtimeValue() any {
+	if limit.max {
+		return "max"
+	}
+	return limit.count
 }
 
 type linuxResponse struct {
@@ -184,7 +196,11 @@ func (s *service) callTool(name string, args map[string]any) toolCallResult {
 		if err != nil {
 			return textResult(err.Error(), true)
 		}
-		return s.getAppState(requiredString(args, "app"), optionalBool(args, "show_full_text"), maxTreeNodes, maxTreeDepth)
+		textLimit, err := optionalTextLimit(args, "text_limit")
+		if err != nil {
+			return textResult(err.Error(), true)
+		}
+		return s.getAppState(requiredString(args, "app"), textLimit, maxTreeNodes, maxTreeDepth)
 	case "click":
 		return s.click(
 			requiredString(args, "app"),
@@ -240,11 +256,14 @@ func (s *service) listApps() toolCallResult {
 	return textResult(response.Text, false)
 }
 
-func (s *service) getAppState(app string, showFullText bool, maxTreeNodes, maxTreeDepth *int) toolCallResult {
+func (s *service) getAppState(app string, textLimit *textLimit, maxTreeNodes, maxTreeDepth *int) toolCallResult {
 	if app == "" {
 		return textResult("Missing required argument: app", true)
 	}
-	request := linuxRequest{Tool: "get_app_state", App: app, ShowFullText: showFullText}
+	request := linuxRequest{Tool: "get_app_state", App: app}
+	if textLimit != nil {
+		request.TextLimit = textLimit.runtimeValue()
+	}
 	if maxTreeNodes != nil {
 		request.MaxTreeNodes = *maxTreeNodes
 	}
@@ -979,9 +998,26 @@ func optionalFloat(args map[string]any, key string) *float64 {
 	return nil
 }
 
-func optionalBool(args map[string]any, key string) bool {
-	value, _ := args[key].(bool)
-	return value
+func optionalTextLimit(args map[string]any, key string) (*textLimit, error) {
+	value, ok := args[key]
+	if !ok {
+		return nil, nil
+	}
+	return textLimitFromValue(value, key)
+}
+
+func textLimitFromValue(value any, key string) (*textLimit, error) {
+	if stringValue, ok := value.(string); ok {
+		if strings.EqualFold(stringValue, "max") {
+			return &textLimit{max: true}, nil
+		}
+		return nil, fmt.Errorf("%s must be a positive integer or max", key)
+	}
+	integer, err := positiveIntFromValue(value, key)
+	if err != nil {
+		return nil, fmt.Errorf("%s must be a positive integer or max", key)
+	}
+	return &textLimit{count: *integer}, nil
 }
 
 func optionalPositiveInt(args map[string]any, key string) (*int, error) {
@@ -1090,7 +1126,7 @@ func toolDefinitions() []toolDefinition {
 			Annotations: readOnlyAnnotations(),
 			InputSchema: objectSchema(map[string]any{
 				"app":            stringProperty("App name or bundle identifier"),
-				"show_full_text": booleanProperty("Return full accessibility text without the default 500 character truncation. Defaults to false."),
+				"text_limit":     textLimitProperty("Maximum text characters to return. Use \"max\" for full text. Defaults to 500."),
 				"max_tree_nodes": positiveIntegerProperty("Maximum accessibility tree nodes to render. Defaults to 1200."),
 				"max_tree_depth": positiveIntegerProperty("Maximum accessibility tree depth to render. Defaults to 64."),
 			}, []string{"app"}),
@@ -1177,10 +1213,6 @@ func stringProperty(description string) map[string]any {
 	return map[string]any{"type": "string", "description": description}
 }
 
-func booleanProperty(description string) map[string]any {
-	return map[string]any{"type": "boolean", "description": description}
-}
-
 func enumStringProperty(description string, values []string) map[string]any {
 	property := stringProperty(description)
 	property["enum"] = values
@@ -1197,6 +1229,16 @@ func integerProperty(description string) map[string]any {
 
 func positiveIntegerProperty(description string) map[string]any {
 	return map[string]any{"type": "integer", "minimum": 1, "description": description}
+}
+
+func textLimitProperty(description string) map[string]any {
+	return map[string]any{
+		"anyOf": []any{
+			map[string]any{"type": "integer", "minimum": 1},
+			map[string]any{"type": "string", "enum": []string{"max"}},
+		},
+		"description": description,
+	}
 }
 
 func main() {
@@ -1236,13 +1278,15 @@ func runCLI(args []string, stdout io.Writer) error {
 		fmt.Fprintln(stdout, result.Content[0].Text)
 		return nil
 	case "snapshot":
-		app, showFullText, maxTreeNodes, maxTreeDepth, err := parseSnapshotArgs(args[1:])
+		app, textLimit, maxTreeNodes, maxTreeDepth, err := parseSnapshotArgs(args[1:])
 		if err != nil {
 			return err
 		}
 		toolArgs := map[string]any{
-			"app":            app,
-			"show_full_text": showFullText,
+			"app": app,
+		}
+		if textLimit != nil {
+			toolArgs["text_limit"] = textLimit.runtimeValue()
 		}
 		if maxTreeNodes != nil {
 			toolArgs["max_tree_nodes"] = *maxTreeNodes
@@ -1275,50 +1319,69 @@ func runCLI(args []string, stdout io.Writer) error {
 	}
 }
 
-func parseSnapshotArgs(args []string) (string, bool, *int, *int, error) {
+func parseSnapshotArgs(args []string) (string, *textLimit, *int, *int, error) {
 	var app string
-	showFullText := false
+	var textLimit *textLimit
 	var maxTreeNodes *int
 	var maxTreeDepth *int
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
 		switch arg {
-		case "--show-full-text":
-			showFullText = true
+		case "--text-limit":
+			index++
+			if index >= len(args) {
+				return "", nil, nil, nil, errors.New("--text-limit requires a positive integer or max value")
+			}
+			value, err := parseTextLimitOption(args[index], "--text-limit")
+			if err != nil {
+				return "", nil, nil, nil, err
+			}
+			textLimit = value
 		case "--max-tree-nodes":
 			index++
 			if index >= len(args) {
-				return "", false, nil, nil, errors.New("--max-tree-nodes requires a positive integer value")
+				return "", nil, nil, nil, errors.New("--max-tree-nodes requires a positive integer value")
 			}
 			value, err := parsePositiveIntegerOption(args[index], "--max-tree-nodes")
 			if err != nil {
-				return "", false, nil, nil, err
+				return "", nil, nil, nil, err
 			}
 			maxTreeNodes = &value
 		case "--max-tree-depth":
 			index++
 			if index >= len(args) {
-				return "", false, nil, nil, errors.New("--max-tree-depth requires a positive integer value")
+				return "", nil, nil, nil, errors.New("--max-tree-depth requires a positive integer value")
 			}
 			value, err := parsePositiveIntegerOption(args[index], "--max-tree-depth")
 			if err != nil {
-				return "", false, nil, nil, err
+				return "", nil, nil, nil, err
 			}
 			maxTreeDepth = &value
 		default:
 			if strings.HasPrefix(arg, "-") {
-				return "", false, nil, nil, fmt.Errorf("unknown snapshot option: %s", arg)
+				return "", nil, nil, nil, fmt.Errorf("unknown snapshot option: %s", arg)
 			}
 			if app != "" {
-				return "", false, nil, nil, errors.New("snapshot accepts exactly one app name, process name, window title, or pid")
+				return "", nil, nil, nil, errors.New("snapshot accepts exactly one app name, process name, window title, or pid")
 			}
 			app = arg
 		}
 	}
 	if app == "" {
-		return "", false, nil, nil, errors.New("snapshot requires an app name, process name, window title, or pid")
+		return "", nil, nil, nil, errors.New("snapshot requires an app name, process name, window title, or pid")
 	}
-	return app, showFullText, maxTreeNodes, maxTreeDepth, nil
+	return app, textLimit, maxTreeNodes, maxTreeDepth, nil
+}
+
+func parseTextLimitOption(value, option string) (*textLimit, error) {
+	if strings.EqualFold(value, "max") {
+		return &textLimit{max: true}, nil
+	}
+	integer, err := strconv.Atoi(value)
+	if err != nil || integer <= 0 {
+		return nil, fmt.Errorf("%s must be a positive integer or max", option)
+	}
+	return &textLimit{count: integer}, nil
 }
 
 func parsePositiveIntegerOption(value, option string) (int, error) {
@@ -1559,7 +1622,7 @@ func helpText(command string) string {
 	case "call":
 		return "Usage:\n  open-computer-use call <tool> [--args '<json-object>']\n  open-computer-use call --calls '<json-array>'\n\nThe JSON array form keeps all calls in one process so element_index state can be reused.\n"
 	case "snapshot":
-		return "Usage:\n  open-computer-use snapshot [--show-full-text] [--max-tree-nodes <positive-int>] [--max-tree-depth <positive-int>] <app>\n\nPrint the current Linux AT-SPI snapshot for the target app.\n"
+		return "Usage:\n  open-computer-use snapshot [--text-limit <positive-int|max>] [--max-tree-nodes <positive-int>] [--max-tree-depth <positive-int>] <app>\n\nPrint the current Linux AT-SPI snapshot for the target app.\n"
 	default:
 		return `Open Computer Use for Linux
 

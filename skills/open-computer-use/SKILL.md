@@ -19,7 +19,7 @@ It supports the same core tool surface across macOS, Linux, and Windows:
 2. On macOS, run `open-computer-use doctor` before the first real GUI task. If permissions are missing, ask the user to approve Accessibility and Screen Recording in the onboarding UI.
 3. Inspect available apps before acting: `open-computer-use call list_apps`.
 4. Capture current UI state with `open-computer-use call get_app_state --args '{"app":"TextEdit"}'`. The default state is usually enough for UI operation.
-5. When the task needs complete long text, such as chat history, email bodies, document text, or long form content, call `get_app_state` with `show_full_text: true`.
+5. When the task needs longer semantic text, such as chat history, email bodies, document text, or long form content, call `get_app_state` with `text_limit: 1000` or `text_limit: "max"`.
 6. When visible long pages or lists appear incomplete even after scrolling, call `get_app_state` with a larger `max_tree_nodes` or `max_tree_depth`.
 7. Prefer element-targeted actions using `element_index` from the latest `get_app_state` result.
 8. For multi-step CLI work, use `open-computer-use call --calls '<json-array>'` so one process can reuse the latest element index mapping.
@@ -45,7 +45,8 @@ open-computer-use doctor
 open-computer-use call list_apps
 ocu call list_apps
 open-computer-use call get_app_state --args '{"app":"TextEdit"}'
-open-computer-use call get_app_state --args '{"app":"TextEdit","show_full_text":true}'
+open-computer-use call get_app_state --args '{"app":"TextEdit","text_limit":1000}'
+open-computer-use call get_app_state --args '{"app":"TextEdit","text_limit":"max"}'
 open-computer-use call get_app_state --args '{"app":"Google Chrome","max_tree_nodes":3000,"max_tree_depth":96}'
 open-computer-use call click --args '{"app":"TextEdit","element_index":"0"}'
 open-computer-use call type_text --args '{"app":"TextEdit","text":"Hello from Open Computer Use"}'

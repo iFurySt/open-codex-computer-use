@@ -41,14 +41,16 @@ Ask the user to bring the target app/window into a visible state when automation
 
 Snapshot text is limited to 500 characters by default. If a visible chat message, email body, document paragraph, or form value ends with `...`, do not assume the page itself is missing content.
 
-Request full accessibility text explicitly:
+Request a larger or unlimited text limit explicitly:
 
 ```sh
-open-computer-use call get_app_state --args '{"app":"TextEdit","show_full_text":true}'
-open-computer-use snapshot --show-full-text TextEdit
+open-computer-use call get_app_state --args '{"app":"TextEdit","text_limit":1000}'
+open-computer-use call get_app_state --args '{"app":"TextEdit","text_limit":"max"}'
+open-computer-use snapshot --text-limit 1000 TextEdit
+open-computer-use snapshot --text-limit max TextEdit
 ```
 
-`show_full_text` only disables the text character limit. It does not remove the default 1200 node count limit, 64 level tree depth limit, screenshot size, permission, or desktop-session protections.
+`text_limit: "max"` only disables the text character limit. It does not remove the default 1200 node count limit, 64 level tree depth limit, screenshot size, permission, or desktop-session protections.
 
 ## Incomplete Long Pages Or Lists
 

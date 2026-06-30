@@ -362,10 +362,10 @@ public final class ComputerUseService {
 
     public func getAppState(
         app query: String,
-        showFullText: Bool = false,
+        textLimit: SnapshotTextLimit = .defaults,
         treeLimits: AccessibilityTreeLimits = .defaults
     ) throws -> ToolCallResult {
-        snapshotResult(for: try refreshSnapshot(for: query, showFullText: showFullText, treeLimits: treeLimits), style: .fullState)
+        snapshotResult(for: try refreshSnapshot(for: query, textLimit: textLimit, treeLimits: treeLimits), style: .fullState)
     }
 
     public func click(app query: String, elementIndex: String?, x: Double?, y: Double?, clickCount: Int, mouseButton: String) throws -> ToolCallResult {
@@ -661,11 +661,11 @@ public final class ComputerUseService {
     @discardableResult
     private func refreshSnapshot(
         for query: String,
-        showFullText: Bool = false,
+        textLimit: SnapshotTextLimit = .defaults,
         treeLimits: AccessibilityTreeLimits = .defaults
     ) throws -> AppSnapshot {
         let app = try AppDiscovery.resolve(query)
-        let snapshot = try SnapshotBuilder.build(for: app, showFullText: showFullText, treeLimits: treeLimits)
+        let snapshot = try SnapshotBuilder.build(for: app, textLimit: textLimit, treeLimits: treeLimits)
 
         let keys = Set([
             query.lowercased(),

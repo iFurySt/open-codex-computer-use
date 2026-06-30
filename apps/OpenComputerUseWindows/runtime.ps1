@@ -4,7 +4,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$TextCharacterLimit = 500
+$DefaultTextLimit = 500
 $AccessibilityTreeMaxNodeCount = 1200
 $AccessibilityTreeMaxDepth = 64
 
@@ -418,20 +418,41 @@ function Get-ElementControlTypeName($element) {
     }
 }
 
-function Limit-Text([string]$Text, [bool]$ShowFullText = $false) {
+function Resolve-TextLimit($Value) {
+    if ($null -eq $Value) {
+        return $script:DefaultTextLimit
+    }
+    if ($Value -is [string] -and $Value.Trim().ToLowerInvariant() -eq "max") {
+        return $null
+    }
+    if ($Value -is [bool]) {
+        return $script:DefaultTextLimit
+    }
+    try {
+        $integer = [int]$Value
+        if ($integer -gt 0) {
+            return $integer
+        }
+    } catch {
+    }
+    return $script:DefaultTextLimit
+}
+
+function Limit-Text([string]$Text, $TextLimit = $script:DefaultTextLimit) {
     if ($null -eq $Text) {
         return ""
     }
-    if ($ShowFullText) {
+    if ($null -eq $TextLimit) {
         return $Text
     }
-    if ($Text.Length -gt $script:TextCharacterLimit) {
-        return $Text.Substring(0, $script:TextCharacterLimit) + "..."
+    $effectiveTextLimit = [int]$TextLimit
+    if ($Text.Length -gt $effectiveTextLimit) {
+        return $Text.Substring(0, $effectiveTextLimit) + "..."
     }
     return $Text
 }
 
-function Get-ElementValue($element, [bool]$ShowFullText = $false) {
+function Get-ElementValue($element, $TextLimit = $script:DefaultTextLimit) {
     try {
         $valuePattern = $element.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
         $value = $valuePattern.Current.Value
@@ -439,13 +460,13 @@ function Get-ElementValue($element, [bool]$ShowFullText = $false) {
             return ""
         }
         $text = [string]$value
-        return Limit-Text $text $ShowFullText
+        return Limit-Text $text $TextLimit
     } catch {
         return ""
     }
 }
 
-function Get-ElementRecord($element, [int]$index, $windowBounds, [bool]$ShowFullText = $false) {
+function Get-ElementRecord($element, [int]$index, $windowBounds, $TextLimit = $script:DefaultTextLimit) {
     $frame = Get-ElementFrame $element $windowBounds
     $runtimeId = @()
     try { $runtimeId = @($element.GetRuntimeId()) } catch {}
@@ -453,11 +474,11 @@ function Get-ElementRecord($element, [int]$index, $windowBounds, [bool]$ShowFull
         index = $index
         runtimeId = $runtimeId
         automationId = Get-ElementString $element "AutomationId"
-        name = Limit-Text (Get-ElementString $element "Name") $ShowFullText
+        name = Limit-Text (Get-ElementString $element "Name") $TextLimit
         controlType = Get-ElementControlTypeName $element
         localizedControlType = Get-ElementString $element "LocalizedControlType"
         className = Get-ElementString $element "ClassName"
-        value = Get-ElementValue $element $ShowFullText
+        value = Get-ElementValue $element $TextLimit
         nativeWindowHandle = Get-ElementInt64 $element "NativeWindowHandle"
         frame = $frame
         actions = @(Get-PatternNames $element)
@@ -474,7 +495,7 @@ function Get-ElementTitle($record) {
     return ""
 }
 
-function Render-Tree($element, $windowBounds, [bool]$ShowFullText = $false, [int]$MaxTreeNodes = $script:AccessibilityTreeMaxNodeCount, [int]$MaxTreeDepth = $script:AccessibilityTreeMaxDepth) {
+function Render-Tree($element, $windowBounds, $TextLimit = $script:DefaultTextLimit, [int]$MaxTreeNodes = $script:AccessibilityTreeMaxNodeCount, [int]$MaxTreeDepth = $script:AccessibilityTreeMaxDepth) {
     $records = New-Object System.Collections.Generic.List[object]
     $lines = New-Object System.Collections.Generic.List[string]
     $visited = New-Object System.Collections.Generic.HashSet[string]
@@ -494,7 +515,7 @@ function Render-Tree($element, $windowBounds, [bool]$ShowFullText = $false, [int
 
         $index = $script:nextIndex
         $script:nextIndex++
-        $record = Get-ElementRecord $node $index $script:windowBounds $ShowFullText
+        $record = Get-ElementRecord $node $index $script:windowBounds $TextLimit
         $script:records.Add($record)
 
         $role = $record.localizedControlType
@@ -561,12 +582,12 @@ function Capture-WindowPngBase64($bounds) {
     }
 }
 
-function Get-FocusedSummary($processId, [bool]$ShowFullText = $false) {
+function Get-FocusedSummary($processId, $TextLimit = $script:DefaultTextLimit) {
     try {
         $focused = [Windows.Automation.AutomationElement]::FocusedElement
         if ($null -ne $focused -and $focused.Current.ProcessId -eq $processId) {
             $role = $focused.Current.LocalizedControlType
-            $name = Limit-Text $focused.Current.Name $ShowFullText
+            $name = Limit-Text $focused.Current.Name $TextLimit
             if ([string]::IsNullOrWhiteSpace($name)) {
                 return $role
             }
@@ -577,7 +598,7 @@ function Get-FocusedSummary($processId, [bool]$ShowFullText = $false) {
     return $null
 }
 
-function Get-SelectedText($processId, [bool]$ShowFullText = $false) {
+function Get-SelectedText($processId, $TextLimit = $script:DefaultTextLimit) {
     try {
         $focused = [Windows.Automation.AutomationElement]::FocusedElement
         if ($null -eq $focused -or $focused.Current.ProcessId -ne $processId) {
@@ -586,31 +607,31 @@ function Get-SelectedText($processId, [bool]$ShowFullText = $false) {
         $textPattern = $focused.GetCurrentPattern([Windows.Automation.TextPattern]::Pattern)
         $selection = $textPattern.GetSelection()
         if ($selection.Count -gt 0) {
-            $maxLength = if ($ShowFullText) { -1 } else { $script:TextCharacterLimit + 1 }
-            return Limit-Text ($selection.Item(0).GetText($maxLength)) $ShowFullText
+            $maxLength = if ($null -eq $TextLimit) { -1 } else { [int]$TextLimit + 1 }
+            return Limit-Text ($selection.Item(0).GetText($maxLength)) $TextLimit
         }
     } catch {
     }
     return $null
 }
 
-function Build-Snapshot([string]$query, [bool]$ShowFullText = $false, [int]$MaxTreeNodes = $script:AccessibilityTreeMaxNodeCount, [int]$MaxTreeDepth = $script:AccessibilityTreeMaxDepth) {
+function Build-Snapshot([string]$query, $TextLimit = $script:DefaultTextLimit, [int]$MaxTreeNodes = $script:AccessibilityTreeMaxNodeCount, [int]$MaxTreeDepth = $script:AccessibilityTreeMaxDepth) {
     $process = Resolve-App $query
     $element = Get-MainElement $process
     $bounds = Get-WindowBounds $process $element
-    $rendered = Render-Tree $element $bounds $ShowFullText $MaxTreeNodes $MaxTreeDepth
+    $rendered = Render-Tree $element $bounds $TextLimit $MaxTreeNodes $MaxTreeDepth
     [pscustomobject]@{
         app = [pscustomobject]@{
             name = $process.ProcessName
             bundleIdentifier = $process.ProcessName
             pid = [int]$process.Id
         }
-        windowTitle = Limit-Text $process.MainWindowTitle $ShowFullText
+        windowTitle = Limit-Text $process.MainWindowTitle $TextLimit
         windowBounds = $bounds
         screenshotPngBase64 = Capture-WindowPngBase64 $bounds
         treeLines = @($rendered.lines)
-        focusedSummary = Get-FocusedSummary $process.Id $ShowFullText
-        selectedText = Get-SelectedText $process.Id $ShowFullText
+        focusedSummary = Get-FocusedSummary $process.Id $TextLimit
+        selectedText = Get-SelectedText $process.Id $TextLimit
         elements = @($rendered.records)
     }
 }
@@ -881,7 +902,7 @@ try {
     if ($operation.tool -eq "list_apps") {
         $response = [pscustomobject]@{ ok = $true; text = (List-Apps) }
     } elseif ($operation.tool -eq "get_app_state") {
-        $response = [pscustomobject]@{ ok = $true; snapshot = (Build-Snapshot $operation.app ([bool]$operation.show_full_text) ([int]$operation.max_tree_nodes) ([int]$operation.max_tree_depth)) }
+        $response = [pscustomobject]@{ ok = $true; snapshot = (Build-Snapshot $operation.app (Resolve-TextLimit $operation.text_limit) ([int]$operation.max_tree_nodes) ([int]$operation.max_tree_depth)) }
     } else {
         $process = Resolve-App $operation.app
         $hwnd = [IntPtr]$process.MainWindowHandle

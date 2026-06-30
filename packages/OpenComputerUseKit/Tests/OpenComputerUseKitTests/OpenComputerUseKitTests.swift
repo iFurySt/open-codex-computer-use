@@ -75,24 +75,23 @@ final class OpenComputerUseKitTests: XCTestCase {
         }
     }
 
-    func testCLIRecognizesSnapshotFullTextFlag() throws {
+    func testCLIRecognizesSnapshotTextLimitFlag() throws {
         XCTAssertEqual(
             try parseOpenComputerUseCLI(arguments: ["snapshot", "TextEdit"]),
-            .snapshot(app: "TextEdit", showFullText: false)
+            .snapshot(app: "TextEdit")
         )
         XCTAssertEqual(
-            try parseOpenComputerUseCLI(arguments: ["snapshot", "--show-full-text", "TextEdit"]),
-            .snapshot(app: "TextEdit", showFullText: true)
+            try parseOpenComputerUseCLI(arguments: ["snapshot", "--text-limit", "1000", "TextEdit"]),
+            .snapshot(app: "TextEdit", textLimit: SnapshotTextLimit(maxCount: 1000))
         )
         XCTAssertEqual(
-            try parseOpenComputerUseCLI(arguments: ["snapshot", "TextEdit", "--show-full-text"]),
-            .snapshot(app: "TextEdit", showFullText: true)
+            try parseOpenComputerUseCLI(arguments: ["snapshot", "TextEdit", "--text-limit", "max"]),
+            .snapshot(app: "TextEdit", textLimit: .max)
         )
         XCTAssertEqual(
             try parseOpenComputerUseCLI(arguments: ["snapshot", "--max-tree-nodes", "3000", "--max-tree-depth", "96", "TextEdit"]),
             .snapshot(
                 app: "TextEdit",
-                showFullText: false,
                 treeLimits: AccessibilityTreeLimits(maxNodeCount: 3000, maxDepth: 96)
             )
         )
@@ -100,10 +99,35 @@ final class OpenComputerUseKitTests: XCTestCase {
             try parseOpenComputerUseCLI(arguments: ["snapshot", "--max-tree-nodes", "3000", "TextEdit"]),
             .snapshot(
                 app: "TextEdit",
-                showFullText: false,
                 treeLimits: AccessibilityTreeLimits(maxNodeCount: 3000, maxDepth: accessibilityTreeMaxDepth)
             )
         )
+    }
+
+    func testCLIRejectsOldSnapshotFullTextFlag() {
+        XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["snapshot", "--show-full-text", "TextEdit"])) { error in
+            XCTAssertEqual(
+                error as? OpenComputerUseCLIError,
+                OpenComputerUseCLIError(message: "Unknown snapshot option: --show-full-text", helpCommand: "snapshot")
+            )
+        }
+    }
+
+    func testCLIRejectsInvalidSnapshotTextLimit() {
+        for value in ["0", "-1", "1.5", "full"] {
+            XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["snapshot", "--text-limit", value, "TextEdit"])) { error in
+                XCTAssertEqual(
+                    error as? OpenComputerUseCLIError,
+                    OpenComputerUseCLIError(message: "--text-limit must be a positive integer or max", helpCommand: "snapshot")
+                )
+            }
+        }
+        XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["snapshot", "--text-limit"])) { error in
+            XCTAssertEqual(
+                error as? OpenComputerUseCLIError,
+                OpenComputerUseCLIError(message: "--text-limit requires a positive integer or max value", helpCommand: "snapshot")
+            )
+        }
     }
 
     func testCLIRejectsInvalidSnapshotTreeBudget() {
@@ -606,7 +630,12 @@ final class OpenComputerUseKitTests: XCTestCase {
         )
         let getAppStateSchema = tools["get_app_state"]?.inputSchema
         let getAppStateProperties = getAppStateSchema?["properties"] as? [String: [String: Any]]
-        XCTAssertEqual(getAppStateProperties?["show_full_text"]?["type"] as? String, "boolean")
+        XCTAssertNil(getAppStateProperties?["show_full_text"])
+        let textLimitAnyOf = getAppStateProperties?["text_limit"]?["anyOf"] as? [[String: Any]]
+        XCTAssertEqual(textLimitAnyOf?[0]["type"] as? String, "integer")
+        XCTAssertEqual(textLimitAnyOf?[0]["minimum"] as? Int, 1)
+        XCTAssertEqual(textLimitAnyOf?[1]["type"] as? String, "string")
+        XCTAssertEqual(textLimitAnyOf?[1]["enum"] as? [String], ["max"])
         XCTAssertEqual(getAppStateProperties?["max_tree_nodes"]?["type"] as? String, "integer")
         XCTAssertEqual(getAppStateProperties?["max_tree_nodes"]?["minimum"] as? Int, 1)
         XCTAssertEqual(getAppStateProperties?["max_tree_depth"]?["type"] as? String, "integer")
@@ -1105,14 +1134,19 @@ final class OpenComputerUseKitTests: XCTestCase {
         )
     }
 
-    func testSnapshotTextLimitDefaultsTo500AndSupportsFullText() {
-        let longText = String(repeating: "候", count: snapshotTextDefaultCharacterLimit + 20)
+    func testSnapshotTextLimitDefaultsTo500AndSupportsMax() {
+        let longText = String(repeating: "候", count: defaultTextLimit + 20)
+        let customLimitText = String(repeating: "候", count: 1_020)
 
         XCTAssertEqual(
             sanitizeText(longText),
-            String(longText.prefix(snapshotTextDefaultCharacterLimit)) + "..."
+            String(longText.prefix(defaultTextLimit)) + "..."
         )
-        XCTAssertEqual(sanitizeText(longText, characterLimit: nil), longText)
+        XCTAssertEqual(
+            sanitizeText(customLimitText, textLimit: SnapshotTextLimit(maxCount: 1_000)),
+            String(customLimitText.prefix(1_000)) + "..."
+        )
+        XCTAssertEqual(sanitizeText(longText, textLimit: .max), longText)
     }
 
     func testAccessibilityRendererSuppressesDuplicateDescriptionForSameTextMarkdownLinks() {
@@ -1125,7 +1159,7 @@ final class OpenComputerUseKitTests: XCTestCase {
             ""
         )
         let longURL = "https://example.com/docs?" + String(repeating: "query=value&", count: 60)
-        let truncatedURL = String(longURL.prefix(snapshotTextDefaultCharacterLimit)) + "..."
+        let truncatedURL = String(longURL.prefix(defaultTextLimit)) + "..."
         XCTAssertEqual(
             formattedLabelSegment(
                 longURL,

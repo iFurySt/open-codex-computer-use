@@ -13,12 +13,28 @@ func TestToolDefinitionCount(t *testing.T) {
 	}
 }
 
-func TestGetAppStateSchemaIncludesShowFullText(t *testing.T) {
+func TestGetAppStateSchemaIncludesTextLimit(t *testing.T) {
 	tool := findToolDefinition(t, "get_app_state")
 	properties := tool.InputSchema["properties"].(map[string]any)
-	showFullText := properties["show_full_text"].(map[string]any)
-	if got := showFullText["type"]; got != "boolean" {
-		t.Fatalf("show_full_text type = %v, want boolean", got)
+	if _, ok := properties["show_full_text"]; ok {
+		t.Fatal("get_app_state schema should not expose show_full_text")
+	}
+	textLimit := properties["text_limit"].(map[string]any)
+	anyOf := textLimit["anyOf"].([]any)
+	integerLimit := anyOf[0].(map[string]any)
+	if got := integerLimit["type"]; got != "integer" {
+		t.Fatalf("text_limit integer type = %v, want integer", got)
+	}
+	if got := integerLimit["minimum"]; got != 1 {
+		t.Fatalf("text_limit integer minimum = %v, want 1", got)
+	}
+	maxLimit := anyOf[1].(map[string]any)
+	if got := maxLimit["type"]; got != "string" {
+		t.Fatalf("text_limit max type = %v, want string", got)
+	}
+	enum := maxLimit["enum"].([]string)
+	if len(enum) != 1 || enum[0] != "max" {
+		t.Fatalf("text_limit enum = %#v, want [max]", enum)
 	}
 	maxTreeNodes := properties["max_tree_nodes"].(map[string]any)
 	if got := maxTreeNodes["type"]; got != "integer" {
@@ -40,29 +56,51 @@ func TestGetAppStateSchemaIncludesShowFullText(t *testing.T) {
 	}
 }
 
-func TestParseSnapshotArgsSupportsShowFullText(t *testing.T) {
-	app, showFullText, maxTreeNodes, maxTreeDepth, err := parseSnapshotArgs([]string{"--show-full-text", "Notepad"})
+func TestParseSnapshotArgsSupportsTextLimit(t *testing.T) {
+	app, textLimit, maxTreeNodes, maxTreeDepth, err := parseSnapshotArgs([]string{"--text-limit", "1000", "Notepad"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if app != "Notepad" || !showFullText || maxTreeNodes != nil || maxTreeDepth != nil {
-		t.Fatalf("parseSnapshotArgs = (%q, %v, %v, %v), want (Notepad, true, nil, nil)", app, showFullText, maxTreeNodes, maxTreeDepth)
+	if app != "Notepad" || textLimit == nil || textLimit.runtimeValue() != 1000 || maxTreeNodes != nil || maxTreeDepth != nil {
+		t.Fatalf("parseSnapshotArgs = (%q, %#v, %v, %v), want (Notepad, 1000, nil, nil)", app, textLimit, maxTreeNodes, maxTreeDepth)
 	}
 
-	app, showFullText, maxTreeNodes, maxTreeDepth, err = parseSnapshotArgs([]string{"Notepad"})
+	app, textLimit, maxTreeNodes, maxTreeDepth, err = parseSnapshotArgs([]string{"Notepad", "--text-limit", "max"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if app != "Notepad" || showFullText || maxTreeNodes != nil || maxTreeDepth != nil {
-		t.Fatalf("parseSnapshotArgs default = (%q, %v, %v, %v), want (Notepad, false, nil, nil)", app, showFullText, maxTreeNodes, maxTreeDepth)
+	if app != "Notepad" || textLimit == nil || textLimit.runtimeValue() != "max" || maxTreeNodes != nil || maxTreeDepth != nil {
+		t.Fatalf("parseSnapshotArgs max = (%q, %#v, %v, %v), want (Notepad, max, nil, nil)", app, textLimit, maxTreeNodes, maxTreeDepth)
 	}
 
-	app, showFullText, maxTreeNodes, maxTreeDepth, err = parseSnapshotArgs([]string{"--max-tree-nodes", "3000", "--max-tree-depth", "96", "Notepad"})
+	app, textLimit, maxTreeNodes, maxTreeDepth, err = parseSnapshotArgs([]string{"Notepad"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if app != "Notepad" || showFullText || maxTreeNodes == nil || *maxTreeNodes != 3000 || maxTreeDepth == nil || *maxTreeDepth != 96 {
-		t.Fatalf("parseSnapshotArgs custom tree budget = (%q, %v, %v, %v), want (Notepad, false, 3000, 96)", app, showFullText, maxTreeNodes, maxTreeDepth)
+	if app != "Notepad" || textLimit != nil || maxTreeNodes != nil || maxTreeDepth != nil {
+		t.Fatalf("parseSnapshotArgs default = (%q, %#v, %v, %v), want (Notepad, nil, nil, nil)", app, textLimit, maxTreeNodes, maxTreeDepth)
+	}
+
+	app, textLimit, maxTreeNodes, maxTreeDepth, err = parseSnapshotArgs([]string{"--max-tree-nodes", "3000", "--max-tree-depth", "96", "Notepad"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app != "Notepad" || textLimit != nil || maxTreeNodes == nil || *maxTreeNodes != 3000 || maxTreeDepth == nil || *maxTreeDepth != 96 {
+		t.Fatalf("parseSnapshotArgs custom tree budget = (%q, %#v, %v, %v), want (Notepad, nil, 3000, 96)", app, textLimit, maxTreeNodes, maxTreeDepth)
+	}
+}
+
+func TestParseSnapshotArgsRejectsInvalidTextLimit(t *testing.T) {
+	for _, value := range []string{"0", "-1", "1.5", "full"} {
+		if _, _, _, _, err := parseSnapshotArgs([]string{"--text-limit", value, "Notepad"}); err == nil || err.Error() != "--text-limit must be a positive integer or max" {
+			t.Fatalf("invalid text_limit %q error = %v", value, err)
+		}
+	}
+	if _, _, _, _, err := parseSnapshotArgs([]string{"--text-limit"}); err == nil || err.Error() != "--text-limit requires a positive integer or max value" {
+		t.Fatalf("missing text_limit error = %v", err)
+	}
+	if _, _, _, _, err := parseSnapshotArgs([]string{"--show-full-text", "Notepad"}); err == nil || err.Error() != "unknown snapshot option: --show-full-text" {
+		t.Fatalf("old show_full_text flag error = %v", err)
 	}
 }
 
@@ -180,18 +218,21 @@ func TestUTF8EncodingInPowerShellScript(t *testing.T) {
 	}
 }
 
-func TestWindowsRuntimeTextLimitSupportsFullTextMode(t *testing.T) {
-	if !strings.Contains(windowsRuntimeScript, "$TextCharacterLimit = 500") {
+func TestWindowsRuntimeTextLimitSupportsMaxMode(t *testing.T) {
+	if !strings.Contains(windowsRuntimeScript, "$DefaultTextLimit = 500") {
 		t.Fatal("Windows runtime should define the shared 500 character text limit")
 	}
-	if !strings.Contains(windowsRuntimeScript, "Build-Snapshot $operation.app ([bool]$operation.show_full_text)") {
-		t.Fatal("Windows get_app_state should pass show_full_text into snapshot rendering")
+	if !strings.Contains(windowsRuntimeScript, "Build-Snapshot $operation.app (Resolve-TextLimit $operation.text_limit)") {
+		t.Fatal("Windows get_app_state should pass text_limit into snapshot rendering")
+	}
+	if !strings.Contains(windowsRuntimeScript, "$Value -is [string] -and $Value.Trim().ToLowerInvariant() -eq \"max\"") {
+		t.Fatal("Windows runtime should support max text limit mode")
 	}
 	if !strings.Contains(windowsRuntimeScript, "([int]$operation.max_tree_nodes) ([int]$operation.max_tree_depth)") {
 		t.Fatal("Windows get_app_state should pass tree budget into snapshot rendering")
 	}
-	if !strings.Contains(windowsRuntimeScript, "$maxLength = if ($ShowFullText) { -1 } else { $script:TextCharacterLimit + 1 }") {
-		t.Fatal("Windows selected text should use full UIA text only in full-text mode")
+	if !strings.Contains(windowsRuntimeScript, "$maxLength = if ($null -eq $TextLimit) { -1 } else { [int]$TextLimit + 1 }") {
+		t.Fatal("Windows selected text should use full UIA text only in max text mode")
 	}
 }
 

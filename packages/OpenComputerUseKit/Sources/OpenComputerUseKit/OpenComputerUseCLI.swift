@@ -5,7 +5,7 @@ public enum OpenComputerUseCLICommand: Equatable {
     case mcp
     case doctor
     case listApps
-    case snapshot(app: String, showFullText: Bool = false, treeLimits: AccessibilityTreeLimits = .defaults)
+    case snapshot(app: String, textLimit: SnapshotTextLimit = .defaults, treeLimits: AccessibilityTreeLimits = .defaults)
     case call(OpenComputerUseCallInvocation)
     case turnEnded(payload: String?)
     case help(command: String?)
@@ -148,13 +148,13 @@ public func openComputerUseHelpText(command: String? = nil) -> String {
     case "snapshot":
         return """
         Usage:
-          open-computer-use snapshot [--show-full-text] [--max-tree-nodes <positive-int>] [--max-tree-depth <positive-int>] <app>
+          open-computer-use snapshot [--text-limit <positive-int|max>] [--max-tree-nodes <positive-int>] [--max-tree-depth <positive-int>] <app>
 
         Arguments:
           <app>                App name or bundle identifier to inspect.
 
         Options:
-          --show-full-text     Do not truncate accessibility text to 500 characters.
+          --text-limit         Override the default 500 character text limit. Use `max` for full text.
           --max-tree-nodes     Override the default 1200 node accessibility tree budget.
           --max-tree-depth     Override the default 64 level accessibility tree depth.
 
@@ -275,7 +275,7 @@ private func parseSnapshot(arguments: [String]) throws -> OpenComputerUseCLIComm
     }
 
     var app: String?
-    var showFullText = false
+    var textLimit = SnapshotTextLimit.defaults
     var maxTreeNodes: Int?
     var maxTreeDepth: Int?
 
@@ -283,8 +283,12 @@ private func parseSnapshot(arguments: [String]) throws -> OpenComputerUseCLIComm
     while index < arguments.count {
         let argument = arguments[index]
         switch argument {
-        case "--show-full-text":
-            showFullText = true
+        case "--text-limit":
+            index += 1
+            guard index < arguments.count else {
+                throw OpenComputerUseCLIError(message: "--text-limit requires a positive integer or max value", helpCommand: "snapshot")
+            }
+            textLimit = try parseTextLimitOption(arguments[index], option: "--text-limit")
         case "--max-tree-nodes":
             index += 1
             guard index < arguments.count else {
@@ -319,12 +323,23 @@ private func parseSnapshot(arguments: [String]) throws -> OpenComputerUseCLIComm
 
     return .snapshot(
         app: app,
-        showFullText: showFullText,
+        textLimit: textLimit,
         treeLimits: AccessibilityTreeLimits.defaults.replacing(
             maxNodeCount: maxTreeNodes,
             maxDepth: maxTreeDepth
         )
     )
+}
+
+private func parseTextLimitOption(_ value: String, option: String) throws -> SnapshotTextLimit {
+    if value.lowercased() == SnapshotTextLimit.maxKeyword {
+        return .max
+    }
+
+    guard let integer = Int(value), integer > 0 else {
+        throw OpenComputerUseCLIError(message: "\(option) must be a positive integer or max", helpCommand: "snapshot")
+    }
+    return SnapshotTextLimit(maxCount: integer)
 }
 
 private func parsePositiveIntegerOption(_ value: String, option: String) throws -> Int {

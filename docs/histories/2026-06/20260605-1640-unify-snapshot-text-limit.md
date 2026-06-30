@@ -39,3 +39,28 @@ Default truncation protects snapshot size and preserves upstream-compatible beha
 - `skills/open-computer-use/SKILL.md`
 - `skills/open-computer-use/references/usage.md`
 - `skills/open-computer-use/references/troubleshooting.md`
+
+### Follow-up 2026-06-30
+
+**Scope:** Snapshot text-limit public API and agent-facing docs.
+
+**Key Actions:**
+- Replaced `show_full_text` / `--show-full-text` with the unified breaking API `text_limit` / `--text-limit`.
+- Kept the default text limit at 500 characters and preserved `...` when truncation happens.
+- Added support for `text_limit: "max"` and `--text-limit max` to request full accessibility text without project-level text truncation.
+- Kept action-tool refreshed state on the default 500 character text limit; custom `text_limit` applies only to explicit `get_app_state` and `snapshot`.
+- Updated skill docs and troubleshooting guidance so agents use `text_limit: 1000` for longer text or `text_limit: "max"` only when full text is required.
+
+**Files Modified:**
+- `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AccessibilitySnapshot.swift`
+- `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ComputerUseService.swift`
+- `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ComputerUseToolDispatcher.swift`
+- `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/OpenComputerUseCLI.swift`
+- `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ToolDefinitions.swift`
+- `apps/OpenComputerUseLinux/main.go`
+- `apps/OpenComputerUseLinux/runtime.py`
+- `apps/OpenComputerUseWindows/main.go`
+- `apps/OpenComputerUseWindows/runtime.ps1`
+- `skills/open-computer-use/SKILL.md`
+- `skills/open-computer-use/references/usage.md`
+- `skills/open-computer-use/references/troubleshooting.md`
