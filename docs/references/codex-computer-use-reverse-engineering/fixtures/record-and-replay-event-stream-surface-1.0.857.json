@@ -1,0 +1,64 @@
+{
+  "capturedAt": "2026-06-26",
+  "captureScope": "initialize and tools/list only; no recording was started",
+  "officialPluginVersion": "record-and-replay 1.0.857",
+  "initialize": {
+    "capabilities": {
+      "tools": {
+        "listChanged": false
+      }
+    },
+    "protocolVersion": "2025-11-25",
+    "serverInfo": {
+      "name": "Record & Replay",
+      "version": "bb9a4422c62d1302e92ee60153d20c362229d5e0fa4731c4b9e90d969b245e7c"
+    }
+  },
+  "tools": [
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Start recording the user's actions for up to 30 minutes. If a recording is already active, return that active session instead of starting another one.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "event_stream_start"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Get the current or most recent Record & Replay recording status including paths to metadata and events during the recording.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "event_stream_status"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Stop the active event stream recording if one is running and return status including paths to metadata and events during the recording.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "event_stream_stop"
+    }
+  ]
+}

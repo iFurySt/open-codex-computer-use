@@ -1,0 +1,32 @@
+name: repo-hygiene
+
+on:
+  pull_request:
+    paths:
+      - ".github/**"
+      - ".gitattributes"
+      - ".gitignore"
+      - ".editorconfig"
+      - "CODEOWNERS"
+      - "CONTRIBUTING.md"
+      - "README.md"
+      - "SECURITY.md"
+      - "scripts/check-action-pinning.sh"
+      - "scripts/check-repo-hygiene.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repo-hygiene:
+    runs-on: macos-26
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Run repo hygiene checks
+        run: |
+          ./scripts/check-repo-hygiene.sh
+          ./scripts/check-action-pinning.sh

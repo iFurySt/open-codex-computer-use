@@ -11,7 +11,7 @@ function fail(message) {
 function usage() {
   process.stdout.write(`Usage:
   node ./scripts/install-config-helper.mjs claude-mcp <config-path> <project-root> <server-name> <command-name>
-  node ./scripts/install-config-helper.mjs codex-mcp <config-path> <server-name> <command-name>
+  node ./scripts/install-config-helper.mjs codex-mcp <config-path> <server-name> <command-name> [<args-json>]
   node ./scripts/install-config-helper.mjs gemini-mcp <config-path> <server-name> <command-name>
   node ./scripts/install-config-helper.mjs opencode-mcp <primary-config-path> <secondary-config-path> <server-name> <command-name>
   node ./scripts/install-config-helper.mjs codex-plugin-version <plugin-manifest-path>
@@ -374,8 +374,24 @@ function installOpencodeMcp(primaryConfigPath, secondaryConfigPath, serverName, 
   process.stdout.write(`Installed opencode MCP server "${serverName}" into ${primaryConfigPath}.\n`);
 }
 
-function installCodexMcp(configPath, serverName, commandName) {
-  const desiredBody = `command = ${JSON.stringify(commandName)}\nargs = ["mcp"]`;
+function parseCommandArgs(argsJSON, label) {
+  let commandArgs;
+  try {
+    commandArgs = JSON.parse(argsJSON);
+  } catch (error) {
+    fail(`${label} is not valid JSON: ${error.message}`);
+  }
+
+  if (!Array.isArray(commandArgs) || !commandArgs.every((entry) => typeof entry === "string")) {
+    fail(`${label} must be a JSON array of strings.`);
+  }
+
+  return commandArgs;
+}
+
+function installCodexMcp(configPath, serverName, commandName, argsJSON = '["mcp"]') {
+  const commandArgs = parseCommandArgs(argsJSON, "Codex MCP args");
+  const desiredBody = `command = ${JSON.stringify(commandName)}\nargs = ${JSON.stringify(commandArgs)}`;
   const targetHeader = `mcp_servers."${serverName}"`;
   const legacyServerName = "open-codex-computer-use";
   const legacyHeader = `mcp_servers."${legacyServerName}"`;
@@ -486,7 +502,7 @@ function main(argv) {
       installClaudeMcp(...args);
       return;
     case "codex-mcp":
-      if (args.length !== 3) {
+      if (args.length !== 3 && args.length !== 4) {
         usage();
         process.exit(1);
       }

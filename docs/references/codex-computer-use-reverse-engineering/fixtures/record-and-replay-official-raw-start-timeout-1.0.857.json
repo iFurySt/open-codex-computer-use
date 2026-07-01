@@ -1,0 +1,138 @@
+{
+  "elicitationRequests": [],
+  "finalStatusResponseShape": null,
+  "fixtureFormatVersion": 1,
+  "kind": "record-and-replay-event-stream-probe",
+  "officialPluginVersion": "1.0.857",
+  "ok": true,
+  "process": {
+    "returncode": 0,
+    "stderr": ""
+  },
+  "protocolVersion": "2025-11-25",
+  "repeatStartResponseShape": null,
+  "repeatStopResponseShape": null,
+  "serverInfo": {
+    "name": "Record & Replay",
+    "version": "bb9a4422c62d1302e92ee60153d20c362229d5e0fa4731c4b9e90d969b245e7c"
+  },
+  "source": "official",
+  "startResponseShape": {
+    "timeout": 10.0
+  },
+  "startStopCompleted": false,
+  "startStopRequested": true,
+  "startTimedOut": true,
+  "statusResponseShape": {
+    "timeout": 10.0
+  },
+  "stopResponseShape": {
+    "timeout": 10.0
+  },
+  "toolNames": [
+    "event_stream_start",
+    "event_stream_status",
+    "event_stream_stop"
+  ],
+  "transcriptShape": [
+    {
+      "direction": "send",
+      "eof": null,
+      "hasError": false,
+      "hasResult": false,
+      "id": 1,
+      "method": "initialize",
+      "timeout": null
+    },
+    {
+      "direction": "receive",
+      "eof": null,
+      "hasError": false,
+      "hasResult": true,
+      "id": 1,
+      "method": null,
+      "timeout": null
+    },
+    {
+      "direction": "send",
+      "eof": null,
+      "hasError": false,
+      "hasResult": false,
+      "id": null,
+      "method": "notifications/initialized",
+      "timeout": null
+    },
+    {
+      "direction": "send",
+      "eof": null,
+      "hasError": false,
+      "hasResult": false,
+      "id": 2,
+      "method": "tools/list",
+      "timeout": null
+    },
+    {
+      "direction": "receive",
+      "eof": null,
+      "hasError": false,
+      "hasResult": true,
+      "id": 2,
+      "method": null,
+      "timeout": null
+    },
+    {
+      "direction": "send",
+      "eof": null,
+      "hasError": false,
+      "hasResult": false,
+      "id": 3,
+      "method": "tools/call",
+      "timeout": null
+    },
+    {
+      "direction": "receive",
+      "eof": null,
+      "hasError": false,
+      "hasResult": false,
+      "id": null,
+      "method": null,
+      "timeout": 10.0
+    },
+    {
+      "direction": "send",
+      "eof": null,
+      "hasError": false,
+      "hasResult": false,
+      "id": 4,
+      "method": "tools/call",
+      "timeout": null
+    },
+    {
+      "direction": "receive",
+      "eof": null,
+      "hasError": false,
+      "hasResult": false,
+      "id": null,
+      "method": null,
+      "timeout": 10.0
+    },
+    {
+      "direction": "send",
+      "eof": null,
+      "hasError": false,
+      "hasResult": false,
+      "id": 5,
+      "method": "tools/call",
+      "timeout": null
+    },
+    {
+      "direction": "receive",
+      "eof": null,
+      "hasError": false,
+      "hasResult": false,
+      "id": null,
+      "method": null,
+      "timeout": 10.0
+    }
+  ]
+}

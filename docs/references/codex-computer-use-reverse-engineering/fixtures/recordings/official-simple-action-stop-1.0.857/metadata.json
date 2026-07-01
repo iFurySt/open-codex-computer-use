@@ -1,0 +1,14 @@
+{
+  "active": false,
+  "endReason": "recording_controls_stopped",
+  "endedAt": "<redacted-timestamp>",
+  "eventCount": 13,
+  "eventsPath": "events.jsonl",
+  "metadataPath": "metadata.json",
+  "sessionId": "fixture-session",
+  "sessionPath": "session.json",
+  "startedAt": "<redacted-timestamp>",
+  "state": "stopped",
+  "suppressedEventCount": 0,
+  "suppressedEventsPath": "suppressed.jsonl"
+}

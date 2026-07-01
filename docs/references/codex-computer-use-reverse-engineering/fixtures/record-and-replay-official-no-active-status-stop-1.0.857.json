@@ -1,0 +1,29 @@
+{
+  "capturedAt": "2026-06-27",
+  "captureScope": "Codex-hosted Record & Replay tool calls with no active recording; no recording was started",
+  "officialPluginVersion": "record-and-replay 1.0.857",
+  "toolResponses": {
+    "event_stream_status": {
+      "content": [
+        {
+          "textJSON": {
+            "isRecording": false,
+            "maxDurationSeconds": 1800
+          },
+          "type": "text"
+        }
+      ]
+    },
+    "event_stream_stop": {
+      "content": [
+        {
+          "textJSON": {
+            "isRecording": false,
+            "maxDurationSeconds": 1800
+          },
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

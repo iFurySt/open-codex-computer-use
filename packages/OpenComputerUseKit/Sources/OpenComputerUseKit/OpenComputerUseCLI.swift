@@ -3,6 +3,7 @@ import Foundation
 public enum OpenComputerUseCLICommand: Equatable {
     case launchOnboarding
     case mcp
+    case eventStream(EventStreamCLIInvocation)
     case doctor
     case listApps
     case snapshot(app: String, showFullText: Bool = false)
@@ -15,6 +16,18 @@ public enum OpenComputerUseCLICommand: Equatable {
 public enum OpenComputerUseCallInvocation: Equatable {
     case single(toolName: String, argumentsJSON: String?, argumentsFile: String?)
     case sequence(callsJSON: String?, callsFile: String?, interCallDelay: TimeInterval)
+}
+
+public enum EventStreamCLIInvocation: Equatable {
+    case mcp
+    case start(json: Bool)
+    case status(json: Bool)
+    case stop(json: Bool)
+    case cancel(json: Bool)
+    case wait(json: Bool, sessionID: String?, timeout: TimeInterval?, notifyCommand: [String]?)
+    case summarize(inputPath: String, includeText: Bool, requireAction: Bool)
+    case validate(inputPath: String, strictOCU: Bool, requiredEventTypes: [String], requireSkillDraft: Bool)
+    case scaffoldSkill(inputPath: String, skillName: String, description: String?, outputDirectory: String, overwrite: Bool, includeText: Bool)
 }
 
 public let openComputerUseDefaultInterCallDelay: TimeInterval = 1
@@ -32,7 +45,9 @@ public func shouldUseMacOSAppAgentProxy(
     switch command {
     case .launchOnboarding:
         return !runningFromLaunchServicesAppInstance
-    case .mcp, .doctor, .listApps, .snapshot, .call:
+    case .eventStream(.summarize), .eventStream(.validate), .eventStream(.scaffoldSkill):
+        return false
+    case .mcp, .eventStream, .doctor, .listApps, .snapshot, .call:
         return true
     case .turnEnded, .help, .version:
         return false
@@ -76,6 +91,8 @@ public func parseOpenComputerUseCLI(arguments: [String]) throws -> OpenComputerU
         return .version
     case "mcp":
         return try parseSimpleCommand(name: "mcp", arguments: Array(arguments.dropFirst()), result: .mcp)
+    case "event-stream":
+        return try parseEventStream(arguments: Array(arguments.dropFirst()))
     case "doctor":
         return try parseSimpleCommand(name: "doctor", arguments: Array(arguments.dropFirst()), result: .doctor)
     case "list-apps":
@@ -107,6 +124,7 @@ public func openComputerUseHelpText(command: String? = nil) -> String {
 
         Commands:
           mcp                  Start the stdio MCP server.
+          event-stream         Record macOS actions into a Record & Replay event stream.
           doctor               Print permission status and launch onboarding if needed.
           list-apps            Print running or recently used apps.
           snapshot <app>       Print the current accessibility snapshot for an app.
@@ -129,6 +147,22 @@ public func openComputerUseHelpText(command: String? = nil) -> String {
           open-computer-use mcp
 
         Start the stdio MCP server.
+        """
+    case "event-stream":
+        return """
+        Usage:
+          open-computer-use event-stream mcp
+          open-computer-use event-stream start [--json]
+          open-computer-use event-stream status [--json]
+          open-computer-use event-stream stop [--json]
+          open-computer-use event-stream cancel [--json]
+          open-computer-use event-stream wait [--json] [--session-id <id>] [--timeout <seconds>] [--notify-command '<json-argv>']
+          open-computer-use event-stream summarize [--json] [--include-text] [--require-action] <session-dir-or-metadata-or-events>
+          open-computer-use event-stream validate [--json] [--strict-ocu] [--require-event-type <type>] [--require-skill-draft] <session-dir-or-metadata-or-events>
+          open-computer-use event-stream scaffold-skill [--json] --skill-name <name> --output-dir <dir> [--description <text>] [--overwrite] [--include-text] <session-dir-or-metadata-or-events>
+
+        Start the Record & Replay-compatible event stream MCP server, or control
+        a recording through the long-lived Open Computer Use app agent.
         """
     case "doctor":
         return """
@@ -210,6 +244,225 @@ public func openComputerUseHelpText(command: String? = nil) -> String {
     }
 }
 
+public func runOpenComputerUseEventStream(
+    _ invocation: EventStreamCLIInvocation,
+    service: EventStreamService = .shared
+) throws -> OpenComputerUseCallOutput {
+    let status: EventStreamRecordingStatus
+    var extraFields: [String: Any] = [:]
+    switch invocation {
+    case .mcp:
+        throw OpenComputerUseCLIError(message: "event-stream mcp is a server command", helpCommand: "event-stream")
+    case .start:
+        status = try service.start()
+    case .status:
+        status = service.status()
+    case .stop:
+        status = try service.stop()
+    case .cancel:
+        status = try service.cancel()
+    case let .wait(_, sessionID, timeout, notifyCommand):
+        let result = service.waitResult(sessionID: sessionID, timeout: timeout)
+        status = result.status
+        extraFields["waitTimedOut"] = result.timedOut
+        extraFields["waitSessionMatched"] = result.sessionMatched
+        if let notifyCommand {
+            let statusDictionary = status.asDictionary.merging(extraFields) { _, new in new }
+            let notification = runEventStreamWaitNotification(
+                command: notifyCommand,
+                statusDictionary: statusDictionary,
+                skipped: result.timedOut
+            )
+            extraFields["notification"] = notification
+            return OpenComputerUseCallOutput(
+                jsonObject: status.asDictionary.merging(extraFields) { _, new in new },
+                hasToolError: (notification["ok"] as? Bool) == false
+            )
+        }
+    case let .summarize(inputPath, includeText, requireAction):
+        let summary = try summarizeEventStreamRecording(options: EventStreamRecordingSummaryOptions(
+            inputPath: inputPath,
+            includeText: includeText,
+            requireAction: requireAction
+        ))
+        return OpenComputerUseCallOutput(
+            jsonObject: summary,
+            hasToolError: (summary["ok"] as? Bool) == false
+        )
+    case let .validate(inputPath, strictOCU, requiredEventTypes, requireSkillDraft):
+        let validation = validateEventStreamRecording(options: EventStreamRecordingValidationOptions(
+            inputPath: inputPath,
+            strictOCU: strictOCU,
+            requiredEventTypes: requiredEventTypes,
+            requireSkillDraft: requireSkillDraft
+        ))
+        return OpenComputerUseCallOutput(
+            jsonObject: validation,
+            hasToolError: (validation["ok"] as? Bool) == false
+        )
+    case let .scaffoldSkill(inputPath, skillName, description, outputDirectory, overwrite, includeText):
+        let result = try scaffoldEventStreamSkill(options: EventStreamSkillScaffoldOptions(
+            inputPath: inputPath,
+            skillName: skillName,
+            description: description,
+            outputDirectory: outputDirectory,
+            overwrite: overwrite,
+            includeText: includeText
+        ))
+        return OpenComputerUseCallOutput(
+            jsonObject: result,
+            hasToolError: (result["ok"] as? Bool) == false
+        )
+    }
+
+    var dictionary = status.asDictionary
+    for (key, value) in extraFields {
+        dictionary[key] = value
+    }
+    return OpenComputerUseCallOutput(jsonObject: dictionary, hasToolError: false)
+}
+
+private func runEventStreamWaitNotification(
+    command: [String],
+    statusDictionary: [String: Any],
+    skipped: Bool
+) -> [String: Any] {
+    var notification: [String: Any] = [
+        "attempted": false,
+        "skipped": skipped,
+        "ok": true,
+        "command": command,
+    ]
+
+    if skipped {
+        notification["reason"] = "waitTimedOut"
+        return notification
+    }
+
+    guard let executable = command.first, !executable.isEmpty else {
+        notification["ok"] = false
+        notification["reason"] = "emptyCommand"
+        return notification
+    }
+
+    let statusData: Data
+    do {
+        statusData = try JSONSerialization.data(
+            withJSONObject: statusDictionary,
+            options: [.sortedKeys, .withoutEscapingSlashes]
+        )
+    } catch {
+        notification["ok"] = false
+        notification["reason"] = "statusSerializationFailed"
+        notification["error"] = String(describing: error)
+        return notification
+    }
+    let statusText = String(data: statusData, encoding: .utf8) ?? "{}"
+    let timeoutSeconds = eventStreamWaitNotificationTimeoutSeconds()
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: executable)
+    process.arguments = Array(command.dropFirst())
+    var environment = ProcessInfo.processInfo.environment
+    environment["OPEN_COMPUTER_USE_EVENT_STREAM_STATUS_JSON"] = statusText
+    if let sessionID = statusDictionary["sessionId"] as? String {
+        environment["OPEN_COMPUTER_USE_EVENT_STREAM_SESSION_ID"] = sessionID
+    }
+    if let state = statusDictionary["state"] as? String {
+        environment["OPEN_COMPUTER_USE_EVENT_STREAM_STATE"] = state
+    }
+    if let endReason = statusDictionary["endReason"] as? String {
+        environment["OPEN_COMPUTER_USE_EVENT_STREAM_END_REASON"] = endReason
+    }
+    if let metadataPath = statusDictionary["metadataPath"] as? String {
+        environment["OPEN_COMPUTER_USE_EVENT_STREAM_METADATA_PATH"] = metadataPath
+    } else if let metadataPath = statusDictionary["currentSegmentMetadataPath"] as? String {
+        environment["OPEN_COMPUTER_USE_EVENT_STREAM_METADATA_PATH"] = metadataPath
+    }
+    if let sessionPath = statusDictionary["sessionPath"] as? String {
+        environment["OPEN_COMPUTER_USE_EVENT_STREAM_SESSION_PATH"] = sessionPath
+    }
+    if let eventsPath = statusDictionary["eventsPath"] as? String {
+        environment["OPEN_COMPUTER_USE_EVENT_STREAM_EVENTS_PATH"] = eventsPath
+    } else if let eventsPath = statusDictionary["currentSegmentEventsPath"] as? String {
+        environment["OPEN_COMPUTER_USE_EVENT_STREAM_EVENTS_PATH"] = eventsPath
+    }
+    if let suppressedEventsPath = statusDictionary["suppressedEventsPath"] as? String {
+        environment["OPEN_COMPUTER_USE_EVENT_STREAM_SUPPRESSED_EVENTS_PATH"] = suppressedEventsPath
+    }
+    process.environment = environment
+
+    let inputPipe = Pipe()
+    process.standardInput = inputPipe
+    let stdoutNull = FileHandle(forWritingAtPath: "/dev/null")
+    let stderrNull = FileHandle(forWritingAtPath: "/dev/null")
+    process.standardOutput = stdoutNull ?? Pipe()
+    process.standardError = stderrNull ?? Pipe()
+
+    notification["attempted"] = true
+    notification["skipped"] = false
+    notification["timeoutSeconds"] = timeoutSeconds
+
+    var didLaunch = false
+    do {
+        try process.run()
+        didLaunch = true
+        var inputData = statusData
+        inputData.append(Data("\n".utf8))
+        try inputPipe.fileHandleForWriting.write(contentsOf: inputData)
+        try inputPipe.fileHandleForWriting.close()
+    } catch {
+        if process.isRunning {
+            process.terminate()
+        }
+        try? stdoutNull?.close()
+        try? stderrNull?.close()
+        notification["ok"] = false
+        notification["reason"] = didLaunch ? "stdinWriteFailed" : "launchFailed"
+        notification["error"] = String(describing: error)
+        return notification
+    }
+
+    let semaphore = DispatchSemaphore(value: 0)
+    DispatchQueue.global(qos: .utility).async {
+        process.waitUntilExit()
+        semaphore.signal()
+    }
+
+    if semaphore.wait(timeout: .now() + timeoutSeconds) == .timedOut {
+        if process.isRunning {
+            process.terminate()
+        }
+        notification["ok"] = false
+        notification["timedOut"] = true
+        notification["reason"] = "timeout"
+    } else {
+        let exitCode = Int(process.terminationStatus)
+        notification["exitCode"] = exitCode
+        notification["timedOut"] = false
+        notification["ok"] = exitCode == 0
+        if exitCode != 0 {
+            notification["reason"] = "nonZeroExit"
+        }
+    }
+
+    try? stdoutNull?.close()
+    try? stderrNull?.close()
+    return notification
+}
+
+private func eventStreamWaitNotificationTimeoutSeconds() -> TimeInterval {
+    let fallback: TimeInterval = 10
+    guard
+        let value = ProcessInfo.processInfo.environment["OPEN_COMPUTER_USE_EVENT_STREAM_NOTIFY_TIMEOUT_SECONDS"],
+        let seconds = TimeInterval(value),
+        seconds > 0
+    else {
+        return fallback
+    }
+    return seconds
+}
+
 private func parseSimpleCommand(
     name: String,
     arguments: [String],
@@ -224,6 +477,306 @@ private func parseSimpleCommand(
     }
 
     throw OpenComputerUseCLIError(message: "\(name) does not accept any arguments", helpCommand: name)
+}
+
+private func parseEventStream(arguments: [String]) throws -> OpenComputerUseCLICommand {
+    guard let subcommand = arguments.first else {
+        throw OpenComputerUseCLIError(message: "event-stream requires a subcommand", helpCommand: "event-stream")
+    }
+
+    if subcommand == "-h" || subcommand == "--help" {
+        return .help(command: "event-stream")
+    }
+
+    let rest = Array(arguments.dropFirst())
+    switch subcommand {
+    case "mcp":
+        return try parseSimpleCommand(name: "event-stream mcp", arguments: rest, result: .eventStream(.mcp))
+    case "start":
+        if isHelpOnly(rest) {
+            return .help(command: "event-stream")
+        }
+        return .eventStream(.start(json: try parseEventStreamJSONOnlyOptions(subcommand: "start", arguments: rest)))
+    case "status":
+        if isHelpOnly(rest) {
+            return .help(command: "event-stream")
+        }
+        return .eventStream(.status(json: try parseEventStreamJSONOnlyOptions(subcommand: "status", arguments: rest)))
+    case "stop":
+        if isHelpOnly(rest) {
+            return .help(command: "event-stream")
+        }
+        return .eventStream(.stop(json: try parseEventStreamJSONOnlyOptions(subcommand: "stop", arguments: rest)))
+    case "cancel":
+        if isHelpOnly(rest) {
+            return .help(command: "event-stream")
+        }
+        return .eventStream(.cancel(json: try parseEventStreamJSONOnlyOptions(subcommand: "cancel", arguments: rest)))
+    case "wait":
+        if isHelpOnly(rest) {
+            return .help(command: "event-stream")
+        }
+        return .eventStream(try parseEventStreamWait(arguments: rest))
+    case "summarize":
+        if isHelpOnly(rest) {
+            return .help(command: "event-stream")
+        }
+        return .eventStream(try parseEventStreamSummarize(arguments: rest))
+    case "validate":
+        if isHelpOnly(rest) {
+            return .help(command: "event-stream")
+        }
+        return .eventStream(try parseEventStreamValidate(arguments: rest))
+    case "scaffold-skill":
+        if isHelpOnly(rest) {
+            return .help(command: "event-stream")
+        }
+        return .eventStream(try parseEventStreamScaffoldSkill(arguments: rest))
+    default:
+        if subcommand.hasPrefix("-") {
+            throw OpenComputerUseCLIError(message: "Unknown event-stream option: \(subcommand)", helpCommand: "event-stream")
+        }
+
+        throw OpenComputerUseCLIError(message: "Unknown event-stream subcommand: \(subcommand)", helpCommand: "event-stream")
+    }
+}
+
+private func parseEventStreamValidate(arguments: [String]) throws -> EventStreamCLIInvocation {
+    var inputPath: String?
+    var strictOCU = false
+    var requiredEventTypes: [String] = []
+    var requireSkillDraft = false
+
+    var index = 0
+    while index < arguments.count {
+        let argument = arguments[index]
+
+        switch argument {
+        case "--json":
+            break
+        case "--strict-ocu":
+            strictOCU = true
+        case "--require-skill-draft":
+            requireSkillDraft = true
+        case "--require-event-type":
+            requiredEventTypes.append(try parseOptionValue(argument, arguments: arguments, index: &index, helpCommand: "event-stream"))
+        case "--metadata-path", "--session-path", "--events-path":
+            guard inputPath == nil else {
+                throw OpenComputerUseCLIError(message: "event-stream validate accepts exactly one input path", helpCommand: "event-stream")
+            }
+            inputPath = try parseOptionValue(argument, arguments: arguments, index: &index, helpCommand: "event-stream")
+        case "-h", "--help":
+            throw OpenComputerUseCLIError(message: "event-stream validate help must be requested as `open-computer-use event-stream --help`", helpCommand: "event-stream")
+        default:
+            if argument.hasPrefix("-") {
+                throw OpenComputerUseCLIError(message: "Unknown event-stream validate option: \(argument)", helpCommand: "event-stream")
+            }
+
+            guard inputPath == nil else {
+                throw OpenComputerUseCLIError(message: "event-stream validate accepts exactly one input path", helpCommand: "event-stream")
+            }
+            inputPath = argument
+        }
+
+        index += 1
+    }
+
+    guard let inputPath else {
+        throw OpenComputerUseCLIError(message: "event-stream validate requires a session directory, metadata.json, session.json, or events.jsonl", helpCommand: "event-stream")
+    }
+
+    return .validate(
+        inputPath: inputPath,
+        strictOCU: strictOCU,
+        requiredEventTypes: requiredEventTypes,
+        requireSkillDraft: requireSkillDraft
+    )
+}
+
+private func parseEventStreamSummarize(arguments: [String]) throws -> EventStreamCLIInvocation {
+    var inputPath: String?
+    var includeText = false
+    var requireAction = false
+
+    var index = 0
+    while index < arguments.count {
+        let argument = arguments[index]
+
+        switch argument {
+        case "--json":
+            break
+        case "--include-text":
+            includeText = true
+        case "--require-action":
+            requireAction = true
+        case "--metadata-path", "--session-path", "--events-path":
+            guard inputPath == nil else {
+                throw OpenComputerUseCLIError(message: "event-stream summarize accepts exactly one input path", helpCommand: "event-stream")
+            }
+            inputPath = try parseOptionValue(argument, arguments: arguments, index: &index, helpCommand: "event-stream")
+        case "-h", "--help":
+            throw OpenComputerUseCLIError(message: "event-stream summarize help must be requested as `open-computer-use event-stream --help`", helpCommand: "event-stream")
+        default:
+            if argument.hasPrefix("-") {
+                throw OpenComputerUseCLIError(message: "Unknown event-stream summarize option: \(argument)", helpCommand: "event-stream")
+            }
+
+            guard inputPath == nil else {
+                throw OpenComputerUseCLIError(message: "event-stream summarize accepts exactly one input path", helpCommand: "event-stream")
+            }
+            inputPath = argument
+        }
+
+        index += 1
+    }
+
+    guard let inputPath else {
+        throw OpenComputerUseCLIError(message: "event-stream summarize requires a session directory, metadata.json, session.json, or events.jsonl", helpCommand: "event-stream")
+    }
+
+    return .summarize(inputPath: inputPath, includeText: includeText, requireAction: requireAction)
+}
+
+private func parseEventStreamScaffoldSkill(arguments: [String]) throws -> EventStreamCLIInvocation {
+    var inputPath: String?
+    var skillName: String?
+    var description: String?
+    var outputDirectory: String?
+    var overwrite = false
+    var includeText = false
+
+    var index = 0
+    while index < arguments.count {
+        let argument = arguments[index]
+
+        switch argument {
+        case "--json":
+            break
+        case "--skill-name":
+            skillName = try parseOptionValue(argument, arguments: arguments, index: &index, helpCommand: "event-stream")
+        case "--description":
+            description = try parseOptionValue(argument, arguments: arguments, index: &index, helpCommand: "event-stream")
+        case "--output-dir":
+            outputDirectory = try parseOptionValue(argument, arguments: arguments, index: &index, helpCommand: "event-stream")
+        case "--overwrite":
+            overwrite = true
+        case "--include-text":
+            includeText = true
+        case "--metadata-path", "--session-path", "--events-path":
+            guard inputPath == nil else {
+                throw OpenComputerUseCLIError(message: "event-stream scaffold-skill accepts exactly one input path", helpCommand: "event-stream")
+            }
+            inputPath = try parseOptionValue(argument, arguments: arguments, index: &index, helpCommand: "event-stream")
+        case "-h", "--help":
+            throw OpenComputerUseCLIError(message: "event-stream scaffold-skill help must be requested as `open-computer-use event-stream --help`", helpCommand: "event-stream")
+        default:
+            if argument.hasPrefix("-") {
+                throw OpenComputerUseCLIError(message: "Unknown event-stream scaffold-skill option: \(argument)", helpCommand: "event-stream")
+            }
+
+            guard inputPath == nil else {
+                throw OpenComputerUseCLIError(message: "event-stream scaffold-skill accepts exactly one input path", helpCommand: "event-stream")
+            }
+            inputPath = argument
+        }
+
+        index += 1
+    }
+
+    guard let inputPath else {
+        throw OpenComputerUseCLIError(message: "event-stream scaffold-skill requires a session directory, metadata.json, session.json, or events.jsonl", helpCommand: "event-stream")
+    }
+    guard let skillName, !skillName.isEmpty else {
+        throw OpenComputerUseCLIError(message: "event-stream scaffold-skill requires --skill-name", helpCommand: "event-stream")
+    }
+    guard let outputDirectory, !outputDirectory.isEmpty else {
+        throw OpenComputerUseCLIError(message: "event-stream scaffold-skill requires --output-dir", helpCommand: "event-stream")
+    }
+
+    return .scaffoldSkill(
+        inputPath: inputPath,
+        skillName: skillName,
+        description: description,
+        outputDirectory: outputDirectory,
+        overwrite: overwrite,
+        includeText: includeText
+    )
+}
+
+private func parseEventStreamJSONOnlyOptions(subcommand: String, arguments: [String]) throws -> Bool {
+    if arguments.isEmpty {
+        return false
+    }
+
+    if arguments.count == 1, arguments[0] == "--json" {
+        return true
+    }
+
+    let invalid = arguments.first ?? ""
+    throw OpenComputerUseCLIError(
+        message: "Unknown event-stream \(subcommand) option: \(invalid)",
+        helpCommand: "event-stream"
+    )
+}
+
+private func isHelpOnly(_ arguments: [String]) -> Bool {
+    arguments.count == 1 && (arguments[0] == "-h" || arguments[0] == "--help")
+}
+
+private func parseEventStreamWait(arguments: [String]) throws -> EventStreamCLIInvocation {
+    var json = false
+    var sessionID: String?
+    var timeout: TimeInterval?
+    var notifyCommand: [String]?
+
+    var index = 0
+    while index < arguments.count {
+        let argument = arguments[index]
+
+        switch argument {
+        case "--json":
+            json = true
+        case "--session-id":
+            sessionID = try parseOptionValue("--session-id", arguments: arguments, index: &index, helpCommand: "event-stream")
+        case "--timeout":
+            timeout = try parseTimeIntervalOptionValue("--timeout", arguments: arguments, index: &index, helpCommand: "event-stream")
+        case "--notify-command":
+            let value = try parseOptionValue("--notify-command", arguments: arguments, index: &index, helpCommand: "event-stream")
+            notifyCommand = try parseEventStreamNotifyCommand(value)
+        case "-h", "--help":
+            throw OpenComputerUseCLIError(message: "event-stream wait help must be requested as `open-computer-use event-stream --help`", helpCommand: "event-stream")
+        default:
+            if argument.hasPrefix("-") {
+                throw OpenComputerUseCLIError(message: "Unknown event-stream wait option: \(argument)", helpCommand: "event-stream")
+            }
+
+            throw OpenComputerUseCLIError(message: "event-stream wait does not accept positional arguments", helpCommand: "event-stream")
+        }
+
+        index += 1
+    }
+
+    return .wait(json: json, sessionID: sessionID, timeout: timeout, notifyCommand: notifyCommand)
+}
+
+private func parseEventStreamNotifyCommand(_ value: String) throws -> [String] {
+    guard let data = value.data(using: .utf8) else {
+        throw OpenComputerUseCLIError(message: "--notify-command must be a JSON array of strings", helpCommand: "event-stream")
+    }
+    let object: Any
+    do {
+        object = try JSONSerialization.jsonObject(with: data)
+    } catch {
+        throw OpenComputerUseCLIError(message: "--notify-command must be a JSON array of strings", helpCommand: "event-stream")
+    }
+    guard let array = object as? [Any], !array.isEmpty else {
+        throw OpenComputerUseCLIError(message: "--notify-command must be a non-empty JSON array of strings", helpCommand: "event-stream")
+    }
+    let strings = array.compactMap { $0 as? String }
+    guard strings.count == array.count, strings.allSatisfy({ !$0.isEmpty }) else {
+        throw OpenComputerUseCLIError(message: "--notify-command must be a non-empty JSON array of non-empty strings", helpCommand: "event-stream")
+    }
+    return strings
 }
 
 private func parseTurnEnded(arguments: [String]) throws -> OpenComputerUseCLICommand {
@@ -386,11 +939,12 @@ private func parseCall(arguments: [String]) throws -> OpenComputerUseCLICommand 
 private func parseOptionValue(
     _ option: String,
     arguments: [String],
-    index: inout Int
+    index: inout Int,
+    helpCommand: String = "call"
 ) throws -> String {
     let valueIndex = index + 1
     guard valueIndex < arguments.count else {
-        throw OpenComputerUseCLIError(message: "\(option) requires a value", helpCommand: "call")
+        throw OpenComputerUseCLIError(message: "\(option) requires a value", helpCommand: helpCommand)
     }
 
     index = valueIndex
@@ -400,13 +954,14 @@ private func parseOptionValue(
 private func parseTimeIntervalOptionValue(
     _ option: String,
     arguments: [String],
-    index: inout Int
+    index: inout Int,
+    helpCommand: String = "call"
 ) throws -> TimeInterval {
-    let rawValue = try parseOptionValue(option, arguments: arguments, index: &index)
+    let rawValue = try parseOptionValue(option, arguments: arguments, index: &index, helpCommand: helpCommand)
     guard let value = Double(rawValue), value.isFinite, value >= 0 else {
         throw OpenComputerUseCLIError(
             message: "\(option) requires a non-negative number of seconds",
-            helpCommand: "call"
+            helpCommand: helpCommand
         )
     }
 

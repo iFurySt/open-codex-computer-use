@@ -37,7 +37,10 @@ enum MacOSAppAgentProxy {
 
         switch command {
         case .mcp:
-            try proxyMCP(client: client)
+            try proxyMCP(kind: "mcp", client: client)
+            return EXIT_SUCCESS
+        case .eventStream(.mcp):
+            try proxyMCP(kind: "eventStreamMCP", client: client)
             return EXIT_SUCCESS
         default:
             let response = try sendCLIRequest(arguments: arguments, client: client)
@@ -107,16 +110,21 @@ enum MacOSAppAgentProxy {
         throw OpenComputerUseCLIError(message: "Timed out waiting for Open Computer Use.app agent to start.")
     }
 
-    private static func proxyMCP(client: AppAgentSocketClient) throws {
+    private static func proxyMCP(kind: String, client: AppAgentSocketClient) throws {
         while let line = readLine(strippingNewline: true) {
             guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 continue
             }
 
-            let response = try client.request([
-                "kind": "mcp",
+            var request: [String: Any] = [
+                "kind": kind,
                 "line": line,
-            ])
+            ]
+            if kind == "eventStreamMCP" {
+                request["environment"] = proxiedEnvironment()
+            }
+
+            let response = try client.request(request)
 
             if let responseLine = response["response"] as? String {
                 FileHandle.standardOutput.write(Data((responseLine + "\n").utf8))
@@ -292,6 +300,7 @@ private final class AppAgentSocketListener: @unchecked Sendable {
 private final class AppAgentConnection: @unchecked Sendable {
     private let fileDescriptor: Int32
     private let server = StdioMCPServer()
+    private lazy var eventStreamServer = EventStreamMCPServer(service: .shared)
 
     init(fileDescriptor: Int32) {
         self.fileDescriptor = fileDescriptor
@@ -337,12 +346,20 @@ private final class AppAgentConnection: @unchecked Sendable {
                     return ["response": response]
                 }
                 return ["response": NSNull()]
+            case "eventStreamMCP":
+                let line = request["line"] as? String ?? ""
+                let environment = request["environment"] as? [String: String] ?? [:]
+                let response = AppAgentEnvironment.withOverrides(environment) {
+                    eventStreamServer.handle(line: line)
+                }
+                if let response {
+                    return ["response": response]
+                }
+                return ["response": NSNull()]
             case "cli":
                 let arguments = request["arguments"] as? [String] ?? []
                 let environment = request["environment"] as? [String: String] ?? [:]
-                let response = AppAgentEnvironment.withOverrides(environment) {
-                    runCLI(arguments: arguments)
-                }
+                let response = runCLI(arguments: arguments, environment: environment)
                 return [
                     "stdout": response.stdout,
                     "stderr": response.stderr,
@@ -357,7 +374,7 @@ private final class AppAgentConnection: @unchecked Sendable {
         }
     }
 
-    private func runCLI(arguments: [String]) -> CLIProxyResponse {
+    private func runCLI(arguments: [String], environment: [String: String]) -> CLIProxyResponse {
         do {
             let command = try parseOpenComputerUseCLI(arguments: arguments)
 
@@ -390,7 +407,17 @@ private final class AppAgentConnection: @unchecked Sendable {
                 return CLIProxyResponse(stdout: text + "\n", stderr: "", exitCode: EXIT_SUCCESS)
 
             case let .call(invocation):
-                let output = try runOpenComputerUseCall(invocation)
+                let output = try AppAgentEnvironment.withOverrides(environment) {
+                    try runOpenComputerUseCall(invocation)
+                }
+                return CLIProxyResponse(
+                    stdout: try output.jsonText() + "\n",
+                    stderr: "",
+                    exitCode: output.hasToolError ? EXIT_FAILURE : EXIT_SUCCESS
+                )
+
+            case let .eventStream(invocation):
+                let output = try runEventStreamCLI(invocation: invocation, environment: environment)
                 return CLIProxyResponse(
                     stdout: try output.jsonText() + "\n",
                     stderr: "",
@@ -403,6 +430,19 @@ private final class AppAgentConnection: @unchecked Sendable {
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             return CLIProxyResponse(stdout: "", stderr: message + "\n", exitCode: EXIT_FAILURE)
+        }
+    }
+
+    private func runEventStreamCLI(invocation: EventStreamCLIInvocation, environment: [String: String]) throws -> OpenComputerUseCallOutput {
+        switch invocation {
+        case .start:
+            return try AppAgentEnvironment.withOverrides(environment) {
+                try runOpenComputerUseEventStream(invocation)
+            }
+        case .status, .stop, .cancel, .wait, .summarize, .validate, .scaffoldSkill:
+            return try runOpenComputerUseEventStream(invocation)
+        case .mcp:
+            throw OpenComputerUseCLIError(message: "event-stream mcp is a server command", helpCommand: "event-stream")
         }
     }
 }

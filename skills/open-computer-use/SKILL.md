@@ -23,7 +23,8 @@ It supports the same core tool surface across macOS, Linux, and Windows:
 6. Prefer element-targeted actions using `element_index` from the latest `get_app_state` result.
 7. For multi-step CLI work, use `open-computer-use call --calls '<json-array>'` so one process can reuse the latest element index mapping.
 8. For agent runtimes that support local MCP servers, configure `open-computer-use mcp` or `ocu mcp` and call the exposed Computer Use tools directly. Read [references/usage.md](references/usage.md).
-9. If communication, permission, or desktop-session access fails, read [references/troubleshooting.md](references/troubleshooting.md).
+9. When a user wants to demonstrate a macOS workflow for reusable automation, read [references/record-and-replay.md](references/record-and-replay.md).
+10. If communication, permission, or desktop-session access fails, read [references/troubleshooting.md](references/troubleshooting.md).
 
 ## Operating Rules
 
@@ -74,4 +75,5 @@ Read [references/usage.md](references/usage.md) for JSON config examples, direct
 
 - [references/installation.md](references/installation.md): one-time CLI install, agent MCP install commands, and macOS permissions.
 - [references/usage.md](references/usage.md): MCP config, direct CLI calls, sequencing, and platform behavior.
+- [references/record-and-replay.md](references/record-and-replay.md): macOS Record & Replay-compatible event-stream MCP, session files, and OCU wait/cancel extensions.
 - [references/troubleshooting.md](references/troubleshooting.md): permission, desktop-session, app discovery, and action failures.

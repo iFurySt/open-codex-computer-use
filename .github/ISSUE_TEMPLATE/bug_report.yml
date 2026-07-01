@@ -1,0 +1,27 @@
+name: Bug report
+description: Report a reproducible problem in open-computer-use.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction
+      description: List the smallest steps or command that reproduces the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS, open-computer-use version, and relevant agent/client.
+    validations:
+      required: true
