@@ -3,11 +3,8 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-skill_name="open-computer-use"
-skill_dir="${repo_root}/skills/${skill_name}"
+skills_root="${repo_root}/skills"
 dist_dir="${repo_root}/dist/skills"
-zip_path="${dist_dir}/${skill_name}-skill.zip"
-skill_path="${dist_dir}/${skill_name}.skill"
 manifest_path="${dist_dir}/package-manifest.json"
 
 if ! command -v node >/dev/null 2>&1; then
@@ -25,23 +22,39 @@ if ! command -v unzip >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ ! -f "${skill_dir}/SKILL.md" ]]; then
-  echo "missing skill entrypoint: ${skill_dir}/SKILL.md" >&2
+skill_dirs=()
+while IFS= read -r skill_entrypoint; do
+  skill_dirs+=("$(dirname "${skill_entrypoint}")")
+done < <(find "${skills_root}" -mindepth 2 -maxdepth 2 -name SKILL.md -print | sort)
+
+if [[ "${#skill_dirs[@]}" -eq 0 ]]; then
+  echo "missing skill entrypoints under ${skills_root}" >&2
   exit 1
 fi
 
-node - "${skill_dir}/SKILL.md" <<'NODE'
+rm -rf "${dist_dir}"
+mkdir -p "${dist_dir}"
+
+manifest_entries=()
+
+for skill_dir in "${skill_dirs[@]}"; do
+  skill_name="$(basename "${skill_dir}")"
+  zip_path="${dist_dir}/${skill_name}-skill.zip"
+  skill_path="${dist_dir}/${skill_name}.skill"
+
+  node - "${skill_dir}/SKILL.md" "${skill_name}" <<'NODE'
 const fs = require("fs");
 
 const skillPath = process.argv[2];
+const expectedName = process.argv[3];
 const content = fs.readFileSync(skillPath, "utf8");
 const errors = [];
 
 if (!content.startsWith("---\n")) {
   errors.push("SKILL.md must start with YAML frontmatter");
 }
-if (!/^name:\s*open-computer-use\s*$/m.test(content)) {
-  errors.push("SKILL.md frontmatter must include name: open-computer-use");
+if (!new RegExp(`^name:\\s*${expectedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "m").test(content)) {
+  errors.push(`SKILL.md frontmatter must include name: ${expectedName}`);
 }
 if (!/^description:\s*\S/m.test(content)) {
   errors.push("SKILL.md frontmatter must include a non-empty description");
@@ -55,73 +68,92 @@ if (errors.length > 0) {
 }
 NODE
 
-rm -rf "${dist_dir}"
-mkdir -p "${dist_dir}"
+  (
+    cd "${skills_root}"
+    zip -q -r "${zip_path}" "${skill_name}"
+  )
+  cp "${zip_path}" "${skill_path}"
 
-(
-  cd "${repo_root}/skills"
-  zip -q -r "${zip_path}" "${skill_name}"
-)
-cp "${zip_path}" "${skill_path}"
+  if ! cmp -s "${zip_path}" "${skill_path}"; then
+    echo "${skill_name}-skill.zip and ${skill_name}.skill differ" >&2
+    exit 1
+  fi
 
-node - "${zip_path}" "${skill_path}" "${manifest_path}" <<'NODE'
+  has_skill_entrypoint=0
+  entry_count=0
+  while IFS= read -r entry; do
+    entry_count=$((entry_count + 1))
+    if [[ "${entry}" != "${skill_name}/"* ]]; then
+      echo "skill zip entry must be under ${skill_name}/: ${entry}" >&2
+      exit 1
+    fi
+    if [[ "${entry}" == "${skill_name}/SKILL.md" ]]; then
+      has_skill_entrypoint=1
+    fi
+  done < <(unzip -Z1 "${zip_path}")
+
+  if [[ "${entry_count}" -eq 0 ]]; then
+    echo "${skill_name} skill zip is empty" >&2
+    exit 1
+  fi
+
+  if [[ "${has_skill_entrypoint}" -ne 1 ]]; then
+    echo "skill zip is missing ${skill_name}/SKILL.md" >&2
+    exit 1
+  fi
+
+  manifest_entries+=("${skill_name}|${zip_path}|${skill_path}")
+done
+
+node - "${repo_root}" "${manifest_path}" "${manifest_entries[@]}" <<'NODE'
 const crypto = require("crypto");
 const fs = require("fs");
+const path = require("path");
 
-const zipPath = process.argv[2];
-const skillPath = process.argv[3];
-const manifestPath = process.argv[4];
-const zip = fs.readFileSync(zipPath);
-const skill = fs.readFileSync(skillPath);
+const repoRoot = process.argv[2];
+const manifestPath = process.argv[3];
+const entries = process.argv.slice(4);
 
+const skills = entries.map((entry) => {
+  const [name, zipPath, skillPath] = entry.split("|");
+  const zip = fs.readFileSync(zipPath);
+  const skill = fs.readFileSync(skillPath);
+  const zipSha = crypto.createHash("sha256").update(zip).digest("hex");
+  const skillSha = crypto.createHash("sha256").update(skill).digest("hex");
+
+  if (zipSha !== skillSha) {
+    throw new Error(`${name}-skill.zip and ${name}.skill must contain identical bytes`);
+  }
+
+  return {
+    name,
+    rootDirectory: name,
+    artifacts: {
+      zip: path.relative(repoRoot, zipPath),
+      skill: path.relative(repoRoot, skillPath)
+    },
+    sha256: {
+      zip: zipSha,
+      skill: skillSha
+    }
+  };
+});
+
+const primarySkill = skills.find((skill) => skill.name === "open-computer-use") ?? skills[0];
 const payload = {
-  name: "open-computer-use",
-  rootDirectory: "open-computer-use",
-  artifacts: {
-    zip: zipPath,
-    skill: skillPath
-  },
-  sha256: {
-    zip: crypto.createHash("sha256").update(zip).digest("hex"),
-    skill: crypto.createHash("sha256").update(skill).digest("hex")
-  },
-  generatedAtUtc: new Date().toISOString()
+  name: primarySkill.name,
+  rootDirectory: primarySkill.rootDirectory,
+  artifacts: primarySkill.artifacts,
+  sha256: primarySkill.sha256,
+  generatedAtUtc: new Date().toISOString(),
+  skills
 };
-
-if (payload.sha256.zip !== payload.sha256.skill) {
-  throw new Error("open-computer-use-skill.zip and open-computer-use.skill must contain identical bytes");
-}
 
 fs.writeFileSync(manifestPath, `${JSON.stringify(payload, null, 2)}\n`);
 NODE
 
-if ! cmp -s "${zip_path}" "${skill_path}"; then
-  echo "open-computer-use-skill.zip and open-computer-use.skill differ" >&2
-  exit 1
-fi
-
-has_skill_entrypoint=0
-entry_count=0
-while IFS= read -r entry; do
-  entry_count=$((entry_count + 1))
-  if [[ "${entry}" != "${skill_name}/"* ]]; then
-    echo "skill zip entry must be under ${skill_name}/: ${entry}" >&2
-    exit 1
-  fi
-  if [[ "${entry}" == "${skill_name}/SKILL.md" ]]; then
-    has_skill_entrypoint=1
-  fi
-done < <(unzip -Z1 "${zip_path}")
-
-if [[ "${entry_count}" -eq 0 ]]; then
-  echo "skill zip is empty" >&2
-  exit 1
-fi
-
-if [[ "${has_skill_entrypoint}" -ne 1 ]]; then
-  echo "skill zip is missing ${skill_name}/SKILL.md" >&2
-  exit 1
-fi
-
-echo "${zip_path}"
-echo "${skill_path}"
+for entry in "${manifest_entries[@]}"; do
+  IFS="|" read -r _ zip_path skill_path <<<"${entry}"
+  echo "${zip_path}"
+  echo "${skill_path}"
+done

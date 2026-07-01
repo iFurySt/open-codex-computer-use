@@ -15,6 +15,7 @@
 
 - `codex-computer-use-reverse-engineering/`
   - 官方 `Codex Computer Use.app` / `SkyComputerUseClient` 的持续逆向分析资料；大体积一次性分析产物默认在本地 `research/` 下重新生成，不提交进仓库。
+  - Record & Replay 相关入口是 `codex-computer-use-reverse-engineering/record-and-replay-event-stream.md`，记录官方 `record-and-replay` 1.0.857 的插件包装、Codex.app asar 分工、Computer Use runtime 字符串、event-stream MCP surface、no-active / raw-timeout fixture、required `simple-action-stop` successful recording golden fixture，以及 recommended golden 场景的后续缺口。
 - `codex-network-capture.md`
   - 用 `mitmdump` + `scripts/codex_dump.py` 抓 Codex 上游 HTTP / WebSocket 流量，并把对应 `session_id` 的本地 `function_call` / `function_call_output` 摘要一起沉淀到 `artifacts/codex-dumps/` 做持续分析。
 - `codex-local-runtime-logs.md`

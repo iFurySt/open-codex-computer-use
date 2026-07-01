@@ -21,6 +21,7 @@ const repoRoot = path.resolve(__dirname, "..", "..");
 const defaultOutDir = path.join(repoRoot, "dist", "npm");
 const appBundleName = "Open Computer Use.app";
 const appExecutableName = "OpenComputerUse";
+const recordAndReplayBaselineSummaryPath = path.join(repoRoot, "dist", "record-and-replay-baseline-summary.json");
 const metaPackageNames = [
   "open-computer-use",
   "open-computer-use-mcp",
@@ -213,7 +214,7 @@ function platformLaunchTable() {
 
 function renderLauncher() {
   return `#!/usr/bin/env node
-const { spawn } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -226,8 +227,12 @@ const installCommands = new Map([
   ["install-clauce-mcp", "install-claude-mcp.sh"],
   ["install-gemini-mcp", "install-gemini-mcp.sh"],
   ["install-codex-mcp", "install-codex-mcp.sh"],
+  ["install-codex-record-and-replay-mcp", "install-codex-record-and-replay-mcp.sh"],
   ["install-opencode-mcp", "install-opencode-mcp.sh"],
   ["install-codex-plugin", "install-codex-plugin.sh"],
+]);
+const bundledScriptCommands = new Map([
+  ["scaffold-record-and-replay-skill-repo", "scaffold-record-and-replay-skill-repo.py"],
 ]);
 
 function printLauncherHelp() {
@@ -248,6 +253,10 @@ Commands:
   install-claude-mcp   Install the MCP server into ~/.claude.json for this project.
   install-gemini-mcp   Install the MCP server into Gemini CLI config.
   install-codex-mcp    Install the MCP server into ~/.codex/config.toml.
+  install-codex-record-and-replay-mcp
+                       Install the Record & Replay MCP server into ~/.codex/config.toml.
+  scaffold-record-and-replay-skill-repo
+                       Generate a standalone Record & Replay thin skill repo.
   install-opencode-mcp Install the MCP server into ~/.config/opencode.
   install-codex-plugin Install this npm package into the local Codex plugin cache.
   help [command]       Show general or command-specific help.
@@ -262,15 +271,32 @@ Notes:
   Use 'open-computer-use help <command>' for command-specific help.\`);
 }
 
-function printInstallHelp(scriptName, usage) {
+function printInstallHelp(scriptName, usage, targetCommand = "open-computer-use mcp") {
   console.log(\`Usage:
   \${usage}
 
 This helper updates a local MCP or plugin config to run:
-  open-computer-use mcp
+  \${targetCommand}
 
 Script:
   \${scriptName}\`);
+}
+
+function printScaffoldRecordAndReplaySkillRepoHelp() {
+  console.log(\`Usage:
+  open-computer-use scaffold-record-and-replay-skill-repo --output-dir <dir>
+
+Generates a standalone Record & Replay thin skill repo. The generated repo does not copy the Open Computer Use runtime; it expects the target environment to have the open-computer-use CLI installed.
+
+Runtime contract:
+  open-computer-use event-stream mcp
+
+Requirements:
+  Python 3 must be available as python3, python, or through PYTHON=/path/to/python.
+
+Generated repo checks:
+  ./scripts/check.sh
+  ./scripts/recording-lifecycle-smoke.py  # optional; starts a real local recording\`);
 }
 
 function fail(message) {
@@ -278,13 +304,16 @@ function fail(message) {
   process.exit(1);
 }
 
-function spawnAndExit(executable, executableArgs) {
+function spawnAndExit(executable, executableArgs, options = {}) {
   const child = spawn(executable, executableArgs, {
     stdio: "inherit",
     windowsHide: false,
   });
 
   child.on("error", (error) => {
+    if (options.onErrorMessage) {
+      fail(options.onErrorMessage(error, executable));
+    }
     fail(\`Failed to start \${executable}: \${error.message}\`);
   });
 
@@ -313,6 +342,50 @@ function runInstallCommand(scriptName, scriptArgs) {
   }
 
   spawnAndExit(scriptPath, scriptArgs);
+}
+
+function resolvePythonExecutableForBundledScript() {
+  const candidates = process.env.PYTHON
+    ? [process.env.PYTHON]
+    : (process.platform === "win32" ? ["python"] : ["python3", "python"]);
+
+  for (const candidate of candidates) {
+    const result = spawnSync(candidate, ["--version"], {
+      encoding: "utf8",
+      windowsHide: true,
+    });
+    if (result.error || result.status !== 0) {
+      continue;
+    }
+
+    const versionText = [result.stdout, result.stderr].filter(Boolean).join(" ").trim();
+    const match = /\\bPython\\s+(\\d+)\\.(\\d+)/.exec(versionText);
+    if (match && Number(match[1]) >= 3) {
+      return candidate;
+    }
+  }
+
+  fail(\`Python 3 is required to run "open-computer-use \${command}".
+
+No Python 3 executable was found. Install Python 3 or set PYTHON=/path/to/python3, then retry:
+  open-computer-use \${command} --output-dir <dir>\`);
+}
+
+function runBundledScriptCommand(scriptName, scriptArgs) {
+  const scriptPath = path.join(packageRoot, "scripts", scriptName);
+  if (!fs.existsSync(scriptPath)) {
+    fail(\`Missing bundled helper at \${scriptPath}.\`);
+  }
+
+  const python = resolvePythonExecutableForBundledScript();
+  spawnAndExit(python, [scriptPath, ...scriptArgs], {
+    onErrorMessage: (error, executable) => \`Failed to start Python for "open-computer-use \${command}": \${error.message}
+
+Tried executable:
+  \${executable}
+
+Set PYTHON=/path/to/python3 or install Python 3, then retry.\`,
+  });
 }
 
 function resolveNativeExecutable() {
@@ -349,6 +422,20 @@ if (command === "help" && args[1] === "install-codex-mcp") {
   process.exit(0);
 }
 
+if (command === "help" && args[1] === "install-codex-record-and-replay-mcp") {
+  printInstallHelp(
+    "install-codex-record-and-replay-mcp.sh",
+    "open-computer-use install-codex-record-and-replay-mcp",
+    "open-computer-use event-stream mcp",
+  );
+  process.exit(0);
+}
+
+if (command === "help" && args[1] === "scaffold-record-and-replay-skill-repo") {
+  printScaffoldRecordAndReplaySkillRepoHelp();
+  process.exit(0);
+}
+
 if (command === "help" && args[1] === "install-gemini-mcp") {
   printInstallHelp("install-gemini-mcp.sh", "open-computer-use install-gemini-mcp [--scope project|user]");
   process.exit(0);
@@ -367,6 +454,9 @@ if (command === "help" && (args[1] === "install-claude-mcp" || args[1] === "inst
 if (installCommands.has(command)) {
   const scriptName = installCommands.get(command);
   runInstallCommand(scriptName, args.slice(1));
+} else if (bundledScriptCommands.has(command)) {
+  const scriptName = bundledScriptCommands.get(command);
+  runBundledScriptCommand(scriptName, args.slice(1));
 } else {
   spawnAndExit(resolveNativeExecutable(), args);
 }
@@ -464,6 +554,8 @@ open-computer-use install-claude-mcp
 open-computer-use install-gemini-mcp
 open-computer-use install-gemini-mcp --scope user
 open-computer-use install-codex-mcp
+open-computer-use install-codex-record-and-replay-mcp
+open-computer-use scaffold-record-and-replay-skill-repo --output-dir ./open-computer-use-rnr-skill-repo
 open-computer-use install-opencode-mcp
 open-computer-use install-codex-plugin
 \`\`\`
@@ -531,10 +623,15 @@ function renderMetaPackageJson(packageName, version) {
       "plugins/open-computer-use/.mcp.json",
       "plugins/open-computer-use/assets/",
       "plugins/open-computer-use/scripts/",
+      "skills/open-computer-use-record-and-replay/",
       "scripts/install-claude-mcp.sh",
       "scripts/install-gemini-mcp.sh",
       "scripts/install-config-helper.mjs",
       "scripts/install-codex-mcp.sh",
+      "scripts/install-codex-record-and-replay-mcp.sh",
+      "scripts/scaffold-record-and-replay-skill-repo.py",
+      "scripts/record_and_replay_scenarios.py",
+      "dist/record-and-replay-baseline-summary.json",
       "scripts/install-opencode-mcp.sh",
       "scripts/install-codex-plugin.sh",
       "scripts/postinstall.mjs",
@@ -544,11 +641,33 @@ function renderMetaPackageJson(packageName, version) {
   };
 }
 
+function copyRecordAndReplayBaselineSummary(packageRoot) {
+  if (!existsSync(recordAndReplayBaselineSummaryPath)) {
+    throw new Error(
+      [
+        `Missing Record & Replay baseline summary artifact: ${recordAndReplayBaselineSummaryPath}.`,
+        "Run `make record-and-replay-baseline-audit` before building the npm package.",
+        "The standalone Record & Replay skill repo scaffold copies a redacted projection of this artifact into evidence/source-baseline-summary.json.",
+      ].join(" "),
+    );
+  }
+
+  mkdirSync(path.join(packageRoot, "dist"), { recursive: true });
+  cpSync(
+    recordAndReplayBaselineSummaryPath,
+    path.join(packageRoot, "dist", "record-and-replay-baseline-summary.json"),
+  );
+}
+
 function copyInstallerScripts(packageRoot) {
   cpSync(path.join(repoRoot, "scripts", "install-claude-mcp.sh"), path.join(packageRoot, "scripts", "install-claude-mcp.sh"));
   cpSync(path.join(repoRoot, "scripts", "install-gemini-mcp.sh"), path.join(packageRoot, "scripts", "install-gemini-mcp.sh"));
   cpSync(path.join(repoRoot, "scripts", "install-config-helper.mjs"), path.join(packageRoot, "scripts", "install-config-helper.mjs"));
   cpSync(path.join(repoRoot, "scripts", "install-codex-mcp.sh"), path.join(packageRoot, "scripts", "install-codex-mcp.sh"));
+  cpSync(path.join(repoRoot, "scripts", "install-codex-record-and-replay-mcp.sh"), path.join(packageRoot, "scripts", "install-codex-record-and-replay-mcp.sh"));
+  cpSync(path.join(repoRoot, "scripts", "scaffold-record-and-replay-skill-repo.py"), path.join(packageRoot, "scripts", "scaffold-record-and-replay-skill-repo.py"));
+  cpSync(path.join(repoRoot, "scripts", "record_and_replay_scenarios.py"), path.join(packageRoot, "scripts", "record_and_replay_scenarios.py"));
+  copyRecordAndReplayBaselineSummary(packageRoot);
   cpSync(path.join(repoRoot, "scripts", "install-opencode-mcp.sh"), path.join(packageRoot, "scripts", "install-opencode-mcp.sh"));
   cpSync(path.join(repoRoot, "scripts", "install-codex-plugin.sh"), path.join(packageRoot, "scripts", "install-codex-plugin.sh"));
 
@@ -556,6 +675,8 @@ function copyInstallerScripts(packageRoot) {
     "install-claude-mcp.sh",
     "install-gemini-mcp.sh",
     "install-codex-mcp.sh",
+    "install-codex-record-and-replay-mcp.sh",
+    "scaffold-record-and-replay-skill-repo.py",
     "install-opencode-mcp.sh",
     "install-codex-plugin.sh",
   ]) {
@@ -603,11 +724,17 @@ function stageMetaPackage(packageName, version, outDir) {
   mkdirSync(path.join(packageRoot, "dist"), { recursive: true });
   mkdirSync(path.join(packageRoot, "plugins"), { recursive: true });
   mkdirSync(path.join(packageRoot, "scripts"), { recursive: true });
+  mkdirSync(path.join(packageRoot, "skills"), { recursive: true });
 
   cpSync(path.join(repoRoot, ".agents", "plugins", "marketplace.json"), path.join(packageRoot, ".agents", "plugins", "marketplace.json"));
   cpSync(path.join(repoRoot, "plugins", "open-computer-use"), path.join(packageRoot, "plugins", "open-computer-use"), {
     recursive: true,
   });
+  cpSync(
+    path.join(repoRoot, "skills", "open-computer-use-record-and-replay"),
+    path.join(packageRoot, "skills", "open-computer-use-record-and-replay"),
+    { recursive: true },
+  );
   cpSync(path.join(repoRoot, "LICENSE"), path.join(packageRoot, "LICENSE"));
   copyBundledRuntimes(packageRoot, packageName);
   copyInstallerScripts(packageRoot);

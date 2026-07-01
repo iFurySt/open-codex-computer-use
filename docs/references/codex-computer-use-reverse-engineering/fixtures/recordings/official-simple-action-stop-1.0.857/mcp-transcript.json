@@ -1,0 +1,250 @@
+{
+  "finalStatusResponseShape": {
+    "result": {
+      "content": [
+        {
+          "decodedText": {
+            "endReason": "recording_controls_stopped",
+            "endedAt": "<redacted-timestamp>",
+            "eventsPath": "events.jsonl",
+            "isRecording": false,
+            "maxDurationSeconds": 1800,
+            "metadataPath": "metadata.json",
+            "sessionDirectoryPathLength": 102,
+            "sessionDirectoryPathRedacted": true,
+            "sessionID": "fixture-session",
+            "startedAt": "<redacted-timestamp>"
+          },
+          "textRedacted": true,
+          "type": "text"
+        }
+      ]
+    }
+  },
+  "fixtureFormatVersion": 1,
+  "kind": "record-and-replay-hosted-capture-transcript",
+  "requiredHostedResponseShapes": [
+    "startResponseShape",
+    "statusResponseShape",
+    "stopResponseShape",
+    "finalStatusResponseShape"
+  ],
+  "scenario": "simple-action-stop",
+  "source": "codex-hosted-record-and-replay",
+  "startResponseShape": {
+    "result": {
+      "content": [
+        {
+          "decodedText": {
+            "eventsPath": "events.jsonl",
+            "isRecording": true,
+            "maxDurationSeconds": 1800,
+            "metadataPath": "metadata.json",
+            "sessionDirectoryPathLength": 102,
+            "sessionDirectoryPathRedacted": true,
+            "sessionID": "fixture-session",
+            "startedAt": "<redacted-timestamp>"
+          },
+          "textRedacted": true,
+          "type": "text"
+        }
+      ]
+    }
+  },
+  "statusResponseShape": {
+    "result": {
+      "content": [
+        {
+          "decodedText": {
+            "eventsPath": "events.jsonl",
+            "isRecording": true,
+            "maxDurationSeconds": 1800,
+            "metadataPath": "metadata.json",
+            "sessionDirectoryPathLength": 102,
+            "sessionDirectoryPathRedacted": true,
+            "sessionID": "fixture-session",
+            "startedAt": "<redacted-timestamp>"
+          },
+          "textRedacted": true,
+          "type": "text"
+        }
+      ]
+    }
+  },
+  "stopResponseShape": {
+    "result": {
+      "content": [
+        {
+          "decodedText": {
+            "endReason": "recording_controls_stopped",
+            "endedAt": "<redacted-timestamp>",
+            "eventsPath": "events.jsonl",
+            "isRecording": false,
+            "maxDurationSeconds": 1800,
+            "metadataPath": "metadata.json",
+            "sessionDirectoryPathLength": 102,
+            "sessionDirectoryPathRedacted": true,
+            "sessionID": "fixture-session",
+            "startedAt": "<redacted-timestamp>"
+          },
+          "textRedacted": true,
+          "type": "text"
+        }
+      ]
+    }
+  },
+  "transcript": [
+    {
+      "direction": "send",
+      "message": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {
+          "arguments": {},
+          "name": "event_stream_start"
+        }
+      }
+    },
+    {
+      "direction": "receive",
+      "message": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "result": {
+          "content": [
+            {
+              "decodedText": {
+                "eventsPath": "events.jsonl",
+                "isRecording": true,
+                "maxDurationSeconds": 1800,
+                "metadataPath": "metadata.json",
+                "sessionDirectoryPathLength": 102,
+                "sessionDirectoryPathRedacted": true,
+                "sessionID": "fixture-session",
+                "startedAt": "<redacted-timestamp>"
+              },
+              "textRedacted": true,
+              "type": "text"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "direction": "send",
+      "message": {
+        "id": 2,
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {
+          "arguments": {},
+          "name": "event_stream_status"
+        }
+      }
+    },
+    {
+      "direction": "receive",
+      "message": {
+        "id": 2,
+        "jsonrpc": "2.0",
+        "result": {
+          "content": [
+            {
+              "decodedText": {
+                "eventsPath": "events.jsonl",
+                "isRecording": true,
+                "maxDurationSeconds": 1800,
+                "metadataPath": "metadata.json",
+                "sessionDirectoryPathLength": 102,
+                "sessionDirectoryPathRedacted": true,
+                "sessionID": "fixture-session",
+                "startedAt": "<redacted-timestamp>"
+              },
+              "textRedacted": true,
+              "type": "text"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "direction": "send",
+      "message": {
+        "id": 3,
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {
+          "arguments": {},
+          "name": "event_stream_stop"
+        }
+      }
+    },
+    {
+      "direction": "receive",
+      "message": {
+        "id": 3,
+        "jsonrpc": "2.0",
+        "result": {
+          "content": [
+            {
+              "decodedText": {
+                "endReason": "recording_controls_stopped",
+                "endedAt": "<redacted-timestamp>",
+                "eventsPath": "events.jsonl",
+                "isRecording": false,
+                "maxDurationSeconds": 1800,
+                "metadataPath": "metadata.json",
+                "sessionDirectoryPathLength": 102,
+                "sessionDirectoryPathRedacted": true,
+                "sessionID": "fixture-session",
+                "startedAt": "<redacted-timestamp>"
+              },
+              "textRedacted": true,
+              "type": "text"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "direction": "send",
+      "message": {
+        "id": 4,
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {
+          "arguments": {},
+          "name": "event_stream_status"
+        }
+      }
+    },
+    {
+      "direction": "receive",
+      "message": {
+        "id": 4,
+        "jsonrpc": "2.0",
+        "result": {
+          "content": [
+            {
+              "decodedText": {
+                "endReason": "recording_controls_stopped",
+                "endedAt": "<redacted-timestamp>",
+                "eventsPath": "events.jsonl",
+                "isRecording": false,
+                "maxDurationSeconds": 1800,
+                "metadataPath": "metadata.json",
+                "sessionDirectoryPathLength": 102,
+                "sessionDirectoryPathRedacted": true,
+                "sessionID": "fixture-session",
+                "startedAt": "<redacted-timestamp>"
+              },
+              "textRedacted": true,
+              "type": "text"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

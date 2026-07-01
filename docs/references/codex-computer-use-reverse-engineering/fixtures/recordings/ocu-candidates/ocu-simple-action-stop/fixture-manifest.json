@@ -1,0 +1,101 @@
+{
+  "capturedAt": "2026-07-01",
+  "eventCount": 5,
+  "eventTypes": {
+    "AX.focusedWindowChanged": 1,
+    "mouse.click": 1,
+    "session.ended": 1,
+    "session.started": 1,
+    "window.changed": 1
+  },
+  "files": {
+    "events": "events.jsonl",
+    "mcpTranscript": "mcp-transcript.json",
+    "metadata": "metadata.json",
+    "session": "session.json",
+    "suppressed": "suppressed.jsonl"
+  },
+  "fixtureFormatVersion": 1,
+  "importedAt": "2026-07-01",
+  "name": "ocu-simple-action-stop",
+  "officialPluginVersion": null,
+  "redaction": {
+    "mcpTranscriptSanitized": true,
+    "pathKeysRedacted": [
+      "path",
+      "*Path"
+    ],
+    "pathKeysRewrittenRelative": [
+      "currentSegmentEventsPath",
+      "currentSegmentMetadataPath",
+      "eventsPath",
+      "metadataPath",
+      "sessionPath",
+      "suppressedEventsPath"
+    ],
+    "preserveAppAttribution": false,
+    "screenshotsCopied": false,
+    "sessionIdKeys": [
+      "id",
+      "sessionID",
+      "sessionId"
+    ],
+    "textKeys": [
+      "AXDescription",
+      "AXSelectedText",
+      "AXTitle",
+      "AXValue",
+      "characters",
+      "cumulativeRenderedText",
+      "cumulativeTreeLines",
+      "description",
+      "diffRenderedText",
+      "fullRenderedText",
+      "fullTree",
+      "label",
+      "rawCharacters",
+      "renderedText",
+      "selectedText",
+      "text",
+      "title",
+      "treeLines",
+      "value",
+      "windowTitle"
+    ],
+    "timestampKeys": [
+      "capturedAt",
+      "createdAt",
+      "endedAt",
+      "startTime",
+      "startedAt",
+      "timestamp",
+      "updatedAt"
+    ]
+  },
+  "scenario": "simple-action-stop",
+  "scenarioRecipe": {
+    "captureGoal": "Record one low-risk left click and finish with the Record & Replay Done control.",
+    "expectedActionEvents": [
+      "mouse.click"
+    ],
+    "expectedEndReason": "recording_controls_stopped",
+    "expectedEvidence": [
+      "event_stream_start/status/stop hosted MCP response shape",
+      "metadata/session/events/suppressed handoff paths",
+      "one session.started as the first event",
+      "one session.ended as the final event",
+      "mouse.click action event",
+      "AX payload for the clicked target/window"
+    ],
+    "notes": [
+      "Use this as the minimum official successful recording golden fixture.",
+      "Keep the clicked target harmless and easy to describe after redaction."
+    ],
+    "ocuCandidateSourceKind": "run-action-smoke",
+    "priority": "required",
+    "scenario": "simple-action-stop",
+    "userAction": "Click a stable, harmless UI target once, then click Done in the official recording controls."
+  },
+  "source": "ocu",
+  "suppressedEventCount": 0
+}

@@ -1,0 +1,587 @@
+{
+  "finalStatusResponseShape": {
+    "id": 8,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "decodedText": {
+            "active": false,
+            "endReason": "recording_controls_stopped",
+            "endedAt": "<redacted-timestamp>",
+            "eventCount": 5,
+            "eventsPath": "events.jsonl",
+            "isRecording": false,
+            "maxDurationSeconds": 1800,
+            "metadataPath": "metadata.json",
+            "sessionDirectoryPathLength": 97,
+            "sessionDirectoryPathRedacted": true,
+            "sessionID": "fixture-session",
+            "sessionId": "fixture-session",
+            "sessionPath": "session.json",
+            "startedAt": "<redacted-timestamp>",
+            "state": "stopped",
+            "suppressedEventCount": 0,
+            "suppressedEventsPath": "suppressed.jsonl"
+          },
+          "textRedacted": true,
+          "type": "text"
+        }
+      ],
+      "isError": false
+    }
+  },
+  "repeatStartResponseShape": {
+    "id": 4,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "decodedText": {
+            "active": true,
+            "currentSegmentEventsPath": "events.jsonl",
+            "currentSegmentMetadataPath": "metadata.json",
+            "eventCount": 3,
+            "eventsPath": "events.jsonl",
+            "isRecording": true,
+            "maxDurationSeconds": 1800,
+            "metadataPath": "metadata.json",
+            "sessionDirectoryPathLength": 97,
+            "sessionDirectoryPathRedacted": true,
+            "sessionID": "fixture-session",
+            "sessionId": "fixture-session",
+            "sessionPath": "session.json",
+            "startedAt": "<redacted-timestamp>",
+            "state": "recording",
+            "suppressedEventCount": 0,
+            "suppressedEventsPath": "suppressed.jsonl"
+          },
+          "textRedacted": true,
+          "type": "text"
+        }
+      ],
+      "isError": false
+    }
+  },
+  "repeatStopResponseShape": {
+    "id": 7,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "decodedText": {
+            "active": false,
+            "endReason": "recording_controls_stopped",
+            "endedAt": "<redacted-timestamp>",
+            "eventCount": 5,
+            "eventsPath": "events.jsonl",
+            "isRecording": false,
+            "maxDurationSeconds": 1800,
+            "metadataPath": "metadata.json",
+            "sessionDirectoryPathLength": 97,
+            "sessionDirectoryPathRedacted": true,
+            "sessionID": "fixture-session",
+            "sessionId": "fixture-session",
+            "sessionPath": "session.json",
+            "startedAt": "<redacted-timestamp>",
+            "state": "stopped",
+            "suppressedEventCount": 0,
+            "suppressedEventsPath": "suppressed.jsonl"
+          },
+          "textRedacted": true,
+          "type": "text"
+        }
+      ],
+      "isError": false
+    }
+  },
+  "startResponseShape": {
+    "id": 3,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "decodedText": {
+            "active": true,
+            "currentSegmentEventsPath": "events.jsonl",
+            "currentSegmentMetadataPath": "metadata.json",
+            "eventCount": 3,
+            "eventsPath": "events.jsonl",
+            "isRecording": true,
+            "maxDurationSeconds": 1800,
+            "metadataPath": "metadata.json",
+            "sessionDirectoryPathLength": 97,
+            "sessionDirectoryPathRedacted": true,
+            "sessionID": "fixture-session",
+            "sessionId": "fixture-session",
+            "sessionPath": "session.json",
+            "startedAt": "<redacted-timestamp>",
+            "state": "recording",
+            "suppressedEventCount": 0,
+            "suppressedEventsPath": "suppressed.jsonl"
+          },
+          "textRedacted": true,
+          "type": "text"
+        }
+      ],
+      "isError": false
+    }
+  },
+  "statusResponseShape": {
+    "id": 5,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "decodedText": {
+            "active": true,
+            "currentSegmentEventsPath": "events.jsonl",
+            "currentSegmentMetadataPath": "metadata.json",
+            "eventCount": 3,
+            "eventsPath": "events.jsonl",
+            "isRecording": true,
+            "maxDurationSeconds": 1800,
+            "metadataPath": "metadata.json",
+            "sessionDirectoryPathLength": 97,
+            "sessionDirectoryPathRedacted": true,
+            "sessionID": "fixture-session",
+            "sessionId": "fixture-session",
+            "sessionPath": "session.json",
+            "startedAt": "<redacted-timestamp>",
+            "state": "recording",
+            "suppressedEventCount": 0,
+            "suppressedEventsPath": "suppressed.jsonl"
+          },
+          "textRedacted": true,
+          "type": "text"
+        }
+      ],
+      "isError": false
+    }
+  },
+  "stopResponseShape": {
+    "id": 6,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "decodedText": {
+            "active": false,
+            "endReason": "recording_controls_stopped",
+            "endedAt": "<redacted-timestamp>",
+            "eventCount": 5,
+            "eventsPath": "events.jsonl",
+            "isRecording": false,
+            "maxDurationSeconds": 1800,
+            "metadataPath": "metadata.json",
+            "sessionDirectoryPathLength": 97,
+            "sessionDirectoryPathRedacted": true,
+            "sessionID": "fixture-session",
+            "sessionId": "fixture-session",
+            "sessionPath": "session.json",
+            "startedAt": "<redacted-timestamp>",
+            "state": "stopped",
+            "suppressedEventCount": 0,
+            "suppressedEventsPath": "suppressed.jsonl"
+          },
+          "textRedacted": true,
+          "type": "text"
+        }
+      ],
+      "isError": false
+    }
+  },
+  "target": "local-open-computer-use-action-smoke",
+  "transcript": [
+    {
+      "direction": "send",
+      "message": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "method": "initialize",
+        "params": {
+          "capabilities": {},
+          "clientInfo": {
+            "name": "event-stream-action-smoke",
+            "version": "0"
+          },
+          "protocolVersion": "2025-11-25"
+        }
+      }
+    },
+    {
+      "direction": "receive",
+      "message": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "result": {
+          "capabilities": {
+            "tools": {
+              "listChanged": false
+            }
+          },
+          "protocolVersion": "2025-11-25",
+          "serverInfo": {
+            "name": "Record & Replay",
+            "version": "0.1.53"
+          }
+        }
+      }
+    },
+    {
+      "direction": "send",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "notifications/initialized",
+        "params": {}
+      }
+    },
+    {
+      "direction": "send",
+      "message": {
+        "id": 2,
+        "jsonrpc": "2.0",
+        "method": "tools/list",
+        "params": {}
+      }
+    },
+    {
+      "direction": "receive",
+      "message": {
+        "id": 2,
+        "jsonrpc": "2.0",
+        "result": {
+          "tools": [
+            {
+              "annotations": {
+                "destructiveHint": false,
+                "idempotentHint": false,
+                "openWorldHint": false,
+                "readOnlyHint": false
+              },
+              "description": "<redacted-description:length=150>",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {},
+                "type": "object"
+              },
+              "name": "event_stream_start"
+            },
+            {
+              "annotations": {
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false,
+                "readOnlyHint": true
+              },
+              "description": "<redacted-description:length=124>",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {},
+                "type": "object"
+              },
+              "name": "event_stream_status"
+            },
+            {
+              "annotations": {
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false,
+                "readOnlyHint": false
+              },
+              "description": "<redacted-description:length=135>",
+              "inputSchema": {
+                "additionalProperties": false,
+                "properties": {},
+                "type": "object"
+              },
+              "name": "event_stream_stop"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "direction": "send",
+      "message": {
+        "id": 3,
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {
+          "arguments": {},
+          "name": "event_stream_start"
+        }
+      }
+    },
+    {
+      "direction": "receive",
+      "message": {
+        "id": 3,
+        "jsonrpc": "2.0",
+        "result": {
+          "content": [
+            {
+              "decodedText": {
+                "active": true,
+                "currentSegmentEventsPath": "events.jsonl",
+                "currentSegmentMetadataPath": "metadata.json",
+                "eventCount": 3,
+                "eventsPath": "events.jsonl",
+                "isRecording": true,
+                "maxDurationSeconds": 1800,
+                "metadataPath": "metadata.json",
+                "sessionDirectoryPathLength": 97,
+                "sessionDirectoryPathRedacted": true,
+                "sessionID": "fixture-session",
+                "sessionId": "fixture-session",
+                "sessionPath": "session.json",
+                "startedAt": "<redacted-timestamp>",
+                "state": "recording",
+                "suppressedEventCount": 0,
+                "suppressedEventsPath": "suppressed.jsonl"
+              },
+              "textRedacted": true,
+              "type": "text"
+            }
+          ],
+          "isError": false
+        }
+      }
+    },
+    {
+      "direction": "send",
+      "message": {
+        "id": 4,
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {
+          "arguments": {},
+          "name": "event_stream_start"
+        }
+      }
+    },
+    {
+      "direction": "receive",
+      "message": {
+        "id": 4,
+        "jsonrpc": "2.0",
+        "result": {
+          "content": [
+            {
+              "decodedText": {
+                "active": true,
+                "currentSegmentEventsPath": "events.jsonl",
+                "currentSegmentMetadataPath": "metadata.json",
+                "eventCount": 3,
+                "eventsPath": "events.jsonl",
+                "isRecording": true,
+                "maxDurationSeconds": 1800,
+                "metadataPath": "metadata.json",
+                "sessionDirectoryPathLength": 97,
+                "sessionDirectoryPathRedacted": true,
+                "sessionID": "fixture-session",
+                "sessionId": "fixture-session",
+                "sessionPath": "session.json",
+                "startedAt": "<redacted-timestamp>",
+                "state": "recording",
+                "suppressedEventCount": 0,
+                "suppressedEventsPath": "suppressed.jsonl"
+              },
+              "textRedacted": true,
+              "type": "text"
+            }
+          ],
+          "isError": false
+        }
+      }
+    },
+    {
+      "direction": "send",
+      "message": {
+        "id": 5,
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {
+          "arguments": {},
+          "name": "event_stream_status"
+        }
+      }
+    },
+    {
+      "direction": "receive",
+      "message": {
+        "id": 5,
+        "jsonrpc": "2.0",
+        "result": {
+          "content": [
+            {
+              "decodedText": {
+                "active": true,
+                "currentSegmentEventsPath": "events.jsonl",
+                "currentSegmentMetadataPath": "metadata.json",
+                "eventCount": 3,
+                "eventsPath": "events.jsonl",
+                "isRecording": true,
+                "maxDurationSeconds": 1800,
+                "metadataPath": "metadata.json",
+                "sessionDirectoryPathLength": 97,
+                "sessionDirectoryPathRedacted": true,
+                "sessionID": "fixture-session",
+                "sessionId": "fixture-session",
+                "sessionPath": "session.json",
+                "startedAt": "<redacted-timestamp>",
+                "state": "recording",
+                "suppressedEventCount": 0,
+                "suppressedEventsPath": "suppressed.jsonl"
+              },
+              "textRedacted": true,
+              "type": "text"
+            }
+          ],
+          "isError": false
+        }
+      }
+    },
+    {
+      "direction": "send",
+      "message": {
+        "id": 6,
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {
+          "arguments": {},
+          "name": "event_stream_stop"
+        }
+      }
+    },
+    {
+      "direction": "receive",
+      "message": {
+        "id": 6,
+        "jsonrpc": "2.0",
+        "result": {
+          "content": [
+            {
+              "decodedText": {
+                "active": false,
+                "endReason": "recording_controls_stopped",
+                "endedAt": "<redacted-timestamp>",
+                "eventCount": 5,
+                "eventsPath": "events.jsonl",
+                "isRecording": false,
+                "maxDurationSeconds": 1800,
+                "metadataPath": "metadata.json",
+                "sessionDirectoryPathLength": 97,
+                "sessionDirectoryPathRedacted": true,
+                "sessionID": "fixture-session",
+                "sessionId": "fixture-session",
+                "sessionPath": "session.json",
+                "startedAt": "<redacted-timestamp>",
+                "state": "stopped",
+                "suppressedEventCount": 0,
+                "suppressedEventsPath": "suppressed.jsonl"
+              },
+              "textRedacted": true,
+              "type": "text"
+            }
+          ],
+          "isError": false
+        }
+      }
+    },
+    {
+      "direction": "send",
+      "message": {
+        "id": 7,
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {
+          "arguments": {},
+          "name": "event_stream_stop"
+        }
+      }
+    },
+    {
+      "direction": "receive",
+      "message": {
+        "id": 7,
+        "jsonrpc": "2.0",
+        "result": {
+          "content": [
+            {
+              "decodedText": {
+                "active": false,
+                "endReason": "recording_controls_stopped",
+                "endedAt": "<redacted-timestamp>",
+                "eventCount": 5,
+                "eventsPath": "events.jsonl",
+                "isRecording": false,
+                "maxDurationSeconds": 1800,
+                "metadataPath": "metadata.json",
+                "sessionDirectoryPathLength": 97,
+                "sessionDirectoryPathRedacted": true,
+                "sessionID": "fixture-session",
+                "sessionId": "fixture-session",
+                "sessionPath": "session.json",
+                "startedAt": "<redacted-timestamp>",
+                "state": "stopped",
+                "suppressedEventCount": 0,
+                "suppressedEventsPath": "suppressed.jsonl"
+              },
+              "textRedacted": true,
+              "type": "text"
+            }
+          ],
+          "isError": false
+        }
+      }
+    },
+    {
+      "direction": "send",
+      "message": {
+        "id": 8,
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {
+          "arguments": {},
+          "name": "event_stream_status"
+        }
+      }
+    },
+    {
+      "direction": "receive",
+      "message": {
+        "id": 8,
+        "jsonrpc": "2.0",
+        "result": {
+          "content": [
+            {
+              "decodedText": {
+                "active": false,
+                "endReason": "recording_controls_stopped",
+                "endedAt": "<redacted-timestamp>",
+                "eventCount": 5,
+                "eventsPath": "events.jsonl",
+                "isRecording": false,
+                "maxDurationSeconds": 1800,
+                "metadataPath": "metadata.json",
+                "sessionDirectoryPathLength": 97,
+                "sessionDirectoryPathRedacted": true,
+                "sessionID": "fixture-session",
+                "sessionId": "fixture-session",
+                "sessionPath": "session.json",
+                "startedAt": "<redacted-timestamp>",
+                "state": "stopped",
+                "suppressedEventCount": 0,
+                "suppressedEventsPath": "suppressed.jsonl"
+              },
+              "textRedacted": true,
+              "type": "text"
+            }
+          ],
+          "isError": false
+        }
+      }
+    }
+  ]
+}

@@ -75,7 +75,7 @@ Or add it to your own client manually:
 
 ### Skill
 
-Install the skill directly:
+Install the general Computer Use skill directly:
 
 ```bash
 # Install for Codex
@@ -83,20 +83,76 @@ npx skills add iFurySt/open-codex-computer-use -g -a codex --skill open-computer
 npx skills ls -g -a codex | rg 'open-computer-use'
 ```
 
+Install the dedicated Record & Replay workflow skill when you only want the
+macOS recording-to-skill flow:
+
+```bash
+npx skills add iFurySt/open-codex-computer-use -g -a codex --skill open-computer-use-record-and-replay -y
+```
+
 Install for Claude Code:
 
 ```bash
 npx skills add iFurySt/open-codex-computer-use -g -a claude-code --skill open-computer-use -y
+npx skills add iFurySt/open-codex-computer-use -g -a claude-code --skill open-computer-use-record-and-replay -y
 ```
 
-Update an existing global install, including the Codex install created above:
+Update an existing global install, including the Codex installs created above:
 
 ```bash
 npx skills update open-computer-use -g -y
+npx skills update open-computer-use-record-and-replay -g -y
 ```
 
 You can also manually download and install the
-[`open-computer-use` skill](./skills/open-computer-use).
+[`open-computer-use` skill](./skills/open-computer-use) or the
+[`open-computer-use-record-and-replay` skill](./skills/open-computer-use-record-and-replay).
+
+### Record & Replay Quick Start
+
+Use the dedicated Record & Replay surface when you want a user to demonstrate
+a macOS workflow and turn it into a reusable skill:
+
+```bash
+# Install the official-compatible 3-tool Record & Replay MCP surface into Codex
+open-computer-use install-codex-record-and-replay-mcp
+
+# Optional: install the thin workflow skill
+npx skills add iFurySt/open-codex-computer-use -g -a codex --skill open-computer-use-record-and-replay -y
+```
+
+The MCP surface intentionally exposes only:
+
+```text
+event_stream_start
+event_stream_status
+event_stream_stop
+```
+
+OCU-specific lifecycle helpers stay in the CLI layer:
+
+```bash
+# Start a recording through the OCU app agent and show local controls
+open-computer-use event-stream start --json
+
+# Wait for Done / Discard from an independent wrapper
+open-computer-use event-stream wait --json --session-id <id> --notify-command '["/path/to/hook"]'
+
+# Validate and turn a completed session into a first-draft skill
+open-computer-use event-stream validate --json --strict-ocu --require-skill-draft <metadataPath-or-sessionPath>
+open-computer-use event-stream summarize --json <metadataPath-or-sessionPath>
+open-computer-use event-stream scaffold-skill --json <metadataPath-or-sessionPath-or-eventsPath> \
+  --skill-name <new-skill-name> \
+  --description "<what it does>" \
+  --output-dir <new-skill-dir>
+```
+
+To split Record & Replay into its own thin skill repo:
+
+```bash
+open-computer-use scaffold-record-and-replay-skill-repo --output-dir ./open-computer-use-rnr-skill-repo
+(cd ./open-computer-use-rnr-skill-repo && ./scripts/check.sh)
+```
 
 ## More
 
@@ -106,6 +162,9 @@ Besides the MCP JSON config above, you can also use the built-in commands:
 # Install into Codex by writing to ~/.codex/config.toml
 open-computer-use install-codex-mcp
 ocu install-codex-mcp
+
+# Install the Record & Replay MCP surface into Codex separately
+open-computer-use install-codex-record-and-replay-mcp
 
 # Install as a Codex plugin, mainly for Codex App
 open-computer-use install-codex-plugin
@@ -135,8 +194,115 @@ open-computer-use call --calls-file examples/textedit-overlay-seq.json --sleep 0
 # Check permissions; onboarding only opens when something is missing
 open-computer-use doctor
 
+# Record & Replay-compatible event stream
+open-computer-use install-codex-record-and-replay-mcp
+open-computer-use event-stream mcp
+open-computer-use event-stream start --json
+open-computer-use event-stream status --json
+open-computer-use event-stream stop --json
+open-computer-use event-stream cancel --json
+open-computer-use event-stream wait --json --session-id <id> --timeout 30
+# wait --json includes OCU extension fields waitTimedOut and optional notification
+open-computer-use event-stream wait --json --session-id <id> --notify-command '["/path/to/hook"]'
+open-computer-use event-stream validate --json <metadataPath> --strict-ocu
+open-computer-use event-stream validate --json --require-skill-draft <eventsPath>
+open-computer-use event-stream summarize --json <metadataPath>
+open-computer-use event-stream scaffold-skill --json <metadataPath-or-eventsPath> --skill-name <new-skill-name> --description "<what it does>" --output-dir <new-skill-dir>
+scripts/validate-event-stream-recording.py <metadataPath> --strict-ocu
+scripts/validate-event-stream-recording.py <eventsPath> --require-skill-draft
+scripts/summarize-event-stream-recording.py <metadataPath>
+scripts/scaffold-event-stream-skill.py <metadataPath-or-eventsPath> --skill-name <new-skill-name> --description "<what it does>" --output-dir <new-skill-dir>
+scripts/scaffold-record-and-replay-skill-repo.py --output-dir /tmp/open-computer-use-rnr-skill-repo
+# The installed standalone repo scaffold helper uses Python 3; set PYTHON=/path/to/python3 if needed
+open-computer-use scaffold-record-and-replay-skill-repo --output-dir /tmp/open-computer-use-rnr-skill-repo
+(cd /tmp/open-computer-use-rnr-skill-repo && ./scripts/check.sh)
+scripts/import-event-stream-fixture.py <metadataPath> --name <fixture-name> --source official
+# Inspect hosted official JSON first without creating a fixture.
+scripts/ingest-official-record-and-replay-fixture.py --status-json <event_stream_stop-response.json> --name <fixture-name> --scenario simple-action-stop --mcp-transcript <mcp-transcript.json> --require-mcp-transcript-evidence --inspect-only
+scripts/ingest-official-record-and-replay-fixture.py --status-json <event_stream_stop-response.json> --name <fixture-name> --scenario simple-action-stop --mcp-transcript <mcp-transcript.json> --require-mcp-transcript-evidence --check-fixture-set --check-coverage
+# Or generate a capture packet first; replace the placeholder hosted JSON, then run its wrappers.
+make record-and-replay-official-golden-capture-packet RNR_SCENARIO=simple-action-stop RNR_PACKET_DIR=<packet-dir>
+scripts/finalize-record-and-replay-official-capture-packet.py --packet-dir <packet-dir> --start-json <event_stream_start-response.json> --status-json <event_stream_status-active-response.json> --stop-json <event_stream_stop-response.json> --final-status-json <event_stream_status-final-response.json>
+(cd <packet-dir> && ./verify-inputs.sh && ./inspect-only.sh && ./import-fixture.sh)
+(cd <packet-dir> && ./strict-golden-gate.sh)
+# Only use this while a strict gate failure is expected because required official golden is missing/not-ready.
+(cd <packet-dir> && ./strict-expected-failure-audit.sh)
+# Generate required + recommended capture packets and batch wrappers.
+make record-and-replay-official-golden-capture-packet-set RNR_PACKET_DIR=<packet-dir>
+(cd <packet-dir> && ./verify-all.sh && ./inspect-all.sh && ./import-all.sh)
+# Optional calibration: imports same-scenario OCU candidates and prints pairing/fixture-set commands
+(cd <packet-dir> && ./ingest-ocu-candidates.sh)
+(cd <packet-dir> && ./strict-expected-failure-audit.sh)
+# Or pipe a separate transcript JSON while reading the status JSON from a file
+cat <mcp-transcript.json> | scripts/ingest-official-record-and-replay-fixture.py --status-json <event_stream_stop-response.json> --mcp-transcript - --name <fixture-name> --scenario simple-action-stop --require-mcp-transcript-evidence --check-fixture-set --check-coverage
+# Or pipe a hosted event_stream_stop/status JSON directly; use --status-json-base-dir if it contains relative paths
+cat <event_stream_stop-response.json> | scripts/ingest-official-record-and-replay-fixture.py --status-json - --status-json-base-dir <recording-parent-dir> --name <fixture-name> --scenario simple-action-stop --use-status-json-as-transcript --require-mcp-transcript-evidence --check-fixture-set --check-coverage
+# --check-coverage reports required scenario coverage and, when present, required fixture readiness.
+# --require-coverage also requires the required scenario to pass readiness.
+scripts/ingest-official-record-and-replay-fixture.py --status-json <event_stream_stop-response.json> --name <fixture-name> --scenario simple-action-stop --require-coverage
+# --smoke-json can consume mcpTranscriptPath from action smoke output.
+# Keep the smoke temp dir when saving stdout for later import:
+#   OPEN_COMPUTER_USE_EVENT_STREAM_SMOKE_KEEP_TMP=1 make event-stream-action-smoke > /tmp/action-smoke.jsonl
+# Action smoke defaults to mixed-action-stop; set OPEN_COMPUTER_USE_EVENT_STREAM_SMOKE_ACTION_SCENARIO=simple-action-stop
+# or drag-stop to sample a specific real-input candidate scenario.
+# Or let the importer run action smoke and retain the evidence until import finishes:
+#   scripts/ingest-ocu-record-and-replay-candidate.py --run-action-smoke --scenario drag-stop ...
+scripts/ingest-ocu-record-and-replay-candidate.py --smoke-json <action-smoke-output.jsonl> --name <candidate-name> --scenario simple-action-stop --official-root <official-fixtures> --check-fixture-set
+scripts/compare-event-stream-recordings.py <official-fixture> <ocu-recording> --require-same-event-sequence --require-same-schema --require-ax-diff-evidence
+scripts/probe-event-stream-recording.py --target local --start-stop
+scripts/probe-event-stream-recording.py --target official
+
 # Run local validation from a source checkout
+make ci
 make smoke
+make event-stream-surface-smoke
+make event-stream-probe
+make event-stream-probe-fixture-smoke
+make event-stream-official-probe
+make event-stream-smoke
+make event-stream-smoke-matrix
+make event-stream-fixture-smoke
+make event-stream-official-fixture-ingest-smoke
+make event-stream-official-fixture-coverage-smoke
+make event-stream-ocu-candidate-ingest-smoke
+make event-stream-compare-smoke
+make event-stream-skill-scaffold-smoke
+make record-and-replay-skill-repo-smoke
+# Requires local dist/ native artifacts; verifies npm-installed repo scaffold command
+make npm-record-and-replay-skill-repo-smoke
+# Opt-in baseline: proves the current OCU baseline is usable and reports official golden scenario coverage
+make record-and-replay-baseline-smoke
+# Release / standalone evidence: writes dist/record-and-replay-baseline-summary.json
+make record-and-replay-baseline-audit
+# Fast fixture-only gate: requires imported official successful recordings to pass readiness
+make record-and-replay-official-golden-fixture-gate
+# Read-only next-step planner for same-scenario OCU candidate capture/import after official fixture import
+make record-and-replay-ocu-candidate-pairing-preflight
+# Strict release gate: same baseline checks, plus required official successful recording readiness
+make record-and-replay-official-golden-gate
+# Strict release evidence: writes dist/record-and-replay-official-golden-gate-summary.json.
+# If required official golden is missing/not-ready, audit that expected failure explicitly:
+make record-and-replay-official-golden-gate-audit
+scripts/check-record-and-replay-baseline-summary.py dist/record-and-replay-official-golden-gate-summary.json --allow-strict-official-golden-missing
+# Force non-interactive start approval for local automation
+OPEN_COMPUTER_USE_EVENT_STREAM_START_APPROVAL=approve make event-stream-smoke
+# Verify host-side MCP elicitation approval without changing the 3-tool surface
+OPEN_COMPUTER_USE_EVENT_STREAM_SMOKE_MCP_ELICITATION=1 make event-stream-smoke
+OPEN_COMPUTER_USE_EVENT_STREAM_SMOKE_SCREENSHOTS=1 make event-stream-smoke
+OPEN_COMPUTER_USE_EVENT_STREAM_SMOKE_NO_ACTIVE=1 make event-stream-smoke
+OPEN_COMPUTER_USE_EVENT_STREAM_SMOKE_TIMEOUT=1 make event-stream-smoke
+OPEN_COMPUTER_USE_EVENT_STREAM_SMOKE_WAIT_TIMEOUT=1 make event-stream-smoke
+OPEN_COMPUTER_USE_EVENT_STREAM_SMOKE_OFFICIAL=1 make event-stream-smoke
+OPEN_COMPUTER_USE_EVENT_STREAM_SMOKE_APPROVAL=deny make event-stream-smoke
+# App-agent wait smoke also verifies wait --notify-command callback delivery
+OPEN_COMPUTER_USE_EVENT_STREAM_SMOKE_APP_AGENT_WAIT=1 make event-stream-smoke
+# Optional matrix additions
+OPEN_COMPUTER_USE_EVENT_STREAM_MATRIX_SCREENSHOTS=1 make event-stream-smoke-matrix
+OPEN_COMPUTER_USE_EVENT_STREAM_MATRIX_OFFICIAL=1 make event-stream-smoke-matrix
+# Optional official non-recording surface drift check
+./scripts/compare-event-stream-surface.py --use-default-official
+# Optional official raw start/status/stop probe; currently expected to depend on host/runtime state
+make event-stream-official-start-probe
 OPEN_COMPUTER_USE_STRESS_LOOPS=20 make stress
 make agent-smoke
 make agent-smoke SCENARIO=fixture-full

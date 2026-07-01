@@ -1,0 +1,7 @@
+{
+  "endReason": "recording_controls_stopped",
+  "endedAt": "<redacted-timestamp>",
+  "eventsPath": "events.jsonl",
+  "id": "fixture-session",
+  "startedAt": "<redacted-timestamp>"
+}

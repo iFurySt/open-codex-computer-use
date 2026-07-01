@@ -1,0 +1,26 @@
+name: docs-check
+
+on:
+  pull_request:
+    paths:
+      - "AGENTS.md"
+      - "docs/**"
+      - "README.md"
+      - "CONTRIBUTING.md"
+      - "scripts/check-docs.sh"
+      - ".github/workflows/docs-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docs-check:
+    runs-on: macos-26
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Run docs check
+        run: ./scripts/check-docs.sh

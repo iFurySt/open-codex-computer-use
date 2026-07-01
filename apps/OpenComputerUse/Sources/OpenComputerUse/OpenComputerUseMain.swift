@@ -48,6 +48,20 @@ enum OpenComputerUseMain {
             } else {
                 try server.run()
             }
+        case let .eventStream(invocation):
+            switch invocation {
+            case .mcp:
+                let server = EventStreamMCPServer(service: .shared)
+                try MainActor.assumeIsolated {
+                    try MCPAppRuntime.run(server: server)
+                }
+            default:
+                let output = try runOpenComputerUseEventStream(invocation)
+                print(try output.jsonText())
+                if output.hasToolError {
+                    exit(EXIT_FAILURE)
+                }
+            }
         case .doctor:
             let permissions = PermissionDiagnostics.current()
             print(permissions.summary)

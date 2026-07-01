@@ -1,0 +1,42 @@
+name: supply-chain-security
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - "package.json"
+      - "package-lock.json"
+      - "Package.swift"
+      - "apps/**/go.mod"
+      - "apps/**/go.sum"
+      - "scripts/check-action-pinning.sh"
+      - ".github/dependency-review-config.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  action-pinning:
+    runs-on: macos-26
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Check GitHub Action pinning
+        run: ./scripts/check-action-pinning.sh
+
+  dependency-review:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Dependency review
+        uses: actions/dependency-review-action@da24556b548a50705dd671f47852072ea4c105d9
+        with:
+          config-file: .github/dependency-review-config.yml

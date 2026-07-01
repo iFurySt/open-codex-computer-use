@@ -10,6 +10,16 @@
   - 当前已观察到的运行时行为、宿主依赖、Inspector 直连失败现象和共享状态线索。
 - `packaging-and-lifecycle-integration.md`
   - 当前已确认的插件打包结构、主 app 分发形态、CLI surface、`turn-ended` 生命周期接入方式。
+- `record-and-replay-event-stream.md`
+  - 对官方 `record-and-replay` 1.0.857 的插件包装、`event-stream mcp` surface、Codex.app asar 分工、录制控制条字符串、事件文件和 AX compact diff 线索的整理。
+- `fixtures/record-and-replay-event-stream-surface-1.0.857.json`
+  - 官方 Record & Replay `event-stream mcp` 的 normalized `initialize` / `tools/list` 非录制输出，用于对比 OCU surface 漂移。
+- `fixtures/record-and-replay-official-raw-start-timeout-1.0.857.json`
+  - 官方 Record & Replay raw `event_stream_start` / `event_stream_status` / `event_stream_stop` 在宿主外超时的 sanitized transcript shape，用于记录当前采样边界；不含本机路径。
+- `fixtures/record-and-replay-official-no-active-status-stop-1.0.857.json`
+  - 通过 Codex-hosted Record & Replay tool 观察到的 no-active `event_stream_status` / `event_stream_stop` text JSON shape；不启动录制，不含本机路径。
+- `../../../scripts/probe-event-stream-recording.py`
+  - 可复跑探测脚本：支持 local OCU 或官方 bundled Record & Replay client，记录 initialize/tools/start/status/stop transcript，处理 `elicitation/create`，并在显式 `--start-stop` 时尝试短录制、status 和自动 stop；官方 start/status/stop 当前仍用于边界观测，不进默认 CI。
 - `internal-ipc-surface.md`
   - 当前已确认的 client-service 内部 IPC 类型、sender authorization、skyshot 模型和 service 生命周期线索。
 - `tool-call-samples-2026-04-17.md`

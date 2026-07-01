@@ -1,5 +1,10 @@
 import Foundation
 
+public protocol LineBasedMCPServer: AnyObject {
+    func run() throws
+    func handle(line: String) -> String?
+}
+
 let computerUseServerInstructions = """
 Computer Use tools let you interact with macOS apps by performing UI actions.
 
@@ -17,7 +22,7 @@ Avoid falling back to AppleScript during a computer use session. Prefer Computer
 Ask the user before taking destructive or externally visible actions such as sending, deleting, or purchasing. If helpful, you can ask follow-up questions before taking action to make sure you’re understanding the user’s request correctly.
 """
 
-public final class StdioMCPServer {
+public final class StdioMCPServer: LineBasedMCPServer {
     private let dispatcher: ComputerUseToolDispatcher
 
     public init(service: ComputerUseService = ComputerUseService()) {

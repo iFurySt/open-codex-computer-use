@@ -3,16 +3,16 @@ import Foundation
 import OpenComputerUseKit
 
 final class MCPAppRuntime: NSObject, NSApplicationDelegate {
-    private let server: StdioMCPServer
+    private let server: LineBasedMCPServer
     private var runtimeError: Error?
     private var turnEndedObserver: NSObjectProtocol?
 
-    private init(server: StdioMCPServer) {
+    private init(server: LineBasedMCPServer) {
         self.server = server
     }
 
     @MainActor
-    static func run(server: StdioMCPServer) throws {
+    static func run(server: LineBasedMCPServer) throws {
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
 
