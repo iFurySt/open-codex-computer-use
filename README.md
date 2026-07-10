@@ -45,6 +45,9 @@ npm i -g open-computer-use
 
 The npm package also exposes `ocu` as the short CLI alias.
 
+> [!IMPORTANT]
+> The macOS runtime requires macOS 14.0 or later.
+
 **On macOS, run it once and grant `Accessibility` and `Screen Recording`. Windows and Linux do not need this step.**
 
 ```bash

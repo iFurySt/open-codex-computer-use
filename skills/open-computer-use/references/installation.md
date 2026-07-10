@@ -2,6 +2,18 @@
 
 Read this reference when the user asks to install, verify, repair, or explain Open Computer Use setup.
 
+## Platform Requirements
+
+The macOS runtime requires macOS 14.0 or later. Windows and Linux use their own platform runtimes and are not subject to this macOS minimum.
+
+On macOS, verify the system version before attempting to run the CLI:
+
+```sh
+sw_vers -productVersion
+```
+
+On macOS versions earlier than 14.0, npm installation may succeed but the bundled binary cannot launch. `open-computer-use doctor` and changes to Accessibility or Screen Recording permissions cannot fix this binary incompatibility.
+
 ## Install The CLI
 
 Use npm:
@@ -28,7 +40,7 @@ npm update -g open-computer-use
 
 ## macOS Permissions
 
-macOS needs Accessibility and Screen Recording permissions before real app state and actions can work.
+On supported macOS versions, Accessibility and Screen Recording permissions are required before real app state and actions can work.
 
 Run:
 

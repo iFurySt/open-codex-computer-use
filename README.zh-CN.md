@@ -45,7 +45,11 @@ npm i -g open-computer-use
 
 通过 npm 安装后也会同时提供短命令 `ocu`。
 
+> [!IMPORTANT]
+> macOS 运行环境要求 macOS 14.0 或更高版本。
+
 **macOS 第一次使用前，需要授权 `Accessibility` 和 `Screen Recording` 的权限，windows和linux无需执行**
+
 ```bash
 open-computer-use
 # 或

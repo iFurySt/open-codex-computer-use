@@ -2,6 +2,16 @@
 
 Read this reference when setup, permission checks, app discovery, snapshots, or actions fail.
 
+## Unsupported macOS Version
+
+The macOS runtime requires macOS 14.0 or later. Check the host version before troubleshooting permissions:
+
+```sh
+sw_vers -productVersion
+```
+
+On macOS versions earlier than 14.0, the binary cannot launch and may report a `dyld` or minimum-version incompatibility. `open-computer-use doctor`, Accessibility authorization, and Screen Recording authorization cannot resolve this error. Upgrade macOS or run Open Computer Use on a supported macOS, Windows, or Linux desktop.
+
 ## First Checks
 
 Start with:
@@ -12,7 +22,7 @@ open-computer-use doctor
 open-computer-use call list_apps
 ```
 
-On macOS, `doctor` reports Accessibility and Screen Recording status. If either is missing, ask the user to approve the onboarding UI.
+On macOS 14.0 or later, `doctor` reports Accessibility and Screen Recording status. If either is missing, ask the user to approve the onboarding UI.
 
 ## App Not Found
 
