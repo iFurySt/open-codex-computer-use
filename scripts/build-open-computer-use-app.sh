@@ -8,6 +8,7 @@ arch_mode="native"
 codesign_mode="${OPEN_COMPUTER_USE_CODESIGN_MODE:-auto}"
 codesign_identity="${OPEN_COMPUTER_USE_CODESIGN_IDENTITY:-}"
 codesign_keychain="${OPEN_COMPUTER_USE_CODESIGN_KEYCHAIN:-}"
+allow_adhoc_release="${OPEN_COMPUTER_USE_ALLOW_ADHOC_RELEASE:-0}"
 
 usage() {
   cat <<'EOF'
@@ -21,6 +22,7 @@ Environment:
   OPEN_COMPUTER_USE_CODESIGN_MODE=auto|identity|adhoc|none
   OPEN_COMPUTER_USE_CODESIGN_IDENTITY="Developer ID Application: Example, Inc. (TEAMID)"
   OPEN_COMPUTER_USE_CODESIGN_KEYCHAIN=/path/to/signing.keychain-db
+  OPEN_COMPUTER_USE_ALLOW_ADHOC_RELEASE=1  (permit ad-hoc/unsigned RELEASE builds — peer authentication will be inactive)
 EOF
 }
 
@@ -202,6 +204,45 @@ resolve_codesign_identity() {
   esac
 }
 
+enforce_release_signing_policy() {
+  if [[ "${configuration}" != "release" ]]; then
+    return
+  fi
+
+  local identity=""
+  local will_be_adhoc=0
+
+  if ! identity="$(resolve_codesign_identity)"; then
+    will_be_adhoc=1
+  elif [[ "${identity}" == "-" ]]; then
+    will_be_adhoc=1
+  fi
+
+  if [[ "${will_be_adhoc}" -ne 1 ]]; then
+    return
+  fi
+
+  if [[ "${allow_adhoc_release}" != "1" ]]; then
+    cat >&2 <<'EOF'
+Refusing to produce a release build: the app bundle would be ad-hoc-signed
+or unsigned, which ships with socket peer authentication INACTIVE (the
+agent falls back to same-uid trust only).
+
+Remedies:
+  - Install a "Developer ID Application" signing identity, or
+  - Set OPEN_COMPUTER_USE_CODESIGN_IDENTITY / OPEN_COMPUTER_USE_CODESIGN_MODE=identity, or
+  - Intentionally override with OPEN_COMPUTER_USE_ALLOW_ADHOC_RELEASE=1
+EOF
+    exit 1
+  fi
+
+  cat >&2 <<'EOF'
+WARNING: proceeding with an ad-hoc-signed/unsigned release build because
+OPEN_COMPUTER_USE_ALLOW_ADHOC_RELEASE=1 is set. This release will ship
+with socket peer authentication INACTIVE (same-uid trust only).
+EOF
+}
+
 codesign_app_bundle() {
   local app_path="${1:-}"
   local identity=""
@@ -232,6 +273,8 @@ codesign_app_bundle() {
 }
 
 cd "${repo_root}"
+
+enforce_release_signing_policy
 
 package_version="$(read_package_version)"
 bundle_version="${OPEN_COMPUTER_USE_BUNDLE_VERSION:-$(git -C "${repo_root}" rev-list --count HEAD 2>/dev/null || echo 1)}"

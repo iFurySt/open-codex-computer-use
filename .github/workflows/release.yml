@@ -59,6 +59,8 @@ jobs:
 
           if [ -z "${OPEN_COMPUTER_USE_CODESIGN_P12_BASE64}" ] || [ -z "${OPEN_COMPUTER_USE_CODESIGN_P12_PASSWORD}" ]; then
             echo "No Open Computer Use signing certificate configured; release artifacts will fall back to ad-hoc signing and may create install-specific macOS permission identities."
+            echo "Ad-hoc release explicitly allowed for this CI build: socket peer authentication will be INACTIVE in these artifacts (same-uid trust only)."
+            echo "OPEN_COMPUTER_USE_ALLOW_ADHOC_RELEASE=1" >> "${GITHUB_ENV}"
             exit 0
           fi
 
