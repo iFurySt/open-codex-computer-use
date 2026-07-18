@@ -2060,6 +2060,80 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertFalse((result.primaryText ?? "").contains("macOS is locked"))
     }
 
+    // MARK: - App-agent socket peer authentication policy
+
+    func testPeerAuthRejectsDifferentUID() {
+        let decision = AppAgentPeerAuthPolicy.decide(
+            peerUID: 502,
+            selfUID: 501,
+            agentTeamIdentifier: "ABCDE12345",
+            peerSatisfiesAgentRequirement: true,
+            peerTeamIdentifier: "ABCDE12345"
+        )
+        guard case let .reject(reason) = decision else {
+            return XCTFail("Expected reject for uid mismatch, got \(decision)")
+        }
+        XCTAssertTrue(reason.contains("uid"))
+    }
+
+    func testPeerAuthAllowsSignedSameTeamSameUID() {
+        let decision = AppAgentPeerAuthPolicy.decide(
+            peerUID: 501,
+            selfUID: 501,
+            agentTeamIdentifier: "ABCDE12345",
+            peerSatisfiesAgentRequirement: true,
+            peerTeamIdentifier: "ABCDE12345"
+        )
+        XCTAssertEqual(decision, .allow)
+    }
+
+    func testPeerAuthRejectsSignedAgentWhenPeerFailsRequirement() {
+        // Signed agent + peer that does not satisfy the team requirement (unsigned, or different
+        // developer) must be rejected — this is the confused-deputy defense.
+        let decision = AppAgentPeerAuthPolicy.decide(
+            peerUID: 501,
+            selfUID: 501,
+            agentTeamIdentifier: "ABCDE12345",
+            peerSatisfiesAgentRequirement: false,
+            peerTeamIdentifier: "ZZZZZ99999"
+        )
+        guard case let .reject(reason) = decision else {
+            return XCTFail("Expected reject for failed requirement, got \(decision)")
+        }
+        XCTAssertTrue(reason.contains("ABCDE12345"))
+        XCTAssertTrue(reason.contains("ZZZZZ99999"))
+    }
+
+    func testPeerAuthFallsBackToSameUIDWhenAgentUnsigned() {
+        // Unsigned/ad-hoc agent (nil or empty team) cannot pin a signature; same-uid peer is
+        // allowed via the explicit fallback so local `swift build` dev binaries keep working.
+        let unsignedTeams: [String?] = [nil, ""]
+        for team in unsignedTeams {
+            let decision = AppAgentPeerAuthPolicy.decide(
+                peerUID: 501,
+                selfUID: 501,
+                agentTeamIdentifier: team,
+                peerSatisfiesAgentRequirement: false,
+                peerTeamIdentifier: nil
+            )
+            XCTAssertEqual(decision, .allowUnsignedFallback, "team=\(String(describing: team))")
+        }
+    }
+
+    func testPeerAuthUnsignedAgentStillRejectsDifferentUID() {
+        // Even in the unsigned fallback, a different uid must never be allowed.
+        let decision = AppAgentPeerAuthPolicy.decide(
+            peerUID: 999,
+            selfUID: 501,
+            agentTeamIdentifier: nil,
+            peerSatisfiesAgentRequirement: false,
+            peerTeamIdentifier: nil
+        )
+        guard case .reject = decision else {
+            return XCTFail("Expected reject for uid mismatch under unsigned agent, got \(decision)")
+        }
+    }
+
     func testDispatcherAllowsUnlockedTools() {
         let unlockedGuard = MacSessionGuard(provider: FakeUnlockedSessionProvider())
         let dispatcher = ComputerUseToolDispatcher(service: ComputerUseService(), guard: unlockedGuard)

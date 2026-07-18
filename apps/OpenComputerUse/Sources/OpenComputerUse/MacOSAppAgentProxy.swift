@@ -334,8 +334,22 @@ private final class AppAgentSocketListener: @unchecked Sendable {
                 continue
             }
 
-            Thread.detachNewThread {
-                AppAgentConnection(fileDescriptor: clientFD).run()
+            // Authenticate the connecting process before it can drive the TCC-authorized agent.
+            // Same-uid alone is insufficient (any user process could connect); require the peer to
+            // be code-signed by the same developer as this agent, with a same-uid dev fallback.
+            switch SocketPeerAuthenticator.authenticate(fileDescriptor: clientFD) {
+            case .allow:
+                Thread.detachNewThread {
+                    AppAgentConnection(fileDescriptor: clientFD).run()
+                }
+            case .allowUnsignedFallback:
+                UnsignedPeerFallbackNotice.shared.emitIfNeeded()
+                Thread.detachNewThread {
+                    AppAgentConnection(fileDescriptor: clientFD).run()
+                }
+            case let .reject(reason):
+                fputs("[open-computer-use] rejected app-agent socket peer: \(reason)\n", stderr)
+                close(clientFD)
             }
         }
     }

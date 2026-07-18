@@ -47,6 +47,7 @@
 ### 2. MCP 层
 
 - 面向 MCP host 的外部 transport 仍是 `stdio`；macOS 终端 CLI 到 `.app` app agent 之间额外有一层本地 Unix domain socket 代理，用来保证真实 automation 运行在 app bundle 权限身份下。
+- 该 socket 有**对端认证**（`SocketPeerAuthenticator` + 纯策略 `AppAgentPeerAuthPolicy`）：`acceptLoop` 对每个连接先 `getpeereid` 校验同 uid，再经 `LOCAL_PEERTOKEN` audit token + `SecCodeCopyGuestWithAttributes` 要求对端满足 `anchor apple generic and certificate leaf[subject.OU] = "<agent TeamID>"`（同开发者签名）。未签名 dev 构建退化为仅同 uid（打印一次提示）。详见 `docs/SECURITY.md`。
 - 当 `OPEN_COMPUTER_USE_VISUAL_CURSOR` 未被显式关闭时，`mcp` 命令会切到一个最小 AppKit runtime：主线程保留 event loop 承载 overlay UI，stdio server 仍在后台线程串行读取与响应。
 - 请求 framing 采用一行一个 JSON-RPC message。
 - 当前支持的 method：
