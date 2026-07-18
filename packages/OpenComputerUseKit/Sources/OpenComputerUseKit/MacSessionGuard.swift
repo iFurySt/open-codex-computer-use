@@ -147,9 +147,6 @@ public struct MacSessionGuard {
         }
     }
 
-    // Effective lock policy — surfaced for status/diagnostics.
-    public var lockPolicy: MacSessionLockPolicy { policy }
-
     // Current snapshot for menu bar status display (never throws)
     public func currentState() -> MacSessionSnapshot {
         return provider.currentSnapshot()

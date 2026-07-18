@@ -35,7 +35,9 @@
 
 - `MacSessionGuard` 在每个 tool call 入口检查 `CGSessionCopyCurrentDictionary` 的锁定状态；当字典缺失、为空或解析失败时一律视为已锁（fail-closed），返回 "Lock state unknown" 指示器。
 - 默认策略 `.blockWhileLocked`：锁定时不允许任何 `list_apps` / `get_app_state` / action tool 执行，安全保证与原先一致。
-- 显式 opt-in `OPEN_COMPUTER_USE_ALLOW_LOCKED=1`（`.allowWhileLocked`）：放行锁屏 best-effort 控制。这是运维方主动承担的风险选择——只有设置该环境变量才会改变行为；未设置时保持 fail-closed。放行仅改变 guard 是否拦截，不绕过 Accessibility 权限（仍需系统授权）、不落盘截图、也不启用全局 HID event tap（`globalPointerFallbacksEnabled()` 默认仍为 false）。锁定时窗口截图受系统安全限制返回空图。
+- 显式 opt-in `OPEN_COMPUTER_USE_ALLOW_LOCKED=1`（`.allowWhileLocked`）：放行锁屏 best-effort 控制。未设置时保持 fail-closed。放行仅改变 guard 是否拦截，不绕过 Accessibility 权限（仍需系统授权）、不落盘截图、也不启用全局 HID event tap（`globalPointerFallbacksEnabled()` 默认仍为 false）。锁定时窗口截图受系统安全限制返回空图。
+- **App-agent 信任边界**：`.app` 模式下有一个持有 TCC 授权的常驻 agent，监听 `$TMPDIR/open-computer-use-agent.sock`（chmod 0600，仅限同一 uid，但**无对端认证**）。锁屏 opt-in 属于安全敏感设置，因此**只通过可信的启动环境**（`NSWorkspace.OpenConfiguration.environment`，由运维方运行的 proxy 从其真实 shell env 传入）在 agent 启动时固定，**不经过 per-call socket 通道**；agent 侧还会主动剥离 client 传入的该键（defense in depth），因此同 uid 的第三方进程**无法**对已运行的 agent 伪造该标志。策略在 agent 生命周期内固定，需从菜单栏退出 agent 后重启才能变更。
+- **残余风险（如实记录）**：socket 无对端认证是既有设计；任何以当前 macOS 用户身份运行的代码都能驱动已授权的 agent（锁屏与解锁时皆然），若攻击者完整复刻 app 启动流程并伪造启动 env，仍可拉起一个 opt-in 的 agent。这属于整个工具既有的同 uid confused-deputy 暴露面，非本功能新增；对多租户/不可信主机，请使用独立登录 session 而非该标志。真正的隔离需要 socket 对端认证（getpeereid / codesign 校验），尚未实现。
 - `AppScreenSession` 维护严格的目标屏幕不变量：action call 执行前会比对 pid、target window ID、window bounds（8pt 容差）和截图像素尺寸；任一维度变更时返回 `appScreenStaleStateError`，要求 caller 先重新调用 `get_app_state`。
 - 状态菜单（`ControlStatusMenuController`）的诊断信息只暴露 toolName、app name / bundle id、pid 和连接数，不暴露 element labels、raw action args、截图数据或 AX 文本。
 
