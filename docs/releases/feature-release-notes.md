@@ -1,5 +1,19 @@
 # 功能发布记录
 
+## 2026-07
+
+| 日期 | 功能域 | 用户价值 | 变更摘要 |
+| --- | --- | --- | --- |
+| 2026-07-08 | 快照预算与长文本控制 | 长网页、长列表和复杂表格可以显式提高 accessibility tree 预算，读取长消息或文档时也能按需选择更大的文本上限或全文模式。 | 发布 `0.2.0`，三端默认 tree budget 统一为 1200/64，并为 `get_app_state` / `snapshot` 增加 `max_tree_nodes`、`max_tree_depth` 与 `text_limit` / `--text-limit`；`show_full_text` / `--show-full-text` 已由 `text_limit: "max"` / `--text-limit max` 替代。 |
+
+## 2026-06
+
+| 日期 | 功能域 | 用户价值 | 变更摘要 |
+| --- | --- | --- | --- |
+| 2026-06-26 | npm CLI 短别名 | npm 全局安装后可以直接使用 `ocu` 作为 `open-computer-use` 的短命令，常用的 `ocu mcp`、`ocu call ...` 和 `ocu install-codex-mcp` 更适合日常输入。 | 发布 `0.1.54`，npm staging 包新增 `bin/ocu` 并复用现有 launcher；同步 README、skill 指引、CI/CD 说明和 release staging 检查，确保后续发版会验证短别名。 |
+| 2026-06-11 | 快照长文本与 Windows 编码稳定性 | `snapshot` / `get_app_state` 默认文本截断在 macOS、Linux、Windows 上保持一致；需要读取完整长消息时可以显式打开 full-text 模式。Windows runtime 处理中文等非 ASCII tool 参数和 MCP 输出也更稳定。 | 发布 `0.1.53`，新增 `show_full_text` / `--show-full-text`，默认统一 500 字符并追加 `...`；修复 Windows operation JSON 读取和 PowerShell 输出编码；同时补 agent smoke 与 stress 验证脚本。 |
+| 2026-06-03 | CLI element index 容错 | 手写 `open-computer-use call` JSON 时，`element_index` 写成数字也能正常点击、滚动或设置值，不再因为 JSON 数字类型被误认为缺少索引。 | 发布 `0.1.52`，macOS Swift dispatcher 与 Windows / Linux Go runtime 统一把整数型 `element_index` 规范化为字符串，同时继续拒绝空值和小数，并同步测试、skill 示例和 history。 |
+
 ## 2026-05
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |

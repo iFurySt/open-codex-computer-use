@@ -24,8 +24,9 @@ except (ImportError, ValueError):
 from gi.repository import Atspi
 
 
-MAX_ELEMENTS = 500
+MAX_ELEMENTS = 1200
 MAX_DEPTH = 64
+DEFAULT_TEXT_LIMIT = 500
 
 
 def frame(x, y, width, height):
@@ -76,6 +77,15 @@ def child_at(node, index):
 
 def node_name(node):
     return str(safe(node.get_name, "") or "")
+
+
+def limit_text(value, text_limit=DEFAULT_TEXT_LIMIT):
+    text = str(value or "")
+    if text_limit is None:
+        return text
+    if len(text) > text_limit:
+        return text[:text_limit] + "..."
+    return text
 
 
 def node_role(node):
@@ -206,7 +216,7 @@ def accessible_id(node):
     return str(safe(node.get_accessible_id, "") or "")
 
 
-def text_value(node):
+def text_value(node, text_limit=DEFAULT_TEXT_LIMIT):
     if not bool(safe(node.is_text, False)):
         return ""
     text_iface = safe(node.get_text_iface)
@@ -215,10 +225,9 @@ def text_value(node):
     count = int(safe(lambda: Atspi.Text.get_character_count(text_iface), 0) or 0)
     if count <= 0:
         return ""
-    value = str(safe(lambda: Atspi.Text.get_text(text_iface, 0, min(count, 500)), "") or "")
-    if count > 500:
-        return value + "..."
-    return value
+    end_offset = count if text_limit is None else min(count, text_limit + 1)
+    value = str(safe(lambda: Atspi.Text.get_text(text_iface, 0, end_offset), "") or "")
+    return limit_text(value, text_limit=text_limit)
 
 
 def numeric_value(node):
@@ -231,37 +240,55 @@ def numeric_value(node):
     return str(current)
 
 
-def element_value(node):
-    return text_value(node) or numeric_value(node)
+def element_value(node, text_limit=DEFAULT_TEXT_LIMIT):
+    return text_value(node, text_limit=text_limit) or numeric_value(node)
 
 
-def record_for(node, index, path, window_bounds):
+def positive_int(value, fallback):
+    if isinstance(value, bool):
+        return fallback
+    if isinstance(value, float) and not value.is_integer():
+        return fallback
+    try:
+        integer = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return integer if integer > 0 else fallback
+
+
+def parse_text_limit(value, fallback=DEFAULT_TEXT_LIMIT):
+    if isinstance(value, str) and value.lower() == "max":
+        return None
+    return positive_int(value, fallback)
+
+
+def record_for(node, index, path, window_bounds, text_limit=DEFAULT_TEXT_LIMIT):
     bounds = relative_frame(node, window_bounds)
     role = node_role(node)
     return {
         "index": index,
         "runtimeId": path[:],
         "automationId": accessible_id(node),
-        "name": node_name(node),
+        "name": limit_text(node_name(node), text_limit=text_limit),
         "controlType": role,
         "localizedControlType": role,
         "className": str(safe(node.get_toolkit_name, "") or ""),
-        "value": element_value(node),
+        "value": element_value(node, text_limit=text_limit),
         "nativeWindowHandle": 0,
         "frame": bounds,
         "actions": action_names(node),
     }
 
 
-def render_tree(root, window_bounds, root_path):
+def render_tree(root, window_bounds, root_path, text_limit=DEFAULT_TEXT_LIMIT, max_tree_nodes=MAX_ELEMENTS, max_tree_depth=MAX_DEPTH):
     records = []
     lines = []
 
     def visit(node, depth, path):
-        if len(records) >= MAX_ELEMENTS or depth > MAX_DEPTH or node is None:
+        if len(records) >= max_tree_nodes or depth > max_tree_depth or node is None:
             return
         index = len(records)
-        record = record_for(node, index, path, window_bounds)
+        record = record_for(node, index, path, window_bounds, text_limit=text_limit)
         records.append(record)
 
         role = record["localizedControlType"] or record["controlType"] or "element"
@@ -352,7 +379,7 @@ def pixbuf_looks_black(pixbuf):
         return False
 
 
-def focused_summary(app_pid):
+def focused_summary(app_pid, text_limit=DEFAULT_TEXT_LIMIT):
     try:
         root = desktop()
         for app in iter_apps():
@@ -365,13 +392,13 @@ def focused_summary(app_pid):
             if focused is None:
                 return None
             role = node_role(focused)
-            name = node_name(focused)
+            name = limit_text(node_name(focused), text_limit=text_limit)
             return (role + " " + name).strip()
     except Exception:
         return None
 
 
-def selected_text(app_pid):
+def selected_text(app_pid, text_limit=DEFAULT_TEXT_LIMIT):
     try:
         for app in iter_apps():
             if node_pid(app) != app_pid:
@@ -386,19 +413,30 @@ def selected_text(app_pid):
             selections = safe(lambda: Atspi.Text.get_text_selections(text_iface), [])
             if selections:
                 selection = selections[0]
-                return Atspi.Text.get_text(
-                    text_iface, selection.start_offset, selection.end_offset
+                end_offset = selection.end_offset
+                if text_limit is not None:
+                    end_offset = min(end_offset, selection.start_offset + text_limit + 1)
+                value = Atspi.Text.get_text(
+                    text_iface, selection.start_offset, end_offset
                 )
+                return limit_text(value, text_limit=text_limit)
     except Exception:
         return None
     return None
 
 
-def build_snapshot(query):
+def build_snapshot(query, text_limit=DEFAULT_TEXT_LIMIT, max_tree_nodes=MAX_ELEMENTS, max_tree_depth=MAX_DEPTH):
     app = resolve_app(query)
     window_index, window = main_window(app)
     bounds = extents(window)
-    records, lines = render_tree(window, bounds, [window_index])
+    records, lines = render_tree(
+        window,
+        bounds,
+        [window_index],
+        text_limit=text_limit,
+        max_tree_nodes=max_tree_nodes,
+        max_tree_depth=max_tree_depth,
+    )
     pid = node_pid(app)
     return {
         "app": {
@@ -406,12 +444,12 @@ def build_snapshot(query):
             "bundleIdentifier": node_name(app),
             "pid": pid,
         },
-        "windowTitle": node_name(window),
+        "windowTitle": limit_text(node_name(window), text_limit=text_limit),
         "windowBounds": bounds,
         "screenshotPngBase64": capture_window_png(bounds),
         "treeLines": lines,
-        "focusedSummary": focused_summary(pid),
-        "selectedText": selected_text(pid),
+        "focusedSummary": focused_summary(pid, text_limit=text_limit),
+        "selectedText": selected_text(pid, text_limit=text_limit),
         "elements": records,
     }
 
@@ -731,7 +769,15 @@ def perform_operation(operation):
     if tool == "list_apps":
         return {"ok": True, "text": list_apps_text()}
     if tool == "get_app_state":
-        return {"ok": True, "snapshot": build_snapshot(operation.get("app", ""))}
+        return {
+            "ok": True,
+            "snapshot": build_snapshot(
+                operation.get("app", ""),
+                text_limit=parse_text_limit(operation.get("text_limit"), DEFAULT_TEXT_LIMIT),
+                max_tree_nodes=positive_int(operation.get("max_tree_nodes"), MAX_ELEMENTS),
+                max_tree_depth=positive_int(operation.get("max_tree_depth"), MAX_DEPTH),
+            ),
+        }
 
     app = resolve_app(operation.get("app", ""))
     _, window = main_window(app)

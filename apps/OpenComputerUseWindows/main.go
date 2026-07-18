@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,7 +17,7 @@ import (
 	"time"
 )
 
-var version = "0.1.51"
+var version = "0.2.0"
 
 //go:embed runtime.ps1
 var windowsRuntimeScript string
@@ -147,6 +148,21 @@ type psRequest struct {
 	Key          string         `json:"key,omitempty"`
 	Value        string         `json:"value,omitempty"`
 	WindowBounds *frame         `json:"windowBounds,omitempty"`
+	TextLimit    any            `json:"text_limit,omitempty"`
+	MaxTreeNodes int            `json:"max_tree_nodes,omitempty"`
+	MaxTreeDepth int            `json:"max_tree_depth,omitempty"`
+}
+
+type textLimit struct {
+	max   bool
+	count int
+}
+
+func (limit textLimit) runtimeValue() any {
+	if limit.max {
+		return "max"
+	}
+	return limit.count
 }
 
 type psResponse struct {
@@ -169,11 +185,23 @@ func (s *service) callTool(name string, args map[string]any) toolCallResult {
 	case "list_apps":
 		return s.listApps()
 	case "get_app_state":
-		return s.getAppState(requiredString(args, "app"))
+		maxTreeNodes, err := optionalPositiveInt(args, "max_tree_nodes")
+		if err != nil {
+			return textResult(err.Error(), true)
+		}
+		maxTreeDepth, err := optionalPositiveInt(args, "max_tree_depth")
+		if err != nil {
+			return textResult(err.Error(), true)
+		}
+		textLimit, err := optionalTextLimit(args, "text_limit")
+		if err != nil {
+			return textResult(err.Error(), true)
+		}
+		return s.getAppState(requiredString(args, "app"), textLimit, maxTreeNodes, maxTreeDepth)
 	case "click":
 		return s.click(
 			requiredString(args, "app"),
-			optionalString(args, "element_index"),
+			optionalElementIndex(args),
 			optionalFloat(args, "x"),
 			optionalFloat(args, "y"),
 			intValue(optionalFloat(args, "click_count"), 1),
@@ -182,14 +210,14 @@ func (s *service) callTool(name string, args map[string]any) toolCallResult {
 	case "perform_secondary_action":
 		return s.performSecondaryAction(
 			requiredString(args, "app"),
-			requiredString(args, "element_index"),
+			requiredElementIndex(args),
 			requiredString(args, "action"),
 		)
 	case "scroll":
 		return s.scroll(
 			requiredString(args, "app"),
 			requiredString(args, "direction"),
-			requiredString(args, "element_index"),
+			requiredElementIndex(args),
 			floatValue(optionalFloat(args, "pages"), 1),
 		)
 	case "drag":
@@ -205,7 +233,7 @@ func (s *service) callTool(name string, args map[string]any) toolCallResult {
 	case "press_key":
 		return s.pressKey(requiredString(args, "app"), requiredString(args, "key"))
 	case "set_value":
-		return s.setValue(requiredString(args, "app"), requiredString(args, "element_index"), requiredString(args, "value"))
+		return s.setValue(requiredString(args, "app"), requiredElementIndex(args), requiredString(args, "value"))
 	default:
 		return textResult(fmt.Sprintf("unsupportedTool(%q)", name), true)
 	}
@@ -225,11 +253,21 @@ func (s *service) listApps() toolCallResult {
 	return textResult(response.Text, false)
 }
 
-func (s *service) getAppState(app string) toolCallResult {
+func (s *service) getAppState(app string, textLimit *textLimit, maxTreeNodes, maxTreeDepth *int) toolCallResult {
 	if app == "" {
 		return textResult("Missing required argument: app", true)
 	}
-	snapshot, result := s.refreshSnapshot(app, psRequest{Tool: "get_app_state", App: app})
+	request := psRequest{Tool: "get_app_state", App: app}
+	if textLimit != nil {
+		request.TextLimit = textLimit.runtimeValue()
+	}
+	if maxTreeNodes != nil {
+		request.MaxTreeNodes = *maxTreeNodes
+	}
+	if maxTreeDepth != nil {
+		request.MaxTreeDepth = *maxTreeDepth
+	}
+	snapshot, result := s.refreshSnapshot(app, request)
 	if result.IsError {
 		return result
 	}
@@ -487,6 +525,42 @@ func optionalString(args map[string]any, key string) string {
 	return value
 }
 
+func requiredElementIndex(args map[string]any) string {
+	return strings.TrimSpace(optionalElementIndex(args))
+}
+
+func optionalElementIndex(args map[string]any) string {
+	return elementIndexString(args["element_index"])
+}
+
+func elementIndexString(value any) string {
+	switch value := value.(type) {
+	case string:
+		return value
+	case json.Number:
+		if integer, err := value.Int64(); err == nil {
+			return strconv.FormatInt(integer, 10)
+		}
+		if float, err := value.Float64(); err == nil {
+			return integerElementIndexFloat(float)
+		}
+	case float64:
+		return integerElementIndexFloat(value)
+	case int:
+		return strconv.Itoa(value)
+	case int64:
+		return strconv.FormatInt(value, 10)
+	}
+	return ""
+}
+
+func integerElementIndexFloat(value float64) string {
+	if math.IsNaN(value) || math.IsInf(value, 0) || math.Trunc(value) != value {
+		return ""
+	}
+	return strconv.FormatInt(int64(value), 10)
+}
+
 func requiredFloat(args map[string]any, key string) *float64 {
 	return optionalFloat(args, key)
 }
@@ -505,6 +579,80 @@ func optionalFloat(args map[string]any, key string) *float64 {
 		}
 	}
 	return nil
+}
+
+func optionalTextLimit(args map[string]any, key string) (*textLimit, error) {
+	value, ok := args[key]
+	if !ok {
+		return nil, nil
+	}
+	return textLimitFromValue(value, key)
+}
+
+func textLimitFromValue(value any, key string) (*textLimit, error) {
+	if stringValue, ok := value.(string); ok {
+		if strings.EqualFold(stringValue, "max") {
+			return &textLimit{max: true}, nil
+		}
+		return nil, fmt.Errorf("%s must be a positive integer or max", key)
+	}
+	integer, err := positiveIntFromValue(value, key)
+	if err != nil {
+		return nil, fmt.Errorf("%s must be a positive integer or max", key)
+	}
+	return &textLimit{count: *integer}, nil
+}
+
+func optionalPositiveInt(args map[string]any, key string) (*int, error) {
+	value, ok := args[key]
+	if !ok {
+		return nil, nil
+	}
+	return positiveIntFromValue(value, key)
+}
+
+func positiveIntFromValue(value any, key string) (*int, error) {
+	switch typed := value.(type) {
+	case int:
+		return positiveIntFromInt64(int64(typed), key)
+	case float64:
+		if !isWholeNumber(typed) {
+			return nil, fmt.Errorf("%s must be a positive integer", key)
+		}
+		return positiveIntFromFloat64(typed, key)
+	case json.Number:
+		integer, err := typed.Int64()
+		if err != nil {
+			return nil, fmt.Errorf("%s must be a positive integer", key)
+		}
+		return positiveIntFromInt64(integer, key)
+	default:
+		return nil, fmt.Errorf("%s must be a positive integer", key)
+	}
+}
+
+func positiveIntFromFloat64(value float64, key string) (*int, error) {
+	if !isWholeNumber(value) || value <= 0 || value > float64(maxInt()) {
+		return nil, fmt.Errorf("%s must be a positive integer", key)
+	}
+	integer := int(value)
+	return &integer, nil
+}
+
+func positiveIntFromInt64(value int64, key string) (*int, error) {
+	if value <= 0 || value > int64(maxInt()) {
+		return nil, fmt.Errorf("%s must be a positive integer", key)
+	}
+	integer := int(value)
+	return &integer, nil
+}
+
+func isWholeNumber(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0) && math.Trunc(value) == value
+}
+
+func maxInt() int {
+	return int(^uint(0) >> 1)
 }
 
 func intValue(value *float64, fallback int) int {
@@ -560,7 +708,10 @@ func toolDefinitions() []toolDefinition {
 			Description: "Get the state of an already running app's key window and return a screenshot and accessibility tree. This must be called once per assistant turn before interacting with the app. This tool is part of plugin `Computer Use`.",
 			Annotations: readOnlyAnnotations(),
 			InputSchema: objectSchema(map[string]any{
-				"app": stringProperty("App name or bundle identifier"),
+				"app":            stringProperty("App name or bundle identifier"),
+				"text_limit":     textLimitProperty("Maximum text characters to return. Use \"max\" for full text. Defaults to 500."),
+				"max_tree_nodes": positiveIntegerProperty("Maximum accessibility tree nodes to render. Defaults to 1200."),
+				"max_tree_depth": positiveIntegerProperty("Maximum accessibility tree depth to render. Defaults to 64."),
 			}, []string{"app"}),
 		},
 		{
@@ -659,6 +810,20 @@ func integerProperty(description string) map[string]any {
 	return map[string]any{"type": "integer", "description": description}
 }
 
+func positiveIntegerProperty(description string) map[string]any {
+	return map[string]any{"type": "integer", "minimum": 1, "description": description}
+}
+
+func textLimitProperty(description string) map[string]any {
+	return map[string]any{
+		"anyOf": []any{
+			map[string]any{"type": "integer", "minimum": 1},
+			map[string]any{"type": "string", "enum": []string{"max"}},
+		},
+		"description": description,
+	}
+}
+
 func main() {
 	if err := runCLI(os.Args[1:], os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -696,10 +861,23 @@ func runCLI(args []string, stdout io.Writer) error {
 		fmt.Fprintln(stdout, result.Content[0].Text)
 		return nil
 	case "snapshot":
-		if len(args) != 2 {
-			return errors.New("snapshot requires an app name, process name, window title, or pid")
+		app, textLimit, maxTreeNodes, maxTreeDepth, err := parseSnapshotArgs(args[1:])
+		if err != nil {
+			return err
 		}
-		result := newService().callTool("get_app_state", map[string]any{"app": args[1]})
+		toolArgs := map[string]any{
+			"app": app,
+		}
+		if textLimit != nil {
+			toolArgs["text_limit"] = textLimit.runtimeValue()
+		}
+		if maxTreeNodes != nil {
+			toolArgs["max_tree_nodes"] = *maxTreeNodes
+		}
+		if maxTreeDepth != nil {
+			toolArgs["max_tree_depth"] = *maxTreeDepth
+		}
+		result := newService().callTool("get_app_state", toolArgs)
 		if result.IsError {
 			return errors.New(result.Content[0].Text)
 		}
@@ -722,6 +900,79 @@ func runCLI(args []string, stdout io.Writer) error {
 	default:
 		return fmt.Errorf("unknown command: %s\n\n%s", args[0], helpText(""))
 	}
+}
+
+func parseSnapshotArgs(args []string) (string, *textLimit, *int, *int, error) {
+	var app string
+	var textLimit *textLimit
+	var maxTreeNodes *int
+	var maxTreeDepth *int
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		switch arg {
+		case "--text-limit":
+			index++
+			if index >= len(args) {
+				return "", nil, nil, nil, errors.New("--text-limit requires a positive integer or max value")
+			}
+			value, err := parseTextLimitOption(args[index], "--text-limit")
+			if err != nil {
+				return "", nil, nil, nil, err
+			}
+			textLimit = value
+		case "--max-tree-nodes":
+			index++
+			if index >= len(args) {
+				return "", nil, nil, nil, errors.New("--max-tree-nodes requires a positive integer value")
+			}
+			value, err := parsePositiveIntegerOption(args[index], "--max-tree-nodes")
+			if err != nil {
+				return "", nil, nil, nil, err
+			}
+			maxTreeNodes = &value
+		case "--max-tree-depth":
+			index++
+			if index >= len(args) {
+				return "", nil, nil, nil, errors.New("--max-tree-depth requires a positive integer value")
+			}
+			value, err := parsePositiveIntegerOption(args[index], "--max-tree-depth")
+			if err != nil {
+				return "", nil, nil, nil, err
+			}
+			maxTreeDepth = &value
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return "", nil, nil, nil, fmt.Errorf("unknown snapshot option: %s", arg)
+			}
+			if app != "" {
+				return "", nil, nil, nil, errors.New("snapshot accepts exactly one app name, process name, window title, or pid")
+			}
+			app = arg
+		}
+	}
+	if app == "" {
+		return "", nil, nil, nil, errors.New("snapshot requires an app name, process name, window title, or pid")
+	}
+	return app, textLimit, maxTreeNodes, maxTreeDepth, nil
+}
+
+func parseTextLimitOption(value, option string) (*textLimit, error) {
+	if strings.EqualFold(value, "max") {
+		return &textLimit{max: true}, nil
+	}
+	integer, err := strconv.Atoi(value)
+	if err != nil || integer <= 0 {
+		return nil, fmt.Errorf("%s must be a positive integer or max", option)
+	}
+	return &textLimit{count: integer}, nil
+}
+
+func parsePositiveIntegerOption(value, option string) (int, error) {
+	integer, err := strconv.Atoi(value)
+	if err != nil || integer <= 0 {
+		return 0, fmt.Errorf("%s must be a positive integer", option)
+	}
+	return integer, nil
 }
 
 func runCallCommand(args []string, svc *service) (any, bool, error) {
@@ -954,7 +1205,7 @@ func helpText(command string) string {
 	case "call":
 		return "Usage:\n  open-computer-use.exe call <tool> [--args '<json-object>']\n  open-computer-use.exe call --calls '<json-array>'\n\nThe JSON array form keeps all calls in one process so element_index state can be reused.\n"
 	case "snapshot":
-		return "Usage:\n  open-computer-use.exe snapshot <app>\n\nPrint the current Windows UI Automation snapshot for the target app.\n"
+		return "Usage:\n  open-computer-use.exe snapshot [--text-limit <positive-int|max>] [--max-tree-nodes <positive-int>] [--max-tree-depth <positive-int>] <app>\n\nPrint the current Windows UI Automation snapshot for the target app.\n"
 	default:
 		return `Open Computer Use for Windows
 

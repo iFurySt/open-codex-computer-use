@@ -235,6 +235,7 @@ function printLauncherHelp() {
 
 Usage:
   open-computer-use [command] [options]
+  ocu [command] [options]
   open-computer-use
 
 Commands:
@@ -386,11 +387,11 @@ const lines = [
   "",
   "Installed ${packageName}@${version}.",
   "Package: https://www.npmjs.com/package/${packageName}",
-  "Commands: open-computer-use, open-computer-use-mcp, open-codex-computer-use-mcp",
+  "Commands: open-computer-use, ocu, open-computer-use-mcp, open-codex-computer-use-mcp",
   "Native runtime will be selected from bundled artifacts for " + process.platform + "-" + process.arch + ".",
   "",
   "Next:",
-  "1. Run open-computer-use --version",
+  "1. Run open-computer-use --version or ocu --version",
   "2. Add the MCP config below to your host client",
   "3. On macOS, run open-computer-use doctor and grant Accessibility / Screen Recording if prompted",
   "",
@@ -416,6 +417,7 @@ ${runtimeTargets.map((runtimeTarget) => `- \`${runtimeTarget.os}-${runtimeTarget
 Global command aliases:
 
 - \`open-computer-use\`
+- \`ocu\`
 - \`open-computer-use-mcp\`
 - \`open-codex-computer-use-mcp\`
 
@@ -448,8 +450,10 @@ Package page: https://www.npmjs.com/package/${packageName}
 
 \`\`\`bash
 open-computer-use --version
+ocu --version
 open-computer-use --help
 open-computer-use mcp
+ocu mcp
 open-computer-use call list_apps
 
 # macOS permission check and onboarding
@@ -510,6 +514,7 @@ function renderMetaPackageJson(packageName, version) {
     },
     bin: {
       "open-computer-use": "bin/open-computer-use",
+      "ocu": "bin/ocu",
       "open-computer-use-mcp": "bin/open-computer-use-mcp",
       "open-codex-computer-use-mcp": "bin/open-codex-computer-use-mcp",
     },
@@ -609,6 +614,7 @@ function stageMetaPackage(packageName, version, outDir) {
 
   const launcher = renderLauncher();
   writeExecutable(path.join(packageRoot, "bin", "open-computer-use"), launcher);
+  writeExecutable(path.join(packageRoot, "bin", "ocu"), launcher);
   writeExecutable(path.join(packageRoot, "bin", "open-computer-use-mcp"), launcher);
   writeExecutable(path.join(packageRoot, "bin", "open-codex-computer-use-mcp"), launcher);
   writeFileSync(path.join(packageRoot, "scripts", "postinstall.mjs"), renderPostinstall(packageName, version), "utf-8");

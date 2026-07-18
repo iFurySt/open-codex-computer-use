@@ -360,8 +360,12 @@ public final class ComputerUseService {
         )
     }
 
-    public func getAppState(app query: String) throws -> ToolCallResult {
-        snapshotResult(for: try refreshSnapshot(for: query), style: .fullState)
+    public func getAppState(
+        app query: String,
+        textLimit: SnapshotTextLimit = .defaults,
+        treeLimits: AccessibilityTreeLimits = .defaults
+    ) throws -> ToolCallResult {
+        snapshotResult(for: try refreshSnapshot(for: query, textLimit: textLimit, treeLimits: treeLimits), style: .fullState)
     }
 
     public func click(app query: String, elementIndex: String?, x: Double?, y: Double?, clickCount: Int, mouseButton: String) throws -> ToolCallResult {
@@ -582,8 +586,16 @@ public final class ComputerUseService {
             return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
         }
 
-        guard try canTypeTextUsingKeyboardFallback(in: snapshot) else {
-            throw ComputerUseError.stateUnavailable("type_text requires a focused editable text element. Click a text entry area first, or use set_value on a settable text element.")
+        if !(try canTypeTextUsingKeyboardFallback(in: snapshot)) {
+            // Stage Manager background app has no focused element; briefly activate to accept input, then restore.
+            let originalPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+            NSRunningApplication(processIdentifier: snapshot.app.pid)?.activate(options: [])
+            Thread.sleep(forTimeInterval: 0.08)
+            try InputSimulation.typeText(text, pid: snapshot.app.pid)
+            if let orig = originalPID {
+                NSRunningApplication(processIdentifier: orig)?.activate(options: [])
+            }
+            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
         }
 
         try InputSimulation.typeText(text, pid: snapshot.app.pid)
@@ -655,9 +667,13 @@ public final class ComputerUseService {
     }
 
     @discardableResult
-    private func refreshSnapshot(for query: String) throws -> AppSnapshot {
+    private func refreshSnapshot(
+        for query: String,
+        textLimit: SnapshotTextLimit = .defaults,
+        treeLimits: AccessibilityTreeLimits = .defaults
+    ) throws -> AppSnapshot {
         let app = try AppDiscovery.resolve(query)
-        let snapshot = try SnapshotBuilder.build(for: app)
+        let snapshot = try SnapshotBuilder.build(for: app, textLimit: textLimit, treeLimits: treeLimits)
 
         let keys = Set([
             query.lowercased(),
@@ -1665,12 +1681,23 @@ public final class ComputerUseService {
         }
 
         do {
-            try InputSimulation.clickTargeted(
-                at: eventPoint,
-                button: button,
-                clickCount: clickCount,
-                pid: snapshot.app.pid
-            )
+            if let windowID = snapshot.targetWindowID, let windowBounds = snapshot.windowBounds {
+                try InputSimulation.clickBackgrounded(
+                    at: eventPoint,
+                    windowID: windowID,
+                    windowBounds: windowBounds,
+                    button: button,
+                    clickCount: clickCount,
+                    pid: snapshot.app.pid
+                )
+            } else {
+                try InputSimulation.clickTargeted(
+                    at: eventPoint,
+                    button: button,
+                    clickCount: clickCount,
+                    pid: snapshot.app.pid
+                )
+            }
             return
         } catch {
             guard globalPointerFallbacksEnabled(environment: ProcessInfo.processInfo.environment) else {

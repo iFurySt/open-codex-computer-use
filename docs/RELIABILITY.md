@@ -30,8 +30,9 @@
 
 **锁定 session：**
 - 症状：所有 tool（除 `tools/list`）返回 "Session is locked" 或 "Lock state unknown"。
-- 排查：`CGSessionCopyCurrentDictionary` 在用户 session 锁定或不可用时返回 nil；fail-closed 行为是预期设计，不是 bug。
-- 解决：解锁当前 macOS 用户 session 后重试。真正的 Lock Screen 场景不受支持，请使用已登录桌面 session 做无人值守自动化。
+- 排查：`CGSessionCopyCurrentDictionary` 在用户 session 锁定或不可用时返回 nil；fail-closed 行为是**默认**预期设计，不是 bug。
+- 解决（有人值守）：解锁当前 macOS 用户 session 后重试，或使用已登录桌面 session。
+- 解决（无人值守 agent 需锁屏继续工作）：设置 `OPEN_COMPUTER_USE_ALLOW_LOCKED=1` 开启 best-effort 锁屏放行。开启后 action 仍能经 process-targeted 投递（AX / `postToPid`）驱动可访问性可控的 app；但**窗口截图返回空图**（`get_app_state` 只回 AX tree），coordinate-only 路径不可靠 —— 用 `element_index` 定位的 action。首次放行时 stderr 会打印一次降级提示。默认不开启。
 
 **Stale target（目标窗口发生变化）：**
 - 症状：action tool 返回 "Computer Use target screen changed. Call get_app_state for this app before acting again."

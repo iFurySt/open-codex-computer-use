@@ -5,7 +5,7 @@ public enum OpenComputerUseCLICommand: Equatable {
     case mcp
     case doctor
     case listApps
-    case snapshot(app: String)
+    case snapshot(app: String, textLimit: SnapshotTextLimit = .defaults, treeLimits: AccessibilityTreeLimits = .defaults)
     case call(OpenComputerUseCallInvocation)
     case turnEnded(payload: String?)
     case help(command: String?)
@@ -148,10 +148,15 @@ public func openComputerUseHelpText(command: String? = nil) -> String {
     case "snapshot":
         return """
         Usage:
-          open-computer-use snapshot <app>
+          open-computer-use snapshot [--text-limit <positive-int|max>] [--max-tree-nodes <positive-int>] [--max-tree-depth <positive-int>] <app>
 
         Arguments:
           <app>                App name or bundle identifier to inspect.
+
+        Options:
+          --text-limit         Override the default 500 character text limit. Use `max` for full text.
+          --max-tree-nodes     Override the default 1200 node accessibility tree budget.
+          --max-tree-depth     Override the default 64 level accessibility tree depth.
 
         Print the current accessibility snapshot for the target app.
         """
@@ -261,20 +266,87 @@ private func parseTurnEnded(arguments: [String]) throws -> OpenComputerUseCLICom
 }
 
 private func parseSnapshot(arguments: [String]) throws -> OpenComputerUseCLICommand {
-    if arguments.count == 1 {
-        let value = arguments[0]
-        if value == "-h" || value == "--help" {
-            return .help(command: "snapshot")
-        }
-
-        return .snapshot(app: value)
-    }
-
     if arguments.isEmpty {
         throw OpenComputerUseCLIError(message: "snapshot requires an app name or bundle identifier", helpCommand: "snapshot")
     }
 
-    throw OpenComputerUseCLIError(message: "snapshot accepts exactly one <app> argument", helpCommand: "snapshot")
+    if arguments.count == 1, let value = arguments.first, value == "-h" || value == "--help" {
+        return .help(command: "snapshot")
+    }
+
+    var app: String?
+    var textLimit = SnapshotTextLimit.defaults
+    var maxTreeNodes: Int?
+    var maxTreeDepth: Int?
+
+    var index = 0
+    while index < arguments.count {
+        let argument = arguments[index]
+        switch argument {
+        case "--text-limit":
+            index += 1
+            guard index < arguments.count else {
+                throw OpenComputerUseCLIError(message: "--text-limit requires a positive integer or max value", helpCommand: "snapshot")
+            }
+            textLimit = try parseTextLimitOption(arguments[index], option: "--text-limit")
+        case "--max-tree-nodes":
+            index += 1
+            guard index < arguments.count else {
+                throw OpenComputerUseCLIError(message: "--max-tree-nodes requires a positive integer value", helpCommand: "snapshot")
+            }
+            maxTreeNodes = try parsePositiveIntegerOption(arguments[index], option: "--max-tree-nodes")
+        case "--max-tree-depth":
+            index += 1
+            guard index < arguments.count else {
+                throw OpenComputerUseCLIError(message: "--max-tree-depth requires a positive integer value", helpCommand: "snapshot")
+            }
+            maxTreeDepth = try parsePositiveIntegerOption(arguments[index], option: "--max-tree-depth")
+        case "-h", "--help":
+            throw OpenComputerUseCLIError(message: "snapshot help must be requested as `open-computer-use snapshot --help`", helpCommand: "snapshot")
+        default:
+            if argument.hasPrefix("-") {
+                throw OpenComputerUseCLIError(message: "Unknown snapshot option: \(argument)", helpCommand: "snapshot")
+            }
+
+            guard app == nil else {
+                throw OpenComputerUseCLIError(message: "snapshot accepts exactly one <app> argument", helpCommand: "snapshot")
+            }
+
+            app = argument
+        }
+        index += 1
+    }
+
+    guard let app else {
+        throw OpenComputerUseCLIError(message: "snapshot requires an app name or bundle identifier", helpCommand: "snapshot")
+    }
+
+    return .snapshot(
+        app: app,
+        textLimit: textLimit,
+        treeLimits: AccessibilityTreeLimits.defaults.replacing(
+            maxNodeCount: maxTreeNodes,
+            maxDepth: maxTreeDepth
+        )
+    )
+}
+
+private func parseTextLimitOption(_ value: String, option: String) throws -> SnapshotTextLimit {
+    if value.lowercased() == SnapshotTextLimit.maxKeyword {
+        return .max
+    }
+
+    guard let integer = Int(value), integer > 0 else {
+        throw OpenComputerUseCLIError(message: "\(option) must be a positive integer or max", helpCommand: "snapshot")
+    }
+    return SnapshotTextLimit(maxCount: integer)
+}
+
+private func parsePositiveIntegerOption(_ value: String, option: String) throws -> Int {
+    guard let integer = Int(value), integer > 0 else {
+        throw OpenComputerUseCLIError(message: "\(option) must be a positive integer", helpCommand: "snapshot")
+    }
+    return integer
 }
 
 private func parseCall(arguments: [String]) throws -> OpenComputerUseCLICommand {

@@ -93,6 +93,13 @@ enum MacOSAppAgentProxy {
         configuration.arguments = [appAgentCommand, socketPath]
         configuration.activates = false
         configuration.createsNewApplicationInstance = true
+        // The lock-screen opt-in is security-sensitive: it must travel only through this
+        // trusted launch environment (set here by the operator-run proxy from its real shell
+        // env), never the per-call socket channel, so a same-uid client cannot forge it against
+        // an already-running, TCC-authorized agent. Fixed for the agent's lifetime.
+        if let allowLocked = ProcessInfo.processInfo.environment[MacSessionLockPolicy.environmentKey] {
+            configuration.environment = [MacSessionLockPolicy.environmentKey: allowLocked]
+        }
 
         NSWorkspace.shared.openApplication(at: appURL, configuration: configuration) { _, _ in }
 
@@ -140,7 +147,9 @@ enum MacOSAppAgentProxy {
 
     private static func proxiedEnvironment() -> [String: String] {
         ProcessInfo.processInfo.environment.filter { key, _ in
-            key.hasPrefix("OPEN_COMPUTER_USE_")
+            // The lock-screen opt-in is deliberately excluded from the per-call channel — it is
+            // fixed at agent launch (see connectOrLaunchAgent) so a per-call client cannot forge it.
+            key.hasPrefix("OPEN_COMPUTER_USE_") && key != MacSessionLockPolicy.environmentKey
         }
     }
 }
@@ -382,7 +391,10 @@ private final class AppAgentConnection: @unchecked Sendable {
                 return ["response": NSNull()]
             case "cli":
                 let arguments = request["arguments"] as? [String] ?? []
-                let environment = request["environment"] as? [String: String] ?? [:]
+                var environment = request["environment"] as? [String: String] ?? [:]
+                // Defense in depth: never honor a per-call client's attempt to set the lock-screen
+                // policy. It is fixed at agent launch; a forged value here is silently dropped.
+                environment.removeValue(forKey: MacSessionLockPolicy.environmentKey)
                 let response = AppAgentEnvironment.withOverrides(environment) {
                     runCLI(arguments: arguments)
                 }
@@ -427,9 +439,9 @@ private final class AppAgentConnection: @unchecked Sendable {
                 let service = ComputerUseService()
                 return CLIProxyResponse(stdout: (service.listApps().primaryText ?? "") + "\n", stderr: "", exitCode: EXIT_SUCCESS)
 
-            case let .snapshot(app):
+            case let .snapshot(app, textLimit, treeLimits):
                 let service = ComputerUseService()
-                let text = try service.getAppState(app: app).primaryText ?? ""
+                let text = try service.getAppState(app: app, textLimit: textLimit, treeLimits: treeLimits).primaryText ?? ""
                 return CLIProxyResponse(stdout: text + "\n", stderr: "", exitCode: EXIT_SUCCESS)
 
             case let .call(invocation):

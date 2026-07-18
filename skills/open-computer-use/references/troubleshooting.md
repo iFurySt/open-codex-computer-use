@@ -2,6 +2,16 @@
 
 Read this reference when setup, permission checks, app discovery, snapshots, or actions fail.
 
+## Unsupported macOS Version
+
+The macOS runtime requires macOS 14.0 or later. Check the host version before troubleshooting permissions:
+
+```sh
+sw_vers -productVersion
+```
+
+On macOS versions earlier than 14.0, the binary cannot launch and may report a `dyld` or minimum-version incompatibility. `open-computer-use doctor`, Accessibility authorization, and Screen Recording authorization cannot resolve this error. Upgrade macOS or run Open Computer Use on a supported macOS, Windows, or Linux desktop.
+
 ## First Checks
 
 Start with:
@@ -12,7 +22,7 @@ open-computer-use doctor
 open-computer-use call list_apps
 ```
 
-On macOS, `doctor` reports Accessibility and Screen Recording status. If either is missing, ask the user to approve the onboarding UI.
+On macOS 14.0 or later, `doctor` reports Accessibility and Screen Recording status. If either is missing, ask the user to approve the onboarding UI.
 
 ## App Not Found
 
@@ -36,6 +46,34 @@ Common causes:
 - Linux screenshot support is blocked by the compositor or desktop portal state.
 
 Ask the user to bring the target app/window into a visible state when automation cannot do so safely.
+
+## Truncated Text
+
+Snapshot text is limited to 500 characters by default. If a visible chat message, email body, document paragraph, or form value ends with `...`, do not assume the page itself is missing content.
+
+Request a larger or unlimited text limit explicitly:
+
+```sh
+open-computer-use call get_app_state --args '{"app":"TextEdit","text_limit":1000}'
+open-computer-use call get_app_state --args '{"app":"TextEdit","text_limit":"max"}'
+open-computer-use snapshot --text-limit 1000 TextEdit
+open-computer-use snapshot --text-limit max TextEdit
+```
+
+`text_limit: "max"` only disables the text character limit. It does not remove the default 1200 node count limit, 64 level tree depth limit, screenshot size, permission, or desktop-session protections.
+
+## Incomplete Long Pages Or Lists
+
+If the screenshot clearly shows more visible content than the accessibility tree returns, the snapshot may have hit its default 1200 node or 64 level tree budget. Do not treat that as proof that the page failed to load.
+
+Request a larger tree budget explicitly:
+
+```sh
+open-computer-use call get_app_state --args '{"app":"Google Chrome","max_tree_nodes":3000,"max_tree_depth":96}'
+open-computer-use snapshot --max-tree-nodes 3000 --max-tree-depth 96 "Google Chrome"
+```
+
+Increasing the tree budget does not change text truncation, screenshot limits, permissions, or desktop-session requirements.
 
 ## Element Action Fails
 

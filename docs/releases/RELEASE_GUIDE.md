@@ -76,6 +76,8 @@ node ./scripts/npm/build-packages.mjs --out-dir dist/release/npm-staging-check
 node -p "require('./dist/release/npm-staging-check/open-computer-use/package.json').version"
 test -x "dist/release/npm-staging-check/open-computer-use/dist/linux/arm64/open-computer-use"
 test -f "dist/release/npm-staging-check/open-computer-use/dist/windows/arm64/open-computer-use.exe"
+test -x "dist/release/npm-staging-check/open-computer-use/bin/ocu"
+node -e "const bin=require('./dist/release/npm-staging-check/open-computer-use/package.json').bin; if (bin.ocu !== 'bin/ocu') process.exit(1)"
 node -e "if (require('./dist/release/npm-staging-check/open-computer-use/package.json').optionalDependencies) process.exit(1)"
 ls dist/release/cursor-motion/CursorMotion-0.1.14.dmg
 ```

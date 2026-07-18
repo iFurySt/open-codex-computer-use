@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import CoreGraphics
+import Darwin
 import Foundation
 
 enum MouseButtonKind: String {
@@ -76,6 +77,59 @@ enum InputSimulation {
             try postMouseEventToPid(type: .mouseMoved, source: source, point: point, button: button.cgButton, clickState: clickCount, pid: pid)
             try postMouseEventToPid(type: button.downEvent, source: source, point: point, button: button.cgButton, clickState: clickCount, pid: pid)
             try postMouseEventToPid(type: button.upEvent, source: source, point: point, button: button.cgButton, clickState: clickCount, pid: pid)
+        }
+    }
+
+    // CGEventSetWindowLocation routes events to an off-screen window (Stage Manager background).
+    // Resolved at runtime so the binary distributes without linking private frameworks.
+    private typealias CGEventSetWindowLocationFn = @convention(c) (CGEvent, CGPoint) -> Void
+
+    static func clickBackgrounded(
+        at screenPoint: CGPoint,
+        windowID: CGWindowID,
+        windowBounds: CGRect,
+        button: MouseButtonKind,
+        clickCount: Int,
+        pid: pid_t
+    ) throws {
+        // RTLD_DEFAULT is a C macro ((void*)-2) and can't be imported; use the bitpattern directly.
+        guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGEventSetWindowLocation") else {
+            try clickTargeted(at: screenPoint, button: button, clickCount: clickCount, pid: pid)
+            return
+        }
+        let setWindowLocation = unsafeBitCast(sym, to: CGEventSetWindowLocationFn.self)
+
+        guard let source = CGEventSource(stateID: .combinedSessionState) else {
+            throw ComputerUseError.message("Failed to create targeted event source.")
+        }
+
+        let localPoint = CGPoint(
+            x: screenPoint.x - windowBounds.origin.x,
+            y: screenPoint.y - windowBounds.origin.y
+        )
+        let windowIDValue = Int64(windowID)
+
+        for _ in 0..<max(clickCount, 1) {
+            guard let down = CGEvent(mouseEventSource: source, mouseType: button.downEvent,
+                                     mouseCursorPosition: screenPoint, mouseButton: button.cgButton),
+                  let up = CGEvent(mouseEventSource: source, mouseType: button.upEvent,
+                                   mouseCursorPosition: screenPoint, mouseButton: button.cgButton) else {
+                throw ComputerUseError.message("Failed to create background mouse events.")
+            }
+
+            // Fields 91/92: window-under-pointer and event-target-window.
+            down.setIntegerValueField(CGEventField(rawValue: 91)!, value: windowIDValue)
+            down.setIntegerValueField(CGEventField(rawValue: 92)!, value: windowIDValue)
+            up.setIntegerValueField(CGEventField(rawValue: 91)!, value: windowIDValue)
+            up.setIntegerValueField(CGEventField(rawValue: 92)!, value: windowIDValue)
+
+            setWindowLocation(down, localPoint)
+            setWindowLocation(up, localPoint)
+
+            down.postToPid(pid)
+            Thread.sleep(forTimeInterval: 0.03)
+            up.postToPid(pid)
+            Thread.sleep(forTimeInterval: 0.03)
         }
     }
 

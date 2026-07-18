@@ -43,15 +43,24 @@ https://github.com/user-attachments/assets/e036b1c8-2200-4896-abd4-19225915cf66
 npm i -g open-computer-use
 ```
 
+通过 npm 安装后也会同时提供短命令 `ocu`。
+
+> [!IMPORTANT]
+> macOS 运行环境要求 macOS 14.0 或更高版本。
+
 **macOS 第一次使用前，需要授权 `Accessibility` 和 `Screen Recording` 的权限，windows和linux无需执行**
+
 ```bash
 open-computer-use
+# 或
+ocu
 ```
 
 开始用前可以通过一键安装到主流的Agent里：
 ```bash
 # 一键安装到 Codex，写到 ~/.codex/config.toml 中
 open-computer-use install-codex-mcp
+ocu install-codex-mcp
 ```
 
 也可以手动配置到你自己的客户端里：
@@ -115,6 +124,7 @@ open-computer-use install-opencode-mcp
 
 # 直接调用单个 Computer Use tool，输出 MCP 风格的 JSON result
 open-computer-use call list_apps
+ocu call list_apps
 open-computer-use call get_app_state --args '{"app":"TextEdit"}'
 
 # 在同一个进程里编排连续动作，复用 get_app_state 拿到的 element_index
@@ -127,6 +137,7 @@ open-computer-use doctor
 
 # 查看帮助
 open-computer-use -h
+ocu -h
 ```
 
 ## Cursor Motion

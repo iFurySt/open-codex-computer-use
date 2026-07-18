@@ -10,8 +10,9 @@ function fail(message) {
 
 function usage() {
   process.stdout.write(`Usage:
-  node ./scripts/install-config-helper.mjs claude-mcp <config-path> <project-root> <server-name> <command-name>
-  node ./scripts/install-config-helper.mjs codex-mcp <config-path> <server-name> <command-name>
+  node ./scripts/install-config-helper.mjs claude-mcp <config-path> <project-root> <server-name> <command-name> [<args-json>]
+  node ./scripts/install-config-helper.mjs claude-mcp-global <config-path> <server-name> <command-name> [<args-json>]
+  node ./scripts/install-config-helper.mjs codex-mcp <config-path> <server-name> <command-name> [<args-json>]
   node ./scripts/install-config-helper.mjs gemini-mcp <config-path> <server-name> <command-name>
   node ./scripts/install-config-helper.mjs opencode-mcp <primary-config-path> <secondary-config-path> <server-name> <command-name>
   node ./scripts/install-config-helper.mjs codex-plugin-version <plugin-manifest-path>
@@ -210,11 +211,12 @@ function applyTomlSectionUpdates(text, updates, configPath) {
   });
 }
 
-function installClaudeMcp(configPath, projectRoot, serverName, commandName) {
+function installClaudeMcp(configPath, projectRoot, serverName, commandName, commandArgsJSON) {
+  const commandArgs = commandArgsJSON ? JSON.parse(commandArgsJSON) : ["mcp"];
   const desiredEntry = {
     type: "stdio",
     command: commandName,
-    args: ["mcp"],
+    args: commandArgs,
   };
   const legacyServerName = "open-codex-computer-use";
   const data = readJSONObjectConfig(configPath, `Claude config ${configPath}`);
@@ -252,6 +254,26 @@ function installClaudeMcp(configPath, projectRoot, serverName, commandName) {
   } else {
     process.stdout.write(`Installed Claude MCP server "${serverName}" for ${projectRoot} into ${configPath}.\n`);
   }
+}
+
+function installClaudeMcpGlobal(configPath, serverName, commandName, commandArgsJSON) {
+  const commandArgs = commandArgsJSON ? JSON.parse(commandArgsJSON) : ["mcp"];
+  const desiredEntry = {
+    type: "stdio",
+    command: commandName,
+    args: commandArgs,
+  };
+  const data = readJSONObjectConfig(configPath, `Claude config ${configPath}`);
+  const mcpServers = ensureObjectField(data, "mcpServers", 'Existing Claude config has non-object "mcpServers"; refusing to modify it.');
+
+  if (JSON.stringify(mcpServers[serverName]) === JSON.stringify(desiredEntry)) {
+    process.stdout.write(`Claude global MCP server "${serverName}" is already installed in ${configPath}.\n`);
+    return;
+  }
+
+  mcpServers[serverName] = desiredEntry;
+  writeJSONConfig(configPath, data);
+  process.stdout.write(`Installed Claude global MCP server "${serverName}" into ${configPath}.\n`);
 }
 
 function installGeminiMcp(configPath, serverName, commandName) {
@@ -374,8 +396,9 @@ function installOpencodeMcp(primaryConfigPath, secondaryConfigPath, serverName, 
   process.stdout.write(`Installed opencode MCP server "${serverName}" into ${primaryConfigPath}.\n`);
 }
 
-function installCodexMcp(configPath, serverName, commandName) {
-  const desiredBody = `command = ${JSON.stringify(commandName)}\nargs = ["mcp"]`;
+function installCodexMcp(configPath, serverName, commandName, commandArgsJSON) {
+  const commandArgs = commandArgsJSON ? JSON.parse(commandArgsJSON) : ["mcp"];
+  const desiredBody = `command = ${JSON.stringify(commandName)}\nargs = ${JSON.stringify(commandArgs)}`;
   const targetHeader = `mcp_servers."${serverName}"`;
   const legacyServerName = "open-codex-computer-use";
   const legacyHeader = `mcp_servers."${legacyServerName}"`;
@@ -479,14 +502,21 @@ function main(argv) {
   const [command, ...args] = argv;
   switch (command) {
     case "claude-mcp":
-      if (args.length !== 4) {
+      if (args.length !== 4 && args.length !== 5) {
         usage();
         process.exit(1);
       }
       installClaudeMcp(...args);
       return;
+    case "claude-mcp-global":
+      if (args.length !== 3 && args.length !== 4) {
+        usage();
+        process.exit(1);
+      }
+      installClaudeMcpGlobal(...args);
+      return;
     case "codex-mcp":
-      if (args.length !== 3) {
+      if (args.length !== 3 && args.length !== 4) {
         usage();
         process.exit(1);
       }

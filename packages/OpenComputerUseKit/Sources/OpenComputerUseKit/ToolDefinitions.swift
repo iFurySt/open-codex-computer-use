@@ -71,6 +71,9 @@ public enum ToolDefinitions {
             inputSchema: objectSchema(
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier"),
+                    "text_limit": textLimitProperty(description: "Maximum text characters to return. Use \"max\" for full text. Defaults to 500."),
+                    "max_tree_nodes": positiveIntegerProperty(description: "Maximum accessibility tree nodes to render. Defaults to 1200."),
+                    "max_tree_depth": positiveIntegerProperty(description: "Maximum accessibility tree depth to render. Defaults to 64."),
                 ],
                 required: ["app"]
             )
@@ -194,6 +197,30 @@ private func stringProperty(description: String, enumValues: [String]? = nil) ->
 private func integerProperty(description: String) -> [String: Any] {
     [
         "type": "integer",
+        "description": description,
+    ]
+}
+
+private func positiveIntegerProperty(description: String) -> [String: Any] {
+    [
+        "type": "integer",
+        "minimum": 1,
+        "description": description,
+    ]
+}
+
+private func textLimitProperty(description: String) -> [String: Any] {
+    [
+        "anyOf": [
+            [
+                "type": "integer",
+                "minimum": 1,
+            ],
+            [
+                "type": "string",
+                "enum": [SnapshotTextLimit.maxKeyword],
+            ],
+        ],
         "description": description,
     ]
 }

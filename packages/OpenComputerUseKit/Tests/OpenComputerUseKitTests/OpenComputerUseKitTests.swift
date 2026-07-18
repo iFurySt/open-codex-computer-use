@@ -75,6 +75,82 @@ final class OpenComputerUseKitTests: XCTestCase {
         }
     }
 
+    func testCLIRecognizesSnapshotTextLimitFlag() throws {
+        XCTAssertEqual(
+            try parseOpenComputerUseCLI(arguments: ["snapshot", "TextEdit"]),
+            .snapshot(app: "TextEdit")
+        )
+        XCTAssertEqual(
+            try parseOpenComputerUseCLI(arguments: ["snapshot", "--text-limit", "1000", "TextEdit"]),
+            .snapshot(app: "TextEdit", textLimit: SnapshotTextLimit(maxCount: 1000))
+        )
+        XCTAssertEqual(
+            try parseOpenComputerUseCLI(arguments: ["snapshot", "TextEdit", "--text-limit", "max"]),
+            .snapshot(app: "TextEdit", textLimit: .max)
+        )
+        XCTAssertEqual(
+            try parseOpenComputerUseCLI(arguments: ["snapshot", "--max-tree-nodes", "3000", "--max-tree-depth", "96", "TextEdit"]),
+            .snapshot(
+                app: "TextEdit",
+                treeLimits: AccessibilityTreeLimits(maxNodeCount: 3000, maxDepth: 96)
+            )
+        )
+        XCTAssertEqual(
+            try parseOpenComputerUseCLI(arguments: ["snapshot", "--max-tree-nodes", "3000", "TextEdit"]),
+            .snapshot(
+                app: "TextEdit",
+                treeLimits: AccessibilityTreeLimits(maxNodeCount: 3000, maxDepth: accessibilityTreeMaxDepth)
+            )
+        )
+    }
+
+    func testCLIRejectsOldSnapshotFullTextFlag() {
+        XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["snapshot", "--show-full-text", "TextEdit"])) { error in
+            XCTAssertEqual(
+                error as? OpenComputerUseCLIError,
+                OpenComputerUseCLIError(message: "Unknown snapshot option: --show-full-text", helpCommand: "snapshot")
+            )
+        }
+    }
+
+    func testCLIRejectsInvalidSnapshotTextLimit() {
+        for value in ["0", "-1", "1.5", "full"] {
+            XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["snapshot", "--text-limit", value, "TextEdit"])) { error in
+                XCTAssertEqual(
+                    error as? OpenComputerUseCLIError,
+                    OpenComputerUseCLIError(message: "--text-limit must be a positive integer or max", helpCommand: "snapshot")
+                )
+            }
+        }
+        XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["snapshot", "--text-limit"])) { error in
+            XCTAssertEqual(
+                error as? OpenComputerUseCLIError,
+                OpenComputerUseCLIError(message: "--text-limit requires a positive integer or max value", helpCommand: "snapshot")
+            )
+        }
+    }
+
+    func testCLIRejectsInvalidSnapshotTreeBudget() {
+        XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["snapshot", "--max-tree-nodes", "0", "TextEdit"])) { error in
+            XCTAssertEqual(
+                error as? OpenComputerUseCLIError,
+                OpenComputerUseCLIError(message: "--max-tree-nodes must be a positive integer", helpCommand: "snapshot")
+            )
+        }
+        XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["snapshot", "--max-tree-depth", "1.5", "TextEdit"])) { error in
+            XCTAssertEqual(
+                error as? OpenComputerUseCLIError,
+                OpenComputerUseCLIError(message: "--max-tree-depth must be a positive integer", helpCommand: "snapshot")
+            )
+        }
+        XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["snapshot", "--max-tree-nodes"])) { error in
+            XCTAssertEqual(
+                error as? OpenComputerUseCLIError,
+                OpenComputerUseCLIError(message: "--max-tree-nodes requires a positive integer value", helpCommand: "snapshot")
+            )
+        }
+    }
+
     func testCLIRejectsMixedCallSequenceInputs() {
         XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["call", "list_apps", "--calls", "[]"])) { error in
             XCTAssertEqual(
@@ -172,6 +248,30 @@ final class OpenComputerUseKitTests: XCTestCase {
 
         XCTAssertEqual(arguments["app"] as? String, "TextEdit")
         XCTAssertEqual((arguments["pages"] as? NSNumber)?.intValue, 2)
+    }
+
+    func testElementIndexAcceptsNumericToolArgument() throws {
+        let arguments = try readOpenComputerUseToolArguments(
+            json: #"{"app":"TextEdit","element_index":0}"#,
+            file: nil
+        )
+
+        XCTAssertEqual(normalizedElementIndexArgument(arguments["element_index"]), "0")
+    }
+
+    func testElementIndexAcceptsNumericCallSequenceArgument() throws {
+        let calls = try readOpenComputerUseCallSequence(
+            json: #"[{"tool":"click","args":{"app":"TextEdit","element_index":0}}]"#,
+            file: nil
+        )
+
+        XCTAssertEqual(normalizedElementIndexArgument(calls[0].arguments["element_index"]), "0")
+    }
+
+    func testElementIndexRejectsMissingEmptyAndFractionalArguments() {
+        XCTAssertNil(normalizedElementIndexArgument(nil))
+        XCTAssertNil(normalizedElementIndexArgument(""))
+        XCTAssertNil(normalizedElementIndexArgument(1.5))
     }
 
     func testReadToolArgumentsRejectsNonObject() {
@@ -470,7 +570,7 @@ final class OpenComputerUseKitTests: XCTestCase {
 
     func testInitializeResponseContainsToolsCapability() throws {
         let server = StdioMCPServer(service: ComputerUseService())
-        let response = server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"0.1.51"},"capabilities":{}}}"#)
+        let response = server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"0.2.0"},"capabilities":{}}}"#)
         XCTAssertNotNil(response)
         XCTAssertTrue(response!.contains(#""name":"open-computer-use""#))
         XCTAssertTrue(response!.contains(#""tools":{"listChanged":false}"#))
@@ -479,7 +579,7 @@ final class OpenComputerUseKitTests: XCTestCase {
     func testInitializeResponseContainsComputerUseInstructions() throws {
         let server = StdioMCPServer(service: ComputerUseService())
         let response = try XCTUnwrap(
-            server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"0.1.51"},"capabilities":{}}}"#)
+            server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"0.2.0"},"capabilities":{}}}"#)
         )
         let data = try XCTUnwrap(response.data(using: .utf8))
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -530,6 +630,19 @@ final class OpenComputerUseKitTests: XCTestCase {
             ((tools["click"]?.inputSchema["properties"] as? [String: [String: Any]])?["mouse_button"]?["enum"] as? [String]) ?? [],
             ["left", "right", "middle"]
         )
+        let getAppStateSchema = tools["get_app_state"]?.inputSchema
+        let getAppStateProperties = getAppStateSchema?["properties"] as? [String: [String: Any]]
+        XCTAssertNil(getAppStateProperties?["show_full_text"])
+        let textLimitAnyOf = getAppStateProperties?["text_limit"]?["anyOf"] as? [[String: Any]]
+        XCTAssertEqual(textLimitAnyOf?[0]["type"] as? String, "integer")
+        XCTAssertEqual(textLimitAnyOf?[0]["minimum"] as? Int, 1)
+        XCTAssertEqual(textLimitAnyOf?[1]["type"] as? String, "string")
+        XCTAssertEqual(textLimitAnyOf?[1]["enum"] as? [String], ["max"])
+        XCTAssertEqual(getAppStateProperties?["max_tree_nodes"]?["type"] as? String, "integer")
+        XCTAssertEqual(getAppStateProperties?["max_tree_nodes"]?["minimum"] as? Int, 1)
+        XCTAssertEqual(getAppStateProperties?["max_tree_depth"]?["type"] as? String, "integer")
+        XCTAssertEqual(getAppStateProperties?["max_tree_depth"]?["minimum"] as? Int, 1)
+        XCTAssertEqual(getAppStateSchema?["required"] as? [String], ["app"])
         let scrollPages = (tools["scroll"]?.inputSchema["properties"] as? [String: [String: Any]])?["pages"]
         XCTAssertEqual(scrollPages?["type"] as? String, "number")
         XCTAssertEqual(
@@ -820,6 +933,10 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertTrue(shouldContinueRendering(nextIndex: 1199, depth: 63))
         XCTAssertFalse(shouldContinueRendering(nextIndex: 1200, depth: 20))
         XCTAssertFalse(shouldContinueRendering(nextIndex: 120, depth: 64))
+        let customLimits = AccessibilityTreeLimits(maxNodeCount: 3000, maxDepth: 96)
+        XCTAssertTrue(shouldContinueRendering(nextIndex: 1200, depth: 64, limits: customLimits))
+        XCTAssertFalse(shouldContinueRendering(nextIndex: 3000, depth: 20, limits: customLimits))
+        XCTAssertFalse(shouldContinueRendering(nextIndex: 20, depth: 96, limits: customLimits))
     }
 
     func testAccessibilityRendererElidesEmptyGenericElectronWrappers() {
@@ -842,6 +959,17 @@ final class OpenComputerUseKitTests: XCTestCase {
             traits: [],
             actions: [],
             childCount: 0
+        ))
+        XCTAssertFalse(shouldElideNode(
+            role: kAXGroupRole as String,
+            title: nil,
+            label: nil,
+            value: nil,
+            identifier: nil,
+            traits: [],
+            actions: [],
+            childCount: 0,
+            preservesAnonymousActionTarget: true
         ))
         XCTAssertFalse(shouldElideNode(
             role: kAXGroupRole as String,
@@ -941,6 +1069,97 @@ final class OpenComputerUseKitTests: XCTestCase {
         ))
     }
 
+    func testAccessibilityRendererRecognizesPrimaryClickActions() {
+        XCTAssertTrue(hasPrimaryClickAction([kAXPressAction as String]))
+        XCTAssertTrue(hasPrimaryClickAction([kAXConfirmAction as String]))
+        XCTAssertTrue(hasPrimaryClickAction(["AXOpen"]))
+        XCTAssertTrue(hasPrimaryClickAction(["axpress"]))
+        XCTAssertFalse(hasPrimaryClickAction(["AXShowMenu", "AXScrollToVisible", "AXRaise"]))
+    }
+
+    func testAccessibilityRendererMarksAnonymousGenericClickTargetsAsButtons() {
+        XCTAssertTrue(shouldRenderAnonymousActionTarget(
+            role: kAXGroupRole as String,
+            title: nil,
+            label: nil,
+            help: nil,
+            value: nil,
+            genericTextSummary: nil,
+            hasPrimaryClickAction: true,
+            localFrame: CGRect(x: 1455, y: 218, width: 15, height: 20)
+        ))
+        XCTAssertTrue(shouldRenderAnonymousActionTarget(
+            role: kAXUnknownRole as String,
+            title: nil,
+            label: nil,
+            help: nil,
+            value: nil,
+            genericTextSummary: nil,
+            hasPrimaryClickAction: true,
+            localFrame: CGRect(x: 1455, y: 245, width: 15, height: 20)
+        ))
+        XCTAssertFalse(shouldRenderAnonymousActionTarget(
+            role: kAXButtonRole as String,
+            title: nil,
+            label: nil,
+            help: nil,
+            value: nil,
+            genericTextSummary: nil,
+            hasPrimaryClickAction: true,
+            localFrame: CGRect(x: 10, y: 10, width: 32, height: 32)
+        ))
+        XCTAssertFalse(shouldRenderAnonymousActionTarget(
+            role: kAXGroupRole as String,
+            title: "Forward",
+            label: nil,
+            help: nil,
+            value: nil,
+            genericTextSummary: nil,
+            hasPrimaryClickAction: true,
+            localFrame: CGRect(x: 10, y: 10, width: 32, height: 32)
+        ))
+        XCTAssertFalse(shouldRenderAnonymousActionTarget(
+            role: kAXGroupRole as String,
+            title: nil,
+            label: nil,
+            help: nil,
+            value: nil,
+            genericTextSummary: "Candidate details",
+            hasPrimaryClickAction: true,
+            localFrame: CGRect(x: 10, y: 10, width: 32, height: 32)
+        ))
+        XCTAssertFalse(shouldRenderAnonymousActionTarget(
+            role: kAXGroupRole as String,
+            title: nil,
+            label: nil,
+            help: nil,
+            value: nil,
+            genericTextSummary: nil,
+            hasPrimaryClickAction: false,
+            localFrame: CGRect(x: 10, y: 10, width: 32, height: 32)
+        ))
+        XCTAssertFalse(shouldRenderAnonymousActionTarget(
+            role: kAXGroupRole as String,
+            title: nil,
+            label: nil,
+            help: nil,
+            value: nil,
+            genericTextSummary: nil,
+            hasPrimaryClickAction: true,
+            localFrame: CGRect(x: 0, y: 0, width: 1920, height: 929)
+        ))
+        XCTAssertFalse(shouldRenderAnonymousActionTarget(
+            role: kAXGroupRole as String,
+            title: nil,
+            label: nil,
+            help: nil,
+            value: nil,
+            genericTextSummary: nil,
+            hasPrimaryClickAction: true,
+            localFrame: CGRect(x: 0, y: 0, width: 15, height: 0)
+        ))
+    }
+
     func testAccessibilityRendererOnlyMergesShortTextOnlySiblingRuns() {
         XCTAssertTrue(shouldMergeTextOnlySiblings(["AgentSphere", "17:18", "好的，谢谢"]))
         XCTAssertFalse(shouldMergeTextOnlySiblings(["日期", "时间", "2026年5月7日", "晚餐", "18:00-20:00"]))
@@ -1019,6 +1238,21 @@ final class OpenComputerUseKitTests: XCTestCase {
         )
     }
 
+    func testSnapshotTextLimitDefaultsTo500AndSupportsMax() {
+        let longText = String(repeating: "候", count: defaultTextLimit + 20)
+        let customLimitText = String(repeating: "候", count: 1_020)
+
+        XCTAssertEqual(
+            sanitizeText(longText),
+            String(longText.prefix(defaultTextLimit)) + "..."
+        )
+        XCTAssertEqual(
+            sanitizeText(customLimitText, textLimit: SnapshotTextLimit(maxCount: 1_000)),
+            String(customLimitText.prefix(1_000)) + "..."
+        )
+        XCTAssertEqual(sanitizeText(longText, textLimit: .max), longText)
+    }
+
     func testAccessibilityRendererSuppressesDuplicateDescriptionForSameTextMarkdownLinks() {
         XCTAssertEqual(
             formattedLabelSegment(
@@ -1028,8 +1262,8 @@ final class OpenComputerUseKitTests: XCTestCase {
             ),
             ""
         )
-        let longURL = "https://example.com/docs?" + String(repeating: "query=value&", count: 20)
-        let truncatedURL = String(longURL.prefix(160)) + "..."
+        let longURL = "https://example.com/docs?" + String(repeating: "query=value&", count: 60)
+        let truncatedURL = String(longURL.prefix(defaultTextLimit)) + "..."
         XCTAssertEqual(
             formattedLabelSegment(
                 longURL,
@@ -1266,7 +1500,8 @@ final class OpenComputerUseKitTests: XCTestCase {
             bounds: CGRect(x: 100, y: 100, width: 800, height: 600),
             title: "Nomi",
             area: 480_000,
-            frontToBackIndex: 1
+            frontToBackIndex: 1,
+            isOnscreen: true
         )
         let openPanel = WindowCaptureCandidate(
             windowID: 2,
@@ -1274,7 +1509,8 @@ final class OpenComputerUseKitTests: XCTestCase {
             bounds: CGRect(x: 120, y: 180, width: 880, height: 448),
             title: "Open",
             area: 394_240,
-            frontToBackIndex: 0
+            frontToBackIndex: 0,
+            isOnscreen: true
         )
 
         let selected = preferredWindowCaptureCandidate([openPanel, main], titleHint: "Nomi")
@@ -1289,7 +1525,8 @@ final class OpenComputerUseKitTests: XCTestCase {
             bounds: CGRect(x: 100, y: 100, width: 800, height: 600),
             title: "Nomi",
             area: 480_000,
-            frontToBackIndex: 1
+            frontToBackIndex: 1,
+            isOnscreen: true
         )
         let other = WindowCaptureCandidate(
             windowID: 2,
@@ -1297,7 +1534,8 @@ final class OpenComputerUseKitTests: XCTestCase {
             bounds: CGRect(x: 1_200, y: 100, width: 400, height: 300),
             title: "Utility",
             area: 120_000,
-            frontToBackIndex: 0
+            frontToBackIndex: 0,
+            isOnscreen: true
         )
 
         let selected = preferredWindowCaptureCandidate([other, main], titleHint: "Nomi")
@@ -1759,6 +1997,67 @@ final class OpenComputerUseKitTests: XCTestCase {
                 "Expected lock message for tool \(tool), got: \(text)"
             )
         }
+    }
+
+    func testLockPolicyDefaultsToBlockWhenEnvironmentUnset() {
+        XCTAssertEqual(MacSessionLockPolicy.fromEnvironment([:]), .blockWhileLocked)
+        XCTAssertEqual(MacSessionLockPolicy.fromEnvironment(["OPEN_COMPUTER_USE_ALLOW_LOCKED": "0"]), .blockWhileLocked)
+        XCTAssertEqual(MacSessionLockPolicy.fromEnvironment(["OPEN_COMPUTER_USE_ALLOW_LOCKED": "false"]), .blockWhileLocked)
+        XCTAssertEqual(MacSessionLockPolicy.fromEnvironment(["OPEN_COMPUTER_USE_ALLOW_LOCKED": "nonsense"]), .blockWhileLocked)
+    }
+
+    func testLockPolicyParsesAllowValuesFromEnvironment() {
+        for value in ["1", "true", "TRUE", "  yes  ", "on", "allow"] {
+            XCTAssertEqual(
+                MacSessionLockPolicy.fromEnvironment(["OPEN_COMPUTER_USE_ALLOW_LOCKED": value]),
+                .allowWhileLocked,
+                "Expected allow policy for env value: \(value)"
+            )
+        }
+    }
+
+    func testGuardBlocksWhenLockedUnderDefaultPolicy() {
+        // Explicit policy makes the default fail-closed contract independent of the test env.
+        let guard_ = MacSessionGuard(provider: FakeLockedSessionProvider(), policy: .blockWhileLocked)
+        XCTAssertThrowsError(try guard_.requireUnlocked(for: "click"))
+    }
+
+    func testGuardAllowsAllToolsWhenLockedUnderOptInPolicy() {
+        let guard_ = MacSessionGuard(provider: FakeLockedSessionProvider(), policy: .allowWhileLocked)
+        let tools = ["list_apps", "get_app_state", "click", "perform_secondary_action",
+                     "scroll", "drag", "type_text", "press_key", "set_value"]
+        for tool in tools {
+            XCTAssertNoThrow(try guard_.requireUnlocked(for: tool), "Opt-in policy should permit \(tool) while locked")
+        }
+    }
+
+    func testGuardAllowsToolsWhenLockStateUnknownUnderOptInPolicy() {
+        // Unknown lock state (dict absent/unparseable) still fails closed by default, but the
+        // opt-in accepts the same best-effort risk the operator asked for.
+        let unknownLocked = FakeSnapshotProvider(
+            snapshot: MacSessionSnapshot(isLocked: true, isUnknown: true, rawKeysSeen: [])
+        )
+        let blockGuard = MacSessionGuard(provider: unknownLocked, policy: .blockWhileLocked)
+        XCTAssertThrowsError(try blockGuard.requireUnlocked(for: "click"))
+        let allowGuard = MacSessionGuard(provider: unknownLocked, policy: .allowWhileLocked)
+        XCTAssertNoThrow(try allowGuard.requireUnlocked(for: "click"))
+    }
+
+    func testGuardStillAllowsEverythingWhenUnlockedRegardlessOfPolicy() {
+        for policy in [MacSessionLockPolicy.blockWhileLocked, .allowWhileLocked] {
+            let guard_ = MacSessionGuard(provider: FakeUnlockedSessionProvider(), policy: policy)
+            XCTAssertNoThrow(try guard_.requireUnlocked(for: "click"))
+        }
+    }
+
+    func testDispatcherAllowsAXToolsWhenLockedWithOptIn() {
+        // With opt-in, the guard no longer short-circuits: list_apps passes the guard and runs
+        // (it needs no live UI, so it succeeds), proving locked no longer blocks unconditionally.
+        let optInGuard = MacSessionGuard(provider: FakeLockedSessionProvider(), policy: .allowWhileLocked)
+        let dispatcher = ComputerUseToolDispatcher(service: ComputerUseService(), guard: optInGuard)
+        let result = dispatcher.callToolAsResult(name: "list_apps", arguments: [:])
+        XCTAssertFalse(result.isError)
+        XCTAssertFalse((result.primaryText ?? "").contains("macOS is locked"))
     }
 
     func testDispatcherAllowsUnlockedTools() {

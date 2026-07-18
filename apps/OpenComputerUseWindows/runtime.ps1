@@ -4,6 +4,13 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$DefaultTextLimit = 500
+$AccessibilityTreeMaxNodeCount = 1200
+$AccessibilityTreeMaxDepth = 64
+
+# Set output encoding to UTF-8 to properly handle non-ASCII characters
+$OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
@@ -411,7 +418,41 @@ function Get-ElementControlTypeName($element) {
     }
 }
 
-function Get-ElementValue($element) {
+function Resolve-TextLimit($Value) {
+    if ($null -eq $Value) {
+        return $script:DefaultTextLimit
+    }
+    if ($Value -is [string] -and $Value.Trim().ToLowerInvariant() -eq "max") {
+        return $null
+    }
+    if ($Value -is [bool]) {
+        return $script:DefaultTextLimit
+    }
+    try {
+        $integer = [int]$Value
+        if ($integer -gt 0) {
+            return $integer
+        }
+    } catch {
+    }
+    return $script:DefaultTextLimit
+}
+
+function Limit-Text([string]$Text, $TextLimit = $script:DefaultTextLimit) {
+    if ($null -eq $Text) {
+        return ""
+    }
+    if ($null -eq $TextLimit) {
+        return $Text
+    }
+    $effectiveTextLimit = [int]$TextLimit
+    if ($Text.Length -gt $effectiveTextLimit) {
+        return $Text.Substring(0, $effectiveTextLimit) + "..."
+    }
+    return $Text
+}
+
+function Get-ElementValue($element, $TextLimit = $script:DefaultTextLimit) {
     try {
         $valuePattern = $element.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
         $value = $valuePattern.Current.Value
@@ -419,16 +460,13 @@ function Get-ElementValue($element) {
             return ""
         }
         $text = [string]$value
-        if ($text.Length -gt 500) {
-            return $text.Substring(0, 500)
-        }
-        return $text
+        return Limit-Text $text $TextLimit
     } catch {
         return ""
     }
 }
 
-function Get-ElementRecord($element, [int]$index, $windowBounds) {
+function Get-ElementRecord($element, [int]$index, $windowBounds, $TextLimit = $script:DefaultTextLimit) {
     $frame = Get-ElementFrame $element $windowBounds
     $runtimeId = @()
     try { $runtimeId = @($element.GetRuntimeId()) } catch {}
@@ -436,11 +474,11 @@ function Get-ElementRecord($element, [int]$index, $windowBounds) {
         index = $index
         runtimeId = $runtimeId
         automationId = Get-ElementString $element "AutomationId"
-        name = Get-ElementString $element "Name"
+        name = Limit-Text (Get-ElementString $element "Name") $TextLimit
         controlType = Get-ElementControlTypeName $element
         localizedControlType = Get-ElementString $element "LocalizedControlType"
         className = Get-ElementString $element "ClassName"
-        value = Get-ElementValue $element
+        value = Get-ElementValue $element $TextLimit
         nativeWindowHandle = Get-ElementInt64 $element "NativeWindowHandle"
         frame = $frame
         actions = @(Get-PatternNames $element)
@@ -457,14 +495,16 @@ function Get-ElementTitle($record) {
     return ""
 }
 
-function Render-Tree($element, $windowBounds) {
+function Render-Tree($element, $windowBounds, $TextLimit = $script:DefaultTextLimit, [int]$MaxTreeNodes = $script:AccessibilityTreeMaxNodeCount, [int]$MaxTreeDepth = $script:AccessibilityTreeMaxDepth) {
     $records = New-Object System.Collections.Generic.List[object]
     $lines = New-Object System.Collections.Generic.List[string]
     $visited = New-Object System.Collections.Generic.HashSet[string]
     $nextIndex = 0
+    $effectiveMaxTreeNodes = if ($MaxTreeNodes -gt 0) { $MaxTreeNodes } else { $script:AccessibilityTreeMaxNodeCount }
+    $effectiveMaxTreeDepth = if ($MaxTreeDepth -gt 0) { $MaxTreeDepth } else { $script:AccessibilityTreeMaxDepth }
 
     function Visit($node, [int]$depth) {
-        if ($script:nextIndex -ge 500 -or $depth -gt 16) {
+        if ($script:nextIndex -ge $script:MaxTreeNodes -or $depth -gt $script:MaxTreeDepth) {
             return
         }
         $runtime = ""
@@ -475,7 +515,7 @@ function Render-Tree($element, $windowBounds) {
 
         $index = $script:nextIndex
         $script:nextIndex++
-        $record = Get-ElementRecord $node $index $script:windowBounds
+        $record = Get-ElementRecord $node $index $script:windowBounds $TextLimit
         $script:records.Add($record)
 
         $role = $record.localizedControlType
@@ -512,6 +552,8 @@ function Render-Tree($element, $windowBounds) {
     $script:visited = $visited
     $script:nextIndex = $nextIndex
     $script:windowBounds = $windowBounds
+    $script:MaxTreeNodes = $effectiveMaxTreeNodes
+    $script:MaxTreeDepth = $effectiveMaxTreeDepth
     Visit $element 0
 
     [pscustomobject]@{
@@ -540,12 +582,12 @@ function Capture-WindowPngBase64($bounds) {
     }
 }
 
-function Get-FocusedSummary($processId) {
+function Get-FocusedSummary($processId, $TextLimit = $script:DefaultTextLimit) {
     try {
         $focused = [Windows.Automation.AutomationElement]::FocusedElement
         if ($null -ne $focused -and $focused.Current.ProcessId -eq $processId) {
             $role = $focused.Current.LocalizedControlType
-            $name = $focused.Current.Name
+            $name = Limit-Text $focused.Current.Name $TextLimit
             if ([string]::IsNullOrWhiteSpace($name)) {
                 return $role
             }
@@ -556,7 +598,7 @@ function Get-FocusedSummary($processId) {
     return $null
 }
 
-function Get-SelectedText($processId) {
+function Get-SelectedText($processId, $TextLimit = $script:DefaultTextLimit) {
     try {
         $focused = [Windows.Automation.AutomationElement]::FocusedElement
         if ($null -eq $focused -or $focused.Current.ProcessId -ne $processId) {
@@ -565,30 +607,31 @@ function Get-SelectedText($processId) {
         $textPattern = $focused.GetCurrentPattern([Windows.Automation.TextPattern]::Pattern)
         $selection = $textPattern.GetSelection()
         if ($selection.Count -gt 0) {
-            return $selection.Item(0).GetText(2048)
+            $maxLength = if ($null -eq $TextLimit) { -1 } else { [int]$TextLimit + 1 }
+            return Limit-Text ($selection.Item(0).GetText($maxLength)) $TextLimit
         }
     } catch {
     }
     return $null
 }
 
-function Build-Snapshot([string]$query) {
+function Build-Snapshot([string]$query, $TextLimit = $script:DefaultTextLimit, [int]$MaxTreeNodes = $script:AccessibilityTreeMaxNodeCount, [int]$MaxTreeDepth = $script:AccessibilityTreeMaxDepth) {
     $process = Resolve-App $query
     $element = Get-MainElement $process
     $bounds = Get-WindowBounds $process $element
-    $rendered = Render-Tree $element $bounds
+    $rendered = Render-Tree $element $bounds $TextLimit $MaxTreeNodes $MaxTreeDepth
     [pscustomobject]@{
         app = [pscustomobject]@{
             name = $process.ProcessName
             bundleIdentifier = $process.ProcessName
             pid = [int]$process.Id
         }
-        windowTitle = $process.MainWindowTitle
+        windowTitle = Limit-Text $process.MainWindowTitle $TextLimit
         windowBounds = $bounds
         screenshotPngBase64 = Capture-WindowPngBase64 $bounds
         treeLines = @($rendered.lines)
-        focusedSummary = Get-FocusedSummary $process.Id
-        selectedText = Get-SelectedText $process.Id
+        focusedSummary = Get-FocusedSummary $process.Id $TextLimit
+        selectedText = Get-SelectedText $process.Id $TextLimit
         elements = @($rendered.records)
     }
 }
@@ -848,13 +891,18 @@ function Invoke-TypeText($process, [string]$text) {
     return $false
 }
 
-$operation = Get-Content -Raw -Path $OperationPath | ConvertFrom-Json
+# Read the operation file as UTF-8 explicitly. Windows PowerShell 5.1's
+# Get-Content defaults to the system ANSI code page (e.g. GBK on Chinese
+# systems) for files without a BOM, which corrupts non-ASCII input such as
+# Chinese text passed to set_value/type_text.
+$operationJson = [System.IO.File]::ReadAllText($OperationPath, [System.Text.Encoding]::UTF8)
+$operation = $operationJson | ConvertFrom-Json
 
 try {
     if ($operation.tool -eq "list_apps") {
         $response = [pscustomobject]@{ ok = $true; text = (List-Apps) }
     } elseif ($operation.tool -eq "get_app_state") {
-        $response = [pscustomobject]@{ ok = $true; snapshot = (Build-Snapshot $operation.app) }
+        $response = [pscustomobject]@{ ok = $true; snapshot = (Build-Snapshot $operation.app (Resolve-TextLimit $operation.text_limit) ([int]$operation.max_tree_nodes) ([int]$operation.max_tree_depth)) }
     } else {
         $process = Resolve-App $operation.app
         $hwnd = [IntPtr]$process.MainWindowHandle
