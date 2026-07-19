@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import CoreGraphics
+import Darwin
 import Foundation
 import ScreenCaptureKit
 
@@ -83,16 +84,94 @@ public struct SnapshotTextLimit: Equatable, Sendable {
 
 let accessibilityTreeMaxNodeCount = AccessibilityTreeLimits.defaultMaxNodeCount
 let accessibilityTreeMaxDepth = AccessibilityTreeLimits.defaultMaxDepth
-let screenshotCaptureTimeout: TimeInterval = 5
-let screenshotResultMaxPNGBytes = 900_000
-let screenshotResultMaxDimension: CGFloat = 1280
-let screenshotResultMinScale: CGFloat = 0.25
 private let windowVisibilityRecoveryDelay: TimeInterval = 0.7
 private let axWebAreaRole = "AXWebArea"
 private let axContentsAttribute = "AXContents"
 private let axVisibleChildrenAttribute = "AXVisibleChildren"
 private let anonymousActionTargetMaxWidth: CGFloat = 240
 private let anonymousActionTargetMaxHeight: CGFloat = 120
+
+struct ImageCaptureConfig: Sendable, Equatable {
+    let captureTimeout: TimeInterval
+    let maxPNGBytes: Int
+    let maxDimension: Int
+    let minScale: CGFloat
+
+    static let defaults = ImageCaptureConfig(
+        captureTimeout: 5,
+        maxPNGBytes: 900_000,
+        maxDimension: 1280,
+        minScale: 0.25
+    )
+
+    static var current: ImageCaptureConfig {
+        fromEnvironment([
+            "OPEN_COMPUTER_USE_IMAGE_CAPTURE_TIMEOUT": liveEnvironmentValue("OPEN_COMPUTER_USE_IMAGE_CAPTURE_TIMEOUT"),
+            "OPEN_COMPUTER_USE_IMAGE_MAX_BYTES": liveEnvironmentValue("OPEN_COMPUTER_USE_IMAGE_MAX_BYTES"),
+            "OPEN_COMPUTER_USE_IMAGE_MAX_DIMENSION": liveEnvironmentValue("OPEN_COMPUTER_USE_IMAGE_MAX_DIMENSION"),
+            "OPEN_COMPUTER_USE_IMAGE_MIN_SCALE": liveEnvironmentValue("OPEN_COMPUTER_USE_IMAGE_MIN_SCALE"),
+        ].compactMapValues { $0 })
+    }
+
+    static func fromEnvironment(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> ImageCaptureConfig {
+        ImageCaptureConfig(
+            captureTimeout: parseImageConfigPositiveDouble(environment["OPEN_COMPUTER_USE_IMAGE_CAPTURE_TIMEOUT"])
+                ?? defaults.captureTimeout,
+            maxPNGBytes: parseImageConfigPositiveInt(environment["OPEN_COMPUTER_USE_IMAGE_MAX_BYTES"])
+                ?? defaults.maxPNGBytes,
+            maxDimension: parseImageConfigPositiveInt(environment["OPEN_COMPUTER_USE_IMAGE_MAX_DIMENSION"])
+                ?? defaults.maxDimension,
+            minScale: parseImageConfigUnitInterval(environment["OPEN_COMPUTER_USE_IMAGE_MIN_SCALE"])
+                .map { CGFloat($0) } ?? defaults.minScale
+        )
+    }
+}
+
+private func liveEnvironmentValue(_ name: String) -> String? {
+    guard let value = getenv(name) else {
+        return nil
+    }
+    return String(cString: value)
+}
+
+private func parseImageConfigPositiveInt(_ raw: String?) -> Int? {
+    guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !raw.isEmpty,
+          let value = Int(raw),
+          value > 0
+    else {
+        return nil
+    }
+
+    return value
+}
+
+private func parseImageConfigPositiveDouble(_ raw: String?) -> Double? {
+    guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !raw.isEmpty,
+          let value = Double(raw),
+          value > 0,
+          value.isFinite
+    else {
+        return nil
+    }
+
+    return value
+}
+
+private func parseImageConfigUnitInterval(_ raw: String?) -> Double? {
+    guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !raw.isEmpty,
+          let value = Double(raw),
+          value > 0,
+          value <= 1,
+          value.isFinite
+    else {
+        return nil
+    }
+
+    return value
+}
 
 public struct AppSnapshot {
     public let app: RunningAppDescriptor
@@ -413,6 +492,7 @@ private struct WindowCapture {
     let layer: Int
     let bounds: CGRect
     let image: CGImage?
+    let imageConfig: ImageCaptureConfig
 
     static func resolve(for pid: pid_t, titleHint: String?) -> WindowCapture? {
         guard let infoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
@@ -447,13 +527,14 @@ private struct WindowCapture {
             return nil
         }
 
-        let image = captureImage(windowID: best.windowID, bounds: best.bounds)
+        let imageConfig = ImageCaptureConfig.current
+        let image = captureImage(windowID: best.windowID, bounds: best.bounds, config: imageConfig)
 
-        return WindowCapture(windowID: best.windowID, layer: best.layer, bounds: best.bounds, image: image)
+        return WindowCapture(windowID: best.windowID, layer: best.layer, bounds: best.bounds, image: image, imageConfig: imageConfig)
     }
 
-    private static func captureImage(windowID: CGWindowID, bounds: CGRect) -> CGImage? {
-        try? BlockingAsyncBridge.run(timeout: screenshotCaptureTimeout) {
+    private static func captureImage(windowID: CGWindowID, bounds: CGRect, config: ImageCaptureConfig) -> CGImage? {
+        try? BlockingAsyncBridge.run(timeout: config.captureTimeout) {
             let shareableContent = try await SCShareableContent.current
             guard let window = shareableContent.windows.first(where: { $0.windowID == windowID }) else {
                 return nil
@@ -484,7 +565,12 @@ private struct WindowCapture {
             return nil
         }
 
-        return boundedScreenshotPNGData(for: image)
+        return boundedScreenshotPNGData(
+            for: image,
+            maxBytes: imageConfig.maxPNGBytes,
+            maxDimension: CGFloat(imageConfig.maxDimension),
+            minScale: imageConfig.minScale
+        )
     }
 }
 
@@ -531,24 +617,34 @@ func preferredWindowCaptureCandidate(_ candidates: [WindowCaptureCandidate], tit
 
 func boundedScreenshotPNGData(
     for image: CGImage,
-    maxBytes: Int = screenshotResultMaxPNGBytes,
-    maxDimension: CGFloat = screenshotResultMaxDimension,
-    minScale: CGFloat = screenshotResultMinScale
+    maxBytes: Int = ImageCaptureConfig.defaults.maxPNGBytes,
+    maxDimension: CGFloat = CGFloat(ImageCaptureConfig.defaults.maxDimension),
+    minScale: CGFloat = ImageCaptureConfig.defaults.minScale
 ) -> Data? {
-    guard image.width > 0, image.height > 0, maxBytes > 0 else {
+    guard image.width > 0,
+          image.height > 0,
+          maxBytes > 0,
+          maxDimension >= 1,
+          maxDimension.isFinite,
+          maxDimension.rounded(.down) == maxDimension,
+          minScale > 0,
+          minScale <= 1,
+          minScale.isFinite
+    else {
         return nil
     }
 
     let original = pngData(for: image)
     let largestDimension = CGFloat(max(image.width, image.height))
     var scale = min(1, maxDimension / largestDimension)
+    let byteBudgetFloorScale = scale * minScale
 
     if scale >= 1, let original, original.count <= maxBytes {
         return original
     }
 
     var best = original
-    while scale >= minScale {
+    while scale >= byteBudgetFloorScale {
         guard let resized = resizedCGImage(image, scale: scale),
               let data = pngData(for: resized)
         else {
@@ -557,6 +653,9 @@ func boundedScreenshotPNGData(
 
         best = data
         if data.count <= maxBytes {
+            return data
+        }
+        if resized.width == 1, resized.height == 1 {
             return data
         }
 
@@ -572,8 +671,8 @@ private func pngData(for image: CGImage) -> Data? {
 }
 
 private func resizedCGImage(_ image: CGImage, scale: CGFloat) -> CGImage? {
-    let width = max(1, Int((CGFloat(image.width) * scale).rounded()))
-    let height = max(1, Int((CGFloat(image.height) * scale).rounded()))
+    let width = max(1, Int((CGFloat(image.width) * scale).rounded(.down)))
+    let height = max(1, Int((CGFloat(image.height) * scale).rounded(.down)))
     let colorSpace = CGColorSpaceCreateDeviceRGB()
     let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
 
