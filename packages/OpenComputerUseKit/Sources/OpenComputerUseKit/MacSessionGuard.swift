@@ -1,10 +1,15 @@
 import Foundation
 import ApplicationServices
 
-// macOS CGSession lock state keys — verified on macOS 12–15 (Monterey–Sequoia) and macOS 26
-// CGSSessionScreenIsLocked: Bool — true when session is locked
-// Key absent or dict nil/empty → treat as locked (fail-closed)
+// macOS CGSession lock state keys — absent-key-corroborated-by-on-console semantics below are
+// empirically verified ONLY on macOS 26 (Darwin 27) on this machine.
+// CGSSessionScreenIsLocked: Bool — present as true only while locked.
+// Absent key alone is ambiguous: corroborated by kCGSSessionOnConsoleKey (see parseSnapshot).
+// Nil/empty dict and unparseable values remain fail-closed (treated as locked).
+// Screensaver-without-password is presence-blind and reads UNLOCKED (on-console stays true) —
+// a behavior change from prior fail-closed, documented not fixed.
 let cgSessionScreenIsLockedKey = "CGSSessionScreenIsLocked"
+let kCGSSessionOnConsoleKey = "kCGSSessionOnConsoleKey"
 
 public protocol MacSessionStateProvider {
     func currentSnapshot() -> MacSessionSnapshot
@@ -22,7 +27,9 @@ public struct MacSessionSnapshot {
     }
 }
 
-// TTL for CGSessionCopyCurrentDictionary cache — 200ms balances IPC cost vs responsiveness
+// TTL for CGSessionCopyCurrentDictionary cache — 200ms balances IPC cost vs responsiveness.
+// Cache only holds locked/unknown snapshots; unlocked is always re-fetched so a lock transition
+// is never masked by a stale cache entry (see shouldCache).
 private let sessionStateCacheTTL: TimeInterval = 0.200
 
 // Behavior when the screen is locked. Default fail-closed (block); opt-in allow is
@@ -70,6 +77,23 @@ private final class AllowWhileLockedNotice: @unchecked Sendable {
     }
 }
 
+// Process-global one-shot stderr notice, emitted the first time the absent-key + on-console
+// branch infers "unlocked" — makes a wrong-direction OS (see file-top residual) detectable
+// from field logs without per-call spam.
+private final class InferredUnlockNotice: @unchecked Sendable {
+    static let shared = InferredUnlockNotice()
+    private let lock = NSLock()
+    private var emitted = false
+
+    func emitIfNeeded() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !emitted else { return }
+        emitted = true
+        fputs("[open-computer-use] lock key absent, inferred unlocked from on-console signal (verified macOS 26 only) — see MacSessionGuard.swift for scope.\n", stderr)
+    }
+}
+
 public final class SystemMacSessionStateProvider: MacSessionStateProvider {
     private var cachedSnapshot: MacSessionSnapshot?
     private var cacheTimestamp: TimeInterval = 0
@@ -88,34 +112,65 @@ public final class SystemMacSessionStateProvider: MacSessionStateProvider {
         lock.unlock()
         let fresh = Self.fetchFromSystem()
         lock.lock()
-        cachedSnapshot = fresh
-        cacheTimestamp = now
+        // R2: never cache a stale-unlocked verdict across a lock transition — cache only holds
+        // locked/unknown snapshots; unlocked is always re-fetched so a lock transition is never
+        // masked by a stale cache entry.
+        if Self.shouldCache(fresh) {
+            cachedSnapshot = fresh
+            cacheTimestamp = now
+        } else {
+            cachedSnapshot = nil
+        }
         lock.unlock()
         return fresh
     }
 
     private static func fetchFromSystem() -> MacSessionSnapshot {
-        guard let dict = CGSessionCopyCurrentDictionary() as? [String: Any], !dict.isEmpty else {
-            return MacSessionSnapshot(isLocked: true, isUnknown: true, rawKeysSeen: [])
+        let dict = CGSessionCopyCurrentDictionary() as? [String: Any]
+        let rawKeys: Set<String> = dict.map { Set($0.keys) } ?? []
+        return parseSnapshot(dict, rawKeys: rawKeys)
+    }
+
+    // Reachable via @testable import for unit coverage; not part of the public API.
+    internal static func parseSnapshot(_ dict: [String: Any]?, rawKeys: Set<String>) -> MacSessionSnapshot {
+        guard let dict, !dict.isEmpty else {
+            return MacSessionSnapshot(isLocked: true, isUnknown: true, rawKeysSeen: rawKeys)
         }
-        let rawKeys = Set(dict.keys)
         #if DEBUG
         if ProcessInfo.processInfo.environment["OPEN_COMPUTER_USE_LOCK_FAIL_OPEN"] == "1" {
             return MacSessionSnapshot(isLocked: false, isUnknown: false, rawKeysSeen: rawKeys)
         }
         #endif
+        // Ordering is load-bearing: the explicit lock signal is always checked before the
+        // console gate, so a genuinely locked session with the key present is never affected
+        // by the new branch below, including when off-console (e.g. FUS-away).
         guard let lockedValue = dict[cgSessionScreenIsLockedKey] else {
+            if coerceBool(dict[kCGSSessionOnConsoleKey]) == true {
+                InferredUnlockNotice.shared.emitIfNeeded()
+                return MacSessionSnapshot(isLocked: false, isUnknown: false, rawKeysSeen: rawKeys)
+            }
             return MacSessionSnapshot(isLocked: true, isUnknown: true, rawKeysSeen: rawKeys)
         }
-        let isLocked: Bool
-        if let boolVal = lockedValue as? Bool {
-            isLocked = boolVal
-        } else if let numVal = lockedValue as? NSNumber {
-            isLocked = numVal.boolValue
-        } else {
+        guard let isLocked = coerceBool(lockedValue) else {
             return MacSessionSnapshot(isLocked: true, isUnknown: true, rawKeysSeen: rawKeys)
         }
         return MacSessionSnapshot(isLocked: isLocked, isUnknown: false, rawKeysSeen: rawKeys)
+    }
+
+    private static func coerceBool(_ value: Any?) -> Bool? {
+        if let boolVal = value as? Bool {
+            return boolVal
+        }
+        if let numVal = value as? NSNumber {
+            return numVal.boolValue
+        }
+        return nil
+    }
+
+    // R2: cache only holds locked/unknown snapshots; unlocked is always re-fetched so a lock
+    // transition is never masked by a stale cache entry.
+    internal static func shouldCache(_ snapshot: MacSessionSnapshot) -> Bool {
+        snapshot.isLocked
     }
 }
 

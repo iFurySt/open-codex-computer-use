@@ -1958,6 +1958,114 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertFalse(snapshot.isLocked)
     }
 
+    // MARK: - parseSnapshot tests (console-gated absent-key fix)
+
+    func testParseSnapshotNilDictFailsClosed() {
+        let snap = SystemMacSessionStateProvider.parseSnapshot(nil, rawKeys: [])
+        XCTAssertTrue(snap.isLocked)
+        XCTAssertTrue(snap.isUnknown)
+    }
+
+    func testParseSnapshotEmptyDictFailsClosed() {
+        let snap = SystemMacSessionStateProvider.parseSnapshot([:], rawKeys: [])
+        XCTAssertTrue(snap.isLocked)
+        XCTAssertTrue(snap.isUnknown)
+    }
+
+    func testParseSnapshotKeyAbsentOnConsoleTrueReturnsUnlocked() {
+        let dict: [String: Any] = ["kCGSSessionOnConsoleKey": true]
+        let snap = SystemMacSessionStateProvider.parseSnapshot(dict, rawKeys: Set(dict.keys))
+        XCTAssertFalse(snap.isLocked)
+        XCTAssertFalse(snap.isUnknown)
+    }
+
+    func testParseSnapshotKeyAbsentOnConsoleTrueNSNumberReturnsUnlocked() {
+        let dict: [String: Any] = ["kCGSSessionOnConsoleKey": NSNumber(value: 1)]
+        let snap = SystemMacSessionStateProvider.parseSnapshot(dict, rawKeys: Set(dict.keys))
+        XCTAssertFalse(snap.isLocked)
+        XCTAssertFalse(snap.isUnknown)
+    }
+
+    func testParseSnapshotKeyAbsentOnConsoleFalseFailsClosed() {
+        let dict: [String: Any] = ["kCGSSessionOnConsoleKey": false]
+        let snap = SystemMacSessionStateProvider.parseSnapshot(dict, rawKeys: Set(dict.keys))
+        XCTAssertTrue(snap.isLocked)
+        XCTAssertTrue(snap.isUnknown)
+    }
+
+    func testParseSnapshotKeyAbsentOnConsoleKeyAbsentFailsClosed() {
+        let dict: [String: Any] = ["SomeOtherKey": "x"]
+        let snap = SystemMacSessionStateProvider.parseSnapshot(dict, rawKeys: Set(dict.keys))
+        XCTAssertTrue(snap.isLocked)
+        XCTAssertTrue(snap.isUnknown)
+    }
+
+    func testParseSnapshotKeyAbsentOnConsoleUnparseableFailsClosed() {
+        let dict: [String: Any] = ["kCGSSessionOnConsoleKey": "garbage"]
+        let snap = SystemMacSessionStateProvider.parseSnapshot(dict, rawKeys: Set(dict.keys))
+        XCTAssertTrue(snap.isLocked)
+        XCTAssertTrue(snap.isUnknown)
+    }
+
+    func testParseSnapshotKeyPresentTrueLockedRegardlessOfConsole() {
+        let dict: [String: Any] = ["CGSSessionScreenIsLocked": true, "kCGSSessionOnConsoleKey": true]
+        let snap = SystemMacSessionStateProvider.parseSnapshot(dict, rawKeys: Set(dict.keys))
+        XCTAssertTrue(snap.isLocked)
+        XCTAssertFalse(snap.isUnknown)
+    }
+
+    func testParseSnapshotKeyPresentFalseUnlocked() {
+        let dict: [String: Any] = ["CGSSessionScreenIsLocked": false]
+        let snap = SystemMacSessionStateProvider.parseSnapshot(dict, rawKeys: Set(dict.keys))
+        XCTAssertFalse(snap.isLocked)
+        XCTAssertFalse(snap.isUnknown)
+    }
+
+    func testParseSnapshotKeyPresentNSNumberTrueLocked() {
+        let dict: [String: Any] = ["CGSSessionScreenIsLocked": NSNumber(value: 1)]
+        let snap = SystemMacSessionStateProvider.parseSnapshot(dict, rawKeys: Set(dict.keys))
+        XCTAssertTrue(snap.isLocked)
+        XCTAssertFalse(snap.isUnknown)
+    }
+
+    func testParseSnapshotKeyPresentUnparseableTypeFailsClosed() {
+        let dict: [String: Any] = ["CGSSessionScreenIsLocked": "garbage"]
+        let snap = SystemMacSessionStateProvider.parseSnapshot(dict, rawKeys: Set(dict.keys))
+        XCTAssertTrue(snap.isLocked)
+        XCTAssertTrue(snap.isUnknown)
+    }
+
+    func testParseSnapshotKeyPresentTrueLockedWithOffConsole() {
+        let dict: [String: Any] = ["CGSSessionScreenIsLocked": true, "kCGSSessionOnConsoleKey": false]
+        let snap = SystemMacSessionStateProvider.parseSnapshot(dict, rawKeys: Set(dict.keys))
+        XCTAssertTrue(snap.isLocked)
+        XCTAssertFalse(snap.isUnknown)
+    }
+
+    // MARK: - shouldCache tests (R2 asymmetric caching)
+
+    func testSystemMacSessionStateProviderDoesNotCacheUnlockedSnapshot() {
+        let snapshot = MacSessionSnapshot(isLocked: false, isUnknown: false, rawKeysSeen: [])
+        XCTAssertFalse(SystemMacSessionStateProvider.shouldCache(snapshot))
+    }
+
+    func testSystemMacSessionStateProviderCachesLockedSnapshot() {
+        let locked = MacSessionSnapshot(isLocked: true, isUnknown: false, rawKeysSeen: [])
+        let unknown = MacSessionSnapshot(isLocked: true, isUnknown: true, rawKeysSeen: [])
+        XCTAssertTrue(SystemMacSessionStateProvider.shouldCache(locked))
+        XCTAssertTrue(SystemMacSessionStateProvider.shouldCache(unknown))
+    }
+
+    // MARK: - Live system probe (manual verification only, skipped by default)
+
+    func testLiveSystemProbePrintsRealLockState() throws {
+        guard ProcessInfo.processInfo.environment["OPEN_COMPUTER_USE_LIVE_PROBE"] == "1" else {
+            throw XCTSkip("set OPEN_COMPUTER_USE_LIVE_PROBE=1 to probe the real session dictionary")
+        }
+        let snap = SystemMacSessionStateProvider().currentSnapshot()
+        print("[live-probe] isLocked=\(snap.isLocked) isUnknown=\(snap.isUnknown) rawKeysSeen=\(snap.rawKeysSeen.sorted())")
+    }
+
     func testSystemMacSessionStateProviderCachesWithinTTL() {
         // Uses a fake provider to verify the caching concept — we cannot test
         // SystemMacSessionStateProvider directly without mocking CGSessionCopyCurrentDictionary.

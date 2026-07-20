@@ -1,0 +1,19 @@
+Verified against source (`MacSessionGuard.swift` L26 TTL=0.200, L84 cache, L104-119 parse, L143-146 `requireUnlocked` early-returns on `!isLocked`).
+
+1. BLOCKER — Load-bearing correlate never verified in the safe direction. The entire fix rests on the invariant "session not physically frontmost ⇒ `kCGSSessionOnConsoleKey`==false". The plan empirically proves ONLY `on-console=true ⇒ unlocked` (live probe + lock/unlock manual). It never verifies fast-user-switch-away or the pre-unlock login window actually flips on-console to false. If a backgrounded/FUS'd session still reports on-console=true with the lock key absent, the guard returns UNLOCKED while another user is at the machine. Add a mandatory manual test: FUS to a second user (or hit login window via FUS), then from the still-open SSH/tmux session in the backgrounded account run the live probe — MUST report `isLocked=true`. This is the single most important missing test.
+
+2. BLOCKER — Cache TTL now serves a stale UNLOCKED verdict across a lock transition, violating hard constraint (3) within the 200ms window. Before this fix `currentSnapshot()` could never cache an unlocked value; now it can. Lock the screen, then any tool call within 200ms of the last unlocked read returns cached `isLocked=false`. The risk section claims the fix "cannot create a false unlocked while genuinely locked" — false for up to TTL. Fix: bypass/short-circuit the cache when transitioning, or (simplest) do not cache `isLocked=false` snapshots, or drop TTL toward 0 for the unlocked case. At minimum add this to Risks and a regression test.
+
+3. BLOCKER — Fail-open path is reachable on every OS except the one tested. Pre-fix, absent-key was fail-closed (safe-but-broken) on all versions. Post-fix, absent-key + on-console=true fails OPEN. The manual/live verification covers only macOS 26. On 12-15 and 16-25 the new fail-open branch is reachable and unproven; if any of those versions omits `CGSSessionScreenIsLocked` while locked (the exact failure the fix trades on) it reports unlocked-while-locked. Either gate the console-gate branch behind an OS-version check tied to the verified range, or have the plan explicitly accept the residual in writing — silently shipping an untested fail-open to unverified OSes is the wrong default for a security guard.
+
+4. NOTE — Screensaver-without-password now reports UNLOCKED (key absent + on-console true), a behavior change from prior fail-closed. Defensible (no password ⇒ not "locked"), but it is presence-blind and undocumented. Add it as a manual verification case and one line in the file-top comment.
+
+5. NOTE — Inferred-unlocked returns `isUnknown=false`, asserting high confidence in a state derived from an undocumented private-API correlation, and suppresses the `rawKeysSeen` stderr diagnostic for that path (harmless since `isLocked=false` early-returns, but it removes field-triage visibility for exactly the branch most likely to be wrong). Consider logging the inferred-unlocked decision once for observability.
+
+6. NOTE — Test matrix has no case for lock key present=true WITH on-console=false (locked + switched-away). Trivially correct via ordering (#8), but adding it cheaply pins the "explicit-lock-wins" contract for the FUS-away shape too.
+
+7. NOTE — Daemon/SSH context relies on `CGSessionCopyCurrentDictionary()` returning nil (⇒ case 1 fail-closed). Correct today, but the plan asserts it without a probe. The FUS manual test in finding 1 should be run from an SSH session specifically, which also exercises this path.
+
+Test plan's single biggest omission: no fast-user-switch / login-window manual case (finding 1) and no cache-TTL case (finding 2).
+
+Verdict: BLOCKED

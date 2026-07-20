@@ -1,0 +1,196 @@
+<title>MacSessionGuard lock-detection fix — design &amp; plan</title>
+<style>
+  :root {
+    --paper: #F6F8FA;
+    --card: #FFFFFF;
+    --ink: #1B2430;
+    --ink-soft: #4A5768;
+    --line: #D4DCE5;
+    --steel: #3E5C76;
+    --locked: #B7791F;
+    --locked-bg: #FAF3E3;
+    --unlocked: #3F7D5A;
+    --unlocked-bg: #EAF3EE;
+    --reject: #A4453E;
+    --reject-bg: #F7ECEA;
+    --code-bg: #EDF1F5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #141A22; --card: #1C242F; --ink: #DFE6EE; --ink-soft: #9AA8B8;
+      --line: #313D4B; --steel: #7FA3C4; --locked: #D9A03F; --locked-bg: #2C2517;
+      --unlocked: #66B48C; --unlocked-bg: #17281F; --reject: #C96B62; --reject-bg: #2C1B19;
+      --code-bg: #232D3A;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #141A22; --card: #1C242F; --ink: #DFE6EE; --ink-soft: #9AA8B8;
+    --line: #313D4B; --steel: #7FA3C4; --locked: #D9A03F; --locked-bg: #2C2517;
+    --unlocked: #66B48C; --unlocked-bg: #17281F; --reject: #C96B62; --reject-bg: #2C1B19;
+    --code-bg: #232D3A;
+  }
+  :root[data-theme="light"] {
+    --paper: #F6F8FA; --card: #FFFFFF; --ink: #1B2430; --ink-soft: #4A5768;
+    --line: #D4DCE5; --steel: #3E5C76; --locked: #B7791F; --locked-bg: #FAF3E3;
+    --unlocked: #3F7D5A; --unlocked-bg: #EAF3EE; --reject: #A4453E; --reject-bg: #F7ECEA;
+    --code-bg: #EDF1F5;
+  }
+  body { background: var(--paper); color: var(--ink); font: 16px/1.6 -apple-system, "Helvetica Neue", system-ui, sans-serif; margin: 0; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 3rem 1.5rem 4rem; }
+  .eyebrow { font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; color: var(--steel); font-weight: 600; }
+  h1 { font-family: "Avenir Next", "Avenir", -apple-system, sans-serif; font-weight: 600; font-size: 1.9rem; line-height: 1.2; text-wrap: balance; margin: .4rem 0 .6rem; }
+  h2 { font-family: "Avenir Next", "Avenir", -apple-system, sans-serif; font-weight: 600; font-size: 1.25rem; margin: 2.6rem 0 .8rem; }
+  h3 { font-size: 1rem; margin: 0 0 .5rem; }
+  p { max-width: 72ch; }
+  .meta { display: flex; flex-wrap: wrap; gap: .5rem 1.4rem; font-size: .82rem; color: var(--ink-soft); border-bottom: 1px solid var(--line); padding-bottom: 1.2rem; }
+  code, .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .86em; background: var(--code-bg); border-radius: 3px; padding: .08em .35em; }
+  .banner { display: flex; gap: .9rem; align-items: baseline; background: var(--unlocked-bg); border: 1px solid var(--unlocked); border-radius: 4px; padding: .9rem 1.1rem; margin: 1.6rem 0; }
+  .banner strong { color: var(--unlocked); }
+  .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; margin: 1.2rem 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 1.1rem 1.2rem; display: flex; flex-direction: column; gap: .6rem; }
+  .card.chosen { border-color: var(--unlocked); box-shadow: 0 0 0 1px var(--unlocked); }
+  .chip { align-self: flex-start; font-size: .68rem; letter-spacing: .1em; text-transform: uppercase; font-weight: 700; border-radius: 3px; padding: .18em .55em; }
+  .chip.win { background: var(--unlocked-bg); color: var(--unlocked); }
+  .chip.lose { background: var(--reject-bg); color: var(--reject); }
+  .chip.mid { background: var(--code-bg); color: var(--ink-soft); }
+  .card ul { margin: 0; padding-left: 1.1rem; font-size: .88rem; color: var(--ink-soft); }
+  .card .loc { font-size: .78rem; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+  table { border-collapse: collapse; width: 100%; font-size: .86rem; font-variant-numeric: tabular-nums; }
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 4px; }
+  th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); }
+  tr:last-child td { border-bottom: none; }
+  .state { font-weight: 700; }
+  .state.locked { color: var(--locked); }
+  .state.unlocked { color: var(--unlocked); }
+  pre.mermaid { background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 1rem; overflow-x: auto; }
+  .timeline { border-left: 2px solid var(--line); margin: 1rem 0 0 .3rem; padding-left: 1.2rem; display: flex; flex-direction: column; gap: .9rem; font-size: .9rem; }
+  .timeline b.blocked { color: var(--reject); }
+  .timeline b.pass { color: var(--unlocked); }
+  .note { font-size: .82rem; color: var(--ink-soft); border-top: 1px solid var(--line); margin-top: 2.8rem; padding-top: 1rem; }
+  .checklist { list-style: none; padding: 0; font-size: .9rem; }
+  .checklist li { padding: .3rem 0 .3rem 1.6rem; position: relative; }
+  .checklist li::before { content: "☐"; position: absolute; left: 0; color: var(--locked); }
+</style>
+
+<div class="wrap">
+  <div class="eyebrow">Cortex brainstorm gate · R7 · --auto run · 2026-07-20</div>
+  <h1>MacSessionGuard can never see “unlocked” — three fixes, one chosen</h1>
+  <div class="meta">
+    <span>Repo: <span class="mono">open-codex-computer-use</span></span>
+    <span>Branch: <span class="mono">fix/mac-session-guard-lock-detection</span></span>
+    <span>Plan: <span class="mono">plans/260720-1024-mac-session-guard-lock-detection/plan.md</span></span>
+  </div>
+
+  <p>On macOS 26 the <code>CGSSessionScreenIsLocked</code> key is simply <em>omitted</em> from
+  <code>CGSessionCopyCurrentDictionary()</code> when the machine is genuinely unlocked; it appears
+  (as <code>true</code>) only while locked. The guard treats an absent key as “locked”, so under the
+  default fail-closed policy every Computer Use tool call is blocked even on an unlocked machine —
+  verified empirically with a standalone probe.</p>
+
+  <div class="banner">
+    <span class="chip win">Chosen</span>
+    <div><strong>Proposal B — console-gated absent-key fix.</strong> Absent lock key reads as unlocked
+    <em>only</em> when <code>kCGSSessionOnConsoleKey</code> corroborates that this session owns the
+    console. Auto-picked per the judge's recommendation under <code>--auto</code>; decision logged in the
+    auto-decisions report.</div>
+  </div>
+
+  <h2>The three directions</h2>
+  <div class="grid3">
+    <div class="card">
+      <span class="chip lose">Runner-up</span>
+      <h3>A · Minimal Apple-semantics flip</h3>
+      <p style="font-size:.9rem">Non-empty dict + absent key → unlocked. One branch flips; nothing else changes.</p>
+      <ul>
+        <li>Smallest possible diff (~15–20 LOC source)</li>
+        <li>Matches observed macOS behavior exactly</li>
+        <li><b>Weakness:</b> bare inference — reports UNLOCKED for a fast-user-switched-away session (key absent, off-console), a real false-unlocked under the default policy</li>
+      </ul>
+      <span class="loc">~65–95 LOC total · single signal</span>
+    </div>
+    <div class="card chosen">
+      <span class="chip win">Chosen</span>
+      <h3>B · Console-gated fix</h3>
+      <p style="font-size:.9rem">Absent key → unlocked <em>only if</em> <code>kCGSSessionOnConsoleKey</code> coerces true. Off-console, missing, or garbage stays fail-closed. Explicit lock key is always checked first and always wins.</p>
+      <ul>
+        <li>Strictly more conservative than A — only ever <em>adds</em> fail-closed cases</li>
+        <li>Closes the fast-user-switch false-unlocked gap for ~10 extra LOC</li>
+        <li>Degrades gracefully on OS versions where absent means something else</li>
+      </ul>
+      <span class="loc">~25–35 LOC source · corroborated signal</span>
+    </div>
+    <div class="card">
+      <span class="chip lose">Rejected</span>
+      <h3>C · Multi-signal notification tracking</h3>
+      <p style="font-size:.9rem">Cross-check the dict against <code>com.apple.screenIsLocked</code> distributed notifications held in a stateful listener.</p>
+      <ul>
+        <li>150–220 LOC, new abstraction + fake, run-loop dependency</li>
+        <li>Silently degrades to A/B in contexts without a run loop</li>
+        <li><b>Fatal:</b> introduces a <em>new</em> false-unlocked path via stale or missed notifications — its own author recommended against it</li>
+      </ul>
+      <span class="loc">~150–220 LOC · new attack surface</span>
+    </div>
+  </div>
+
+  <p style="font-size:.9rem; color: var(--ink-soft)"><b>Judge (Opus):</b> B is strictly more conservative than A and never more
+  permissive; it answers A's own open question (“is a corroborating second signal worth it?”) with a
+  low-cost yes. C is a KISS/YAGNI reject. B's console gate does not defend against a hypothetical future
+  OS that omits the key <em>while</em> locked — that residual is bounded by log-based detection and the
+  unchanged opt-in escape hatch, and is accepted in writing in the plan.</p>
+
+  <h2>Chosen decision flow</h2>
+  <pre class="mermaid">
+flowchart TD
+  A["CGSessionCopyCurrentDictionary()"] --> B{"dict nil or empty?"}
+  B -- "yes" --> FC1["LOCKED · unknown — fail-closed"]
+  B -- "no" --> C{"CGSSessionScreenIsLocked present?"}
+  C -- "present" --> D{"coerces to Bool / NSNumber?"}
+  D -- "true" --> L["LOCKED — explicit signal, always wins"]
+  D -- "false" --> U["UNLOCKED"]
+  D -- "unparseable" --> FC2["LOCKED · unknown — fail-closed"]
+  C -- "absent" --> E{"kCGSSessionOnConsoleKey == true?"}
+  E -- "yes" --> U2["UNLOCKED — one-shot inferred-unlock stderr log"]
+  E -- "false / absent / unparseable" --> FC3["LOCKED · unknown — fail-closed"]
+  style L fill:#B7791F22,stroke:#B7791F
+  style FC1 fill:#B7791F22,stroke:#B7791F
+  style FC2 fill:#B7791F22,stroke:#B7791F
+  style FC3 fill:#B7791F22,stroke:#B7791F
+  style U fill:#3F7D5A22,stroke:#3F7D5A
+  style U2 fill:#3F7D5A22,stroke:#3F7D5A
+  </pre>
+  <p style="font-size:.9rem">Cache policy changes with it: <code>shouldCache</code> never caches an
+  unlocked snapshot, so a lock transition can never be masked by the 200&nbsp;ms TTL — stale
+  <em>locked</em> for ≤200&nbsp;ms after unlocking costs at most one spurious block, never a false unlock.</p>
+
+  <h2>Plan pipeline (TDD-first)</h2>
+  <pre class="mermaid">
+flowchart LR
+  P1["Phase 1 · tests first — 14 new cases, must fail red"] --> P2["Phase 2 · fix — parseSnapshot seam, console gate, coerceBool, asymmetric cache, one-shot log, honest comment"]
+  P2 --> P3["Phase 3 · verify — suite green + live probe expects UNLOCKED on this machine"]
+  P3 --> G["code-review ∥ security-scan → codex diff gate → ship-gate --hard"]
+  G --> PR["draft PR + pre-merge review &amp; fix — stops merge-ready"]
+  PR --> H["HUMAN gates before merge: lock-screen probe · FUS-via-SSH MUST read locked · screensaver case"]
+  style H fill:#B7791F22,stroke:#B7791F
+  </pre>
+
+  <h2>Gate history</h2>
+  <div class="timeline">
+    <div><b class="blocked">Round 1 — BLOCKED.</b> Red-team: stale-unlocked cache across a lock transition (TTL window); FUS/on-console correlate never verified in the safe direction; fail-open reachable on untested macOS 14–15. Validator: README line 42 still documents absent&nbsp;=&nbsp;locked as intended behavior.</div>
+    <div><b>Revisions (R1–R5).</b> Never-cache-unlocked policy with a testable <code>shouldCache</code> seam; mandatory FUS-via-SSH human verification in the PR checklist; residual accepted in writing with one-shot log-based detection (an OS-version gate was rejected — it would keep the guard permanently broken on macOS 14–15); README correction promoted to required scope; explicit-lock-wins pinned off-console too.</div>
+    <div><b class="pass">Round 2 — PASS × 2.</b> Fresh red-team and validation both confirmed every blocker resolved and the new content clean. Cross-model codex gate (gpt-5.6-sol) runs next.</div>
+  </div>
+
+  <h2>Human verification before merge</h2>
+  <ul class="checklist">
+    <li>Lock the screen, run the live probe from an attached terminal — must report <span class="state locked">LOCKED</span></li>
+    <li>Fast-user-switch away, probe via SSH — <b>must</b> report <span class="state locked">LOCKED</span> (the load-bearing invariant; merge-blocking)</li>
+    <li>Screensaver without password — reads <span class="state unlocked">UNLOCKED</span>, accepted &amp; documented behavior</li>
+    <li>Residual risk (macOS 14–15 unverified) restated in the PR body</li>
+  </ul>
+
+  <div class="note">Produced by the cortex --auto pipeline as design-approval material; the proposal
+  auto-pick and every skipped stop are logged in
+  <span class="mono">reports/auto-decisions-260720-mac-session-guard-lock-detection.md</span>.
+  The mock and diagrams are design input for the plan — not shipped code.</div>
+</div>
