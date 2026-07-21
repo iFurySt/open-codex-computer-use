@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import ImageIO
 import XCTest
 @testable import OpenComputerUseKit
@@ -234,6 +235,263 @@ final class OpenComputerUseKitTests: XCTestCase {
 
         XCTAssertEqual(size.width, 32)
         XCTAssertEqual(size.height, 24)
+    }
+
+    func testImageCaptureConfigReadsValidEnvironmentOverrides() {
+        let config = ImageCaptureConfig.fromEnvironment([
+            "OPEN_COMPUTER_USE_IMAGE_CAPTURE_TIMEOUT": " 2.5 ",
+            "OPEN_COMPUTER_USE_IMAGE_MAX_BYTES": " 120000 ",
+            "OPEN_COMPUTER_USE_IMAGE_MAX_DIMENSION": " 640 ",
+            "OPEN_COMPUTER_USE_IMAGE_MIN_SCALE": "0.1",
+        ])
+
+        XCTAssertEqual(config.captureTimeout, 2.5)
+        XCTAssertEqual(config.maxPNGBytes, 120_000)
+        XCTAssertEqual(config.maxDimension, 640)
+        XCTAssertEqual(config.minScale, 0.1)
+    }
+
+    func testImageCaptureConfigCurrentReadsEnvironmentForEveryCapture() {
+        let key = "OPEN_COMPUTER_USE_IMAGE_MAX_BYTES"
+        let previousValue = getenv(key).map { String(cString: $0) }
+        defer {
+            if let previousValue {
+                setenv(key, previousValue, 1)
+            } else {
+                unsetenv(key)
+            }
+        }
+
+        setenv(key, "120000", 1)
+        XCTAssertEqual(ImageCaptureConfig.current.maxPNGBytes, 120_000)
+
+        setenv(key, "65000", 1)
+        XCTAssertEqual(ImageCaptureConfig.current.maxPNGBytes, 65_000)
+    }
+
+    func testImageCaptureConfigFallsBackForInvalidEnvironmentOverrides() {
+        let config = ImageCaptureConfig.fromEnvironment([
+            "OPEN_COMPUTER_USE_IMAGE_CAPTURE_TIMEOUT": "0",
+            "OPEN_COMPUTER_USE_IMAGE_MAX_BYTES": "nope",
+            "OPEN_COMPUTER_USE_IMAGE_MAX_DIMENSION": "0",
+            "OPEN_COMPUTER_USE_IMAGE_MIN_SCALE": "0",
+        ])
+
+        XCTAssertEqual(config, ImageCaptureConfig.defaults)
+    }
+
+    func testImageCaptureConfigFallsBackForBlankAndNonFiniteOverrides() {
+        let config = ImageCaptureConfig.fromEnvironment([
+            "OPEN_COMPUTER_USE_IMAGE_CAPTURE_TIMEOUT": "nan",
+            "OPEN_COMPUTER_USE_IMAGE_MAX_BYTES": " ",
+            "OPEN_COMPUTER_USE_IMAGE_MAX_DIMENSION": "inf",
+            "OPEN_COMPUTER_USE_IMAGE_MIN_SCALE": "nan",
+        ])
+
+        XCTAssertEqual(config, ImageCaptureConfig.defaults)
+    }
+
+    func testImageCaptureConfigAcceptsUnitMinScaleBoundary() {
+        let config = ImageCaptureConfig.fromEnvironment([
+            "OPEN_COMPUTER_USE_IMAGE_MIN_SCALE": "1",
+        ])
+
+        XCTAssertEqual(config.minScale, 1)
+    }
+
+    func testImageCaptureConfigFallsBackForMinScaleAboveUnitBoundary() {
+        let config = ImageCaptureConfig.fromEnvironment([
+            "OPEN_COMPUTER_USE_IMAGE_CAPTURE_TIMEOUT": "-1",
+            "OPEN_COMPUTER_USE_IMAGE_MIN_SCALE": "1.01",
+        ])
+
+        XCTAssertEqual(config.captureTimeout, ImageCaptureConfig.defaults.captureTimeout)
+        XCTAssertEqual(config.minScale, ImageCaptureConfig.defaults.minScale)
+    }
+
+    func testImageCaptureConfigFallsBackForNegativeMinScale() {
+        let config = ImageCaptureConfig.fromEnvironment([
+            "OPEN_COMPUTER_USE_IMAGE_MIN_SCALE": "-0.1",
+        ])
+
+        XCTAssertEqual(config.minScale, ImageCaptureConfig.defaults.minScale)
+    }
+
+    func testImageCaptureConfigFallsBackForFractionalDimensionAndIntegerOverflow() {
+        let config = ImageCaptureConfig.fromEnvironment([
+            "OPEN_COMPUTER_USE_IMAGE_MAX_BYTES": "92233720368547758070",
+            "OPEN_COMPUTER_USE_IMAGE_MAX_DIMENSION": "80.6",
+        ])
+
+        XCTAssertEqual(config.maxPNGBytes, ImageCaptureConfig.defaults.maxPNGBytes)
+        XCTAssertEqual(config.maxDimension, ImageCaptureConfig.defaults.maxDimension)
+    }
+
+    func testImageCaptureConfigFallsBackForUnicodeDigits() {
+        let config = ImageCaptureConfig.fromEnvironment([
+            "OPEN_COMPUTER_USE_IMAGE_MAX_BYTES": "１２３",
+            "OPEN_COMPUTER_USE_IMAGE_MAX_DIMENSION": "４８０",
+        ])
+
+        XCTAssertEqual(config.maxPNGBytes, ImageCaptureConfig.defaults.maxPNGBytes)
+        XCTAssertEqual(config.maxDimension, ImageCaptureConfig.defaults.maxDimension)
+    }
+
+    func testBoundedScreenshotPNGDataHonorsMaxDimensionBelowMinScale() throws {
+        let image = try makeNoisyTestImage(width: 800, height: 600)
+        let data = try XCTUnwrap(boundedScreenshotPNGData(
+            for: image,
+            maxBytes: 1_000_000,
+            maxDimension: 80,
+            minScale: 0.25
+        ))
+        let size = try imageSize(in: data)
+
+        XCTAssertEqual(size.width, 80)
+        XCTAssertEqual(size.height, 60)
+    }
+
+    func testBoundedScreenshotPNGDataRejectsNonPositiveMaxDimension() throws {
+        let image = try makeNoisyTestImage(width: 800, height: 600)
+
+        XCTAssertNil(boundedScreenshotPNGData(
+            for: image,
+            maxBytes: 1_000_000,
+            maxDimension: 0,
+            minScale: 0.05
+        ))
+        XCTAssertNil(boundedScreenshotPNGData(
+            for: image,
+            maxBytes: 1_000_000,
+            maxDimension: -1,
+            minScale: 0.05
+        ))
+    }
+
+    func testBoundedScreenshotPNGDataRejectsFractionalMaxDimension() throws {
+        let image = try makeNoisyTestImage(width: 800, height: 600)
+
+        XCTAssertNil(boundedScreenshotPNGData(
+            for: image,
+            maxBytes: 1_000_000,
+            maxDimension: 80.6,
+            minScale: 0.05
+        ))
+    }
+
+    func testBoundedScreenshotPNGDataHonorsMaxDimensionOneBoundary() throws {
+        let image = try makeNoisyTestImage(width: 800, height: 600)
+        let data = try XCTUnwrap(boundedScreenshotPNGData(
+            for: image,
+            maxBytes: 1_000_000,
+            maxDimension: 1,
+            minScale: 0.05
+        ))
+        let size = try imageSize(in: data)
+
+        XCTAssertEqual(size.width, 1)
+        XCTAssertEqual(size.height, 1)
+    }
+
+    func testBoundedScreenshotByteBudgetRetriesBelowDimensionCapWhenMinScaleAllows() throws {
+        let image = try makeNoisyTestImage(width: 800, height: 600)
+        let data = try XCTUnwrap(boundedScreenshotPNGData(
+            for: image,
+            maxBytes: 1,
+            maxDimension: 80,
+            minScale: 0.25
+        ))
+        let size = try imageSize(in: data)
+        let point = screenshotPixelToWindowPoint(
+            CGPoint(x: CGFloat(size.width) / 2, y: CGFloat(size.height) / 2),
+            screenshotPixelSize: CGSize(width: size.width, height: size.height),
+            windowBounds: CGRect(x: 0, y: 0, width: 800, height: 600)
+        )
+
+        XCTAssertLessThan(max(size.width, size.height), 80)
+        XCTAssertGreaterThanOrEqual(max(size.width, size.height), 20)
+        XCTAssertEqual(point.x, 400, accuracy: 0.0001)
+        XCTAssertEqual(point.y, 300, accuracy: 0.0001)
+    }
+
+    func testBoundedScreenshotPNGDataRejectsInvalidMinScale() throws {
+        let image = try makeNoisyTestImage(width: 800, height: 600)
+
+        XCTAssertNil(boundedScreenshotPNGData(
+            for: image,
+            maxBytes: 1_000_000,
+            maxDimension: 80,
+            minScale: 1.01
+        ))
+    }
+
+    func testBoundedScreenshotPNGDataRejectsNonFiniteMinScale() throws {
+        let image = try makeNoisyTestImage(width: 800, height: 600)
+
+        XCTAssertNil(boundedScreenshotPNGData(
+            for: image,
+            maxBytes: 1_000_000,
+            maxDimension: 80,
+            minScale: .nan
+        ))
+    }
+
+    func testBoundedScreenshotPNGDataStopsAtOnePixelForSubnormalMinScale() throws {
+        let image = try makeNoisyTestImage(width: 32, height: 24)
+        let config = ImageCaptureConfig.fromEnvironment([
+            "OPEN_COMPUTER_USE_IMAGE_MIN_SCALE": "5e-324",
+        ])
+        let data = try XCTUnwrap(boundedScreenshotPNGData(
+            for: image,
+            maxBytes: 1,
+            maxDimension: 32,
+            minScale: config.minScale
+        ))
+        let size = try imageSize(in: data)
+
+        XCTAssertGreaterThan(config.minScale, 0)
+        XCTAssertEqual(size.width, 1)
+        XCTAssertEqual(size.height, 1)
+    }
+
+    func testBoundedScreenshotDimensionsMapBackToWindowCoordinatesBelowMinScale() throws {
+        let image = try makeNoisyTestImage(width: 800, height: 600)
+        let data = try XCTUnwrap(boundedScreenshotPNGData(
+            for: image,
+            maxBytes: 1_000_000,
+            maxDimension: 80,
+            minScale: 0.25
+        ))
+        let size = try imageSize(in: data)
+        let point = screenshotPixelToWindowPoint(
+            CGPoint(x: CGFloat(size.width) / 2, y: CGFloat(size.height) / 2),
+            screenshotPixelSize: CGSize(width: size.width, height: size.height),
+            windowBounds: CGRect(x: 0, y: 0, width: 800, height: 600)
+        )
+
+        XCTAssertEqual(point.x, 400, accuracy: 0.0001)
+        XCTAssertEqual(point.y, 300, accuracy: 0.0001)
+    }
+
+    func testBoundedScreenshotByteBudgetRetryCoordinatesUseReturnedDimensions() throws {
+        let image = try makeNoisyTestImage(width: 800, height: 600)
+        let data = try XCTUnwrap(boundedScreenshotPNGData(
+            for: image,
+            maxBytes: 50_000,
+            maxDimension: 800,
+            minScale: 0.05
+        ))
+        let size = try imageSize(in: data)
+        let point = screenshotPixelToWindowPoint(
+            CGPoint(x: CGFloat(size.width) / 2, y: CGFloat(size.height) / 2),
+            screenshotPixelSize: CGSize(width: size.width, height: size.height),
+            windowBounds: CGRect(x: 0, y: 0, width: 800, height: 600)
+        )
+
+        XCTAssertLessThanOrEqual(data.count, 50_000)
+        XCTAssertLessThan(max(size.width, size.height), 800)
+        XCTAssertEqual(point.x, 400, accuracy: 0.0001)
+        XCTAssertEqual(point.y, 300, accuracy: 0.0001)
     }
 
     func testToolDefinitionCount() {

@@ -76,6 +76,21 @@ ocu install-codex-mcp
 }
 ```
 
+### macOS 截图尺寸
+
+`get_app_state` 和 action 类工具会和 accessibility tree 一起返回 PNG 截图。macOS 上可以通过可选环境变量调整截图尺寸。请在启动 `open-computer-use` MCP host 进程前设置这些变量。macOS proxy 会在每次请求时转发该进程的当前值，因此修改配置后只需重启 host，不需要重启 app agent；host 未设置的变量会使用默认值。
+
+| 变量 | 默认值 | 作用 |
+| --- | --- | --- |
+| `OPEN_COMPUTER_USE_IMAGE_CAPTURE_TIMEOUT` | `5` | ScreenCaptureKit 等待秒数；超时会从结果里省略截图 image 内容。 |
+| `OPEN_COMPUTER_USE_IMAGE_MAX_DIMENSION` | `1280` | 返回 PNG 的整数长边像素上限。 |
+| `OPEN_COMPUTER_USE_IMAGE_MAX_BYTES` | `900000` | 编码后 PNG 的 best-effort 字节预算。 |
+| `OPEN_COMPUTER_USE_IMAGE_MIN_SCALE` | `0.25` | 作为长边上限之后的字节预算重试倍率。例如长边已限制到 500 px，`0.25` 允许继续重试缩小到 125 px；它不会放大长边上限已经选出的 PNG。 |
+
+非法值、非有限数或非正数会回退到默认值。`OPEN_COMPUTER_USE_IMAGE_MIN_SCALE` 大于 `1` 时也会回退。
+
+坐标类工具会读取实际返回 PNG 的尺寸做映射，因此降采样不会改变 click 或 drag 的坐标换算。
+
 ### Skill
 
 一键安装skill：

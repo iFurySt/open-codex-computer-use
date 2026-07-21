@@ -6,6 +6,12 @@ import OpenComputerUseKit
 private let appAgentCommand = "__open-computer-use-app-agent"
 private let appAgentDisableEnvironmentKey = "OPEN_COMPUTER_USE_DISABLE_APP_AGENT_PROXY"
 private let appAgentProcessStartDate = Date()
+private let appAgentImageEnvironmentKeys: Set<String> = [
+    "OPEN_COMPUTER_USE_IMAGE_CAPTURE_TIMEOUT",
+    "OPEN_COMPUTER_USE_IMAGE_MAX_BYTES",
+    "OPEN_COMPUTER_USE_IMAGE_MAX_DIMENSION",
+    "OPEN_COMPUTER_USE_IMAGE_MIN_SCALE",
+]
 
 enum MacOSAppAgentProxy {
     static func isAgentInvocation(arguments: [String]) -> Bool {
@@ -116,6 +122,7 @@ enum MacOSAppAgentProxy {
             let response = try client.request([
                 "kind": "mcp",
                 "line": line,
+                "environment": proxiedEnvironment(),
             ])
 
             if let responseLine = response["response"] as? String {
@@ -333,14 +340,17 @@ private final class AppAgentConnection: @unchecked Sendable {
                 return ["ok": true]
             case "mcp":
                 let line = request["line"] as? String ?? ""
-                if let response = server.handle(line: line) {
+                let environment = request["environment"] as? [String: String] ?? [:]
+                if let response = AppAgentEnvironment.withOverrides(environment, clearing: appAgentImageEnvironmentKeys, {
+                    server.handle(line: line)
+                }) {
                     return ["response": response]
                 }
                 return ["response": NSNull()]
             case "cli":
                 let arguments = request["arguments"] as? [String] ?? []
                 let environment = request["environment"] as? [String: String] ?? [:]
-                let response = AppAgentEnvironment.withOverrides(environment) {
+                let response = AppAgentEnvironment.withOverrides(environment, clearing: appAgentImageEnvironmentKeys) {
                     runCLI(arguments: arguments)
                 }
                 return [
@@ -410,19 +420,24 @@ private final class AppAgentConnection: @unchecked Sendable {
 private enum AppAgentEnvironment {
     private static let lock = NSLock()
 
-    static func withOverrides<T>(_ overrides: [String: String], _ body: () throws -> T) rethrows -> T {
-        guard !overrides.isEmpty else {
-            return try body()
-        }
-
+    static func withOverrides<T>(
+        _ overrides: [String: String],
+        clearing keys: Set<String>,
+        _ body: () throws -> T
+    ) rethrows -> T {
         lock.lock()
         defer { lock.unlock() }
 
+        var affectedKeys = keys
+        affectedKeys.formUnion(overrides.keys)
         let previousValues = Dictionary(
-            uniqueKeysWithValues: overrides.keys.map { key in
-                (key, ProcessInfo.processInfo.environment[key])
+            uniqueKeysWithValues: affectedKeys.map { key in
+                (key, getenv(key).map { String(cString: $0) })
             }
         )
+        for key in keys where overrides[key] == nil {
+            unsetenv(key)
+        }
         for (key, value) in overrides {
             setenv(key, value, 1)
         }
