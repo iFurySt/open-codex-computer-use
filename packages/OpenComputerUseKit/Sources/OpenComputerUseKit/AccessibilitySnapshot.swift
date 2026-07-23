@@ -37,6 +37,11 @@ enum SnapshotMode {
     case fixture
 }
 
+enum SnapshotRecoveryPolicy: Equatable {
+    case allowActivation
+    case readOnly
+}
+
 public struct AccessibilityTreeLimits: Equatable, Sendable {
     public static let defaultMaxNodeCount = 1200
     public static let defaultMaxDepth = 64
@@ -143,7 +148,8 @@ enum SnapshotBuilder {
     static func build(
         for app: RunningAppDescriptor,
         textLimit: SnapshotTextLimit = .defaults,
-        treeLimits: AccessibilityTreeLimits = .defaults
+        treeLimits: AccessibilityTreeLimits = .defaults,
+        recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation
     ) throws -> AppSnapshot {
         if app.name == FixtureBridge.appName, let fixtureState = try FixtureBridge.readState() {
             return buildFixtureSnapshot(app: app, state: fixtureState)
@@ -159,7 +165,9 @@ enum SnapshotBuilder {
         let systemWide = AXUIElementCreateSystemWide()
         var focusedApplication = copyElement(systemWide, attribute: kAXFocusedApplicationAttribute)
         var focusedWindow = preferredFocusedWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
-        if focusedWindow == nil, recoverVisibleWindow(for: app, appElement: appElement, preferredWindow: nil) {
+        if focusedWindow == nil,
+           recoveryPolicy == .allowActivation,
+           recoverVisibleWindow(for: app, appElement: appElement, preferredWindow: nil) {
             focusedApplication = copyElement(systemWide, attribute: kAXFocusedApplicationAttribute)
             focusedWindow = preferredFocusedWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
         }
@@ -172,7 +180,9 @@ enum SnapshotBuilder {
 
         var windowTitle = stringValue(of: rootWindow, attribute: kAXTitleAttribute)
         var windowCapture = WindowCapture.resolve(for: app.pid, titleHint: windowTitle)
-        if windowCapture == nil, recoverVisibleWindow(for: app, appElement: appElement, preferredWindow: rootWindow) {
+        if windowCapture == nil,
+           recoveryPolicy == .allowActivation,
+           recoverVisibleWindow(for: app, appElement: appElement, preferredWindow: rootWindow) {
             focusedApplication = copyElement(systemWide, attribute: kAXFocusedApplicationAttribute)
             if let recoveredWindow = preferredFocusedWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide) {
                 rootWindow = recoveredWindow

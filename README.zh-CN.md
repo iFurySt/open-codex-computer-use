@@ -158,4 +158,4 @@ Cursor Motion 是一个面向 macOS 的开源光标运动系统，基于 Softwar
 
 ## License
 
-[MIT](./LICENSE)
+[MIT](./LICENSE)。第三方归属与许可说明见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。

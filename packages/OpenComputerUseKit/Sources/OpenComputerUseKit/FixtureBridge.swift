@@ -40,16 +40,36 @@ public struct FixtureElementState: Codable, Sendable {
 }
 
 public struct FixtureAppState: Codable, Sendable {
+    public let processIdentifier: pid_t?
     public let windowTitle: String
     public let windowBounds: FixtureRect
     public let focusedIdentifier: String?
     public let elements: [FixtureElementState]
+    public let isActive: Bool?
+    public let isKeyWindow: Bool?
+    public let activationLossCount: Int?
+    public let keyWindowLossCount: Int?
 
-    public init(windowTitle: String, windowBounds: FixtureRect, focusedIdentifier: String?, elements: [FixtureElementState]) {
+    public init(
+        processIdentifier: pid_t? = nil,
+        windowTitle: String,
+        windowBounds: FixtureRect,
+        focusedIdentifier: String?,
+        elements: [FixtureElementState],
+        isActive: Bool? = nil,
+        isKeyWindow: Bool? = nil,
+        activationLossCount: Int? = nil,
+        keyWindowLossCount: Int? = nil
+    ) {
+        self.processIdentifier = processIdentifier
         self.windowTitle = windowTitle
         self.windowBounds = windowBounds
         self.focusedIdentifier = focusedIdentifier
         self.elements = elements
+        self.isActive = isActive
+        self.isKeyWindow = isKeyWindow
+        self.activationLossCount = activationLossCount
+        self.keyWindowLossCount = keyWindowLossCount
     }
 }
 

@@ -12,7 +12,12 @@ public enum ClickMethod: String, CaseIterable, Sendable {
     case auto
     case accessibility
     case appPost = "app_post"
+    case skyClick = "sky_click"
     case global
+}
+
+func clickActionSnapshotRecoveryPolicy(for method: ClickMethod) -> SnapshotRecoveryPolicy {
+    method == .skyClick ? .readOnly : .allowActivation
 }
 
 func parseClickMethod(_ rawValue: String?) throws -> ClickMethod {
@@ -42,6 +47,28 @@ func validateClickMethod(
     if method == .global, !globalPointerFallbacksEnabled(environment: environment) {
         throw ComputerUseError.message(
             "click_method 'global' requires OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 because it may move the system pointer and change foreground focus"
+        )
+    }
+}
+
+func validateSkyClickArguments(
+    method: ClickMethod,
+    mouseButton: String,
+    clickCount: Int
+) throws {
+    guard method == .skyClick else {
+        return
+    }
+
+    guard mouseButton.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == MouseButtonKind.left.rawValue else {
+        throw ComputerUseError.message(
+            "click_method 'sky_click' only supports mouse_button 'left'"
+        )
+    }
+
+    guard (1...2).contains(clickCount) else {
+        throw ComputerUseError.message(
+            "click_method 'sky_click' supports click_count 1 or 2"
         )
     }
 }
@@ -420,6 +447,11 @@ public final class ComputerUseService {
             hasElementIndex: elementIndex != nil,
             environment: ProcessInfo.processInfo.environment
         )
+        try validateSkyClickArguments(
+            method: clickMethod,
+            mouseButton: mouseButton,
+            clickCount: clickCount
+        )
 
         let snapshot = try currentSnapshot(for: query)
         let button = MouseButtonKind(rawValue: mouseButton.lowercased()) ?? .left
@@ -455,9 +487,10 @@ public final class ComputerUseService {
 
         if let elementIndex {
             let record = try lookupElement(snapshot: snapshot, index: elementIndex)
-            guard let targetPoint = try globalClickPoint(for: record, snapshot: snapshot) else {
+            guard let windowPoint = clickPoint(for: record, snapshot: snapshot) else {
                 throw ComputerUseError.stateUnavailable("element \(elementIndex) has no clickable frame")
             }
+            let targetPoint = try windowPointToGlobalPoint(snapshot: snapshot, point: windowPoint)
             let cursorTarget = makeVisualCursorTarget(
                 at: targetPoint,
                 targetWindowID: snapshot.targetWindowID,
@@ -498,10 +531,11 @@ public final class ComputerUseService {
                             "click_method 'accessibility' could not click element_index=\(elementIndex)"
                         )
                     }
-                case .appPost, .global:
+                case .appPost, .skyClick, .global:
                     try performExplicitMouseClick(
                         method: clickMethod,
                         at: targetPoint,
+                        windowPoint: windowPoint,
                         button: button,
                         clickCount: clickCount,
                         targetDescription: "element_index=\(elementIndex)",
@@ -556,10 +590,11 @@ public final class ComputerUseService {
                     }
                 case .accessibility:
                     throw ComputerUseError.message("click_method 'accessibility' requires element_index")
-                case .appPost, .global:
+                case .appPost, .skyClick, .global:
                     try performExplicitMouseClick(
                         method: clickMethod,
                         at: targetPoint,
+                        windowPoint: point,
                         button: button,
                         clickCount: clickCount,
                         targetDescription: "x=\(Int(screenshotPoint.x)) y=\(Int(screenshotPoint.y))",
@@ -576,7 +611,13 @@ public final class ComputerUseService {
             throw ComputerUseError.invalidArguments("click requires either element_index or x/y")
         }
 
-        return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+        return snapshotResult(
+            for: try refreshSnapshot(
+                for: query,
+                recoveryPolicy: clickActionSnapshotRecoveryPolicy(for: clickMethod)
+            ),
+            style: .actionResult
+        )
     }
 
     public func performSecondaryAction(app query: String, elementIndex: String, action: String) throws -> ToolCallResult {
@@ -759,10 +800,16 @@ public final class ComputerUseService {
     private func refreshSnapshot(
         for query: String,
         textLimit: SnapshotTextLimit = .defaults,
-        treeLimits: AccessibilityTreeLimits = .defaults
+        treeLimits: AccessibilityTreeLimits = .defaults,
+        recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation
     ) throws -> AppSnapshot {
         let app = try AppDiscovery.resolve(query)
-        let snapshot = try SnapshotBuilder.build(for: app, textLimit: textLimit, treeLimits: treeLimits)
+        let snapshot = try SnapshotBuilder.build(
+            for: app,
+            textLimit: textLimit,
+            treeLimits: treeLimits,
+            recoveryPolicy: recoveryPolicy
+        )
 
         let keys = Set([
             query.lowercased(),
@@ -1552,12 +1599,8 @@ public final class ComputerUseService {
         )
     }
 
-    private func globalClickPoint(for record: ElementRecord, snapshot: AppSnapshot) throws -> CGPoint? {
-        guard let point = clickActionPoints(for: record, snapshot: snapshot).first ?? localCenter(for: record) else {
-            return nil
-        }
-
-        return try windowPointToGlobalPoint(snapshot: snapshot, point: point)
+    private func clickPoint(for record: ElementRecord, snapshot: AppSnapshot) -> CGPoint? {
+        clickActionPoints(for: record, snapshot: snapshot).first ?? localCenter(for: record)
     }
 
     private func screenshotToGlobalPoint(snapshot: AppSnapshot, x: Double, y: Double) throws -> CGPoint {
@@ -1789,6 +1832,7 @@ public final class ComputerUseService {
     private func performExplicitMouseClick(
         method: ClickMethod,
         at point: CGPoint,
+        windowPoint: CGPoint,
         button: MouseButtonKind,
         clickCount: Int,
         targetDescription: String,
@@ -1802,6 +1846,21 @@ public final class ComputerUseService {
             try InputSimulation.clickTargeted(
                 at: eventPoint,
                 button: button,
+                clickCount: clickCount,
+                pid: snapshot.app.pid
+            )
+        case .skyClick:
+            guard let windowBounds = snapshot.windowBounds, let windowID = snapshot.targetWindowID else {
+                throw ComputerUseError.stateUnavailable(
+                    "click_method 'sky_click' requires a current on-screen target window. Run get_app_state again."
+                )
+            }
+            debugClickDecision("requested=sky_click executed=skylight_pid_post target=\(targetDescription)")
+            try InputSimulation.clickWithSkyLight(
+                at: eventPoint,
+                windowPoint: windowPoint,
+                windowBounds: windowBounds,
+                windowID: windowID,
                 clickCount: clickCount,
                 pid: snapshot.app.pid
             )

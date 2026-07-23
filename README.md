@@ -174,4 +174,4 @@ Cursor Motion is an open-source cursor motion system for macOS, based on public 
 
 ## License
 
-[MIT](./LICENSE)
+[MIT](./LICENSE). Third-party attribution is listed in [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).

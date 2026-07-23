@@ -21,3 +21,5 @@
   - 当抓包目录里的 `websocket/` + `local-sessions/` 仍不足以解释本地 tool / MCP 行为时，再补查 Codex 本地 `logs_2.sqlite`。
 - `codex-computer-use-cli.md`
   - 仓库内 `scripts/computer-use-cli/` 的用途、使用方法，以及为什么探测官方 bundled `computer-use` 时要优先走 `codex app-server` 代理而不是 direct stdio。
+- `macos-skylight-background-click.md`
+  - `click_method=sky_click` 的文章与开源实现来源、固定源码版本、Chromium primer 事件序列、未采用范围和 macOS 私有 SPI 兼容性检查。

@@ -79,6 +79,26 @@ enum InputSimulation {
         }
     }
 
+    static func clickWithSkyLight(
+        at screenPoint: CGPoint,
+        windowPoint: CGPoint,
+        windowBounds: CGRect,
+        windowID: CGWindowID,
+        clickCount: Int,
+        pid: pid_t
+    ) throws {
+        try SkyClickDispatcher.click(
+            target: SkyClickTarget(
+                screenPoint: screenPoint,
+                windowPoint: windowPoint,
+                windowBounds: windowBounds,
+                windowID: windowID,
+                pid: pid
+            ),
+            clickCount: clickCount
+        )
+    }
+
     static func scrollTargeted(at point: CGPoint, direction: String, pages: Double, pid: pid_t) throws {
         guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2, wheel1: wheel1(direction: direction, pages: pages), wheel2: wheel2(direction: direction, pages: pages), wheel3: 0) else {
             throw ComputerUseError.message("Failed to create scroll event.")

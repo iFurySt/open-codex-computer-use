@@ -630,7 +630,7 @@ final class OpenComputerUseKitTests: XCTestCase {
         )
         XCTAssertEqual(
             ((tools["click"]?.inputSchema["properties"] as? [String: [String: Any]])?["click_method"]?["enum"] as? [String]) ?? [],
-            ["auto", "accessibility", "app_post", "global"]
+            ["auto", "accessibility", "app_post", "sky_click", "global"]
         )
         let getAppStateSchema = tools["get_app_state"]?.inputSchema
         let getAppStateProperties = getAppStateSchema?["properties"] as? [String: [String: Any]]
@@ -1367,7 +1367,40 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(try parseClickMethod(" AUTO "), .auto)
         XCTAssertEqual(try parseClickMethod("Accessibility"), .accessibility)
         XCTAssertEqual(try parseClickMethod(" APP_POST "), .appPost)
+        XCTAssertEqual(try parseClickMethod(" SKY_CLICK "), .skyClick)
         XCTAssertEqual(try parseClickMethod("GLOBAL"), .global)
+    }
+
+    func testOnlySkyClickUsesReadOnlyActionSnapshotRefresh() {
+        XCTAssertEqual(clickActionSnapshotRecoveryPolicy(for: .skyClick), .readOnly)
+
+        for method in ClickMethod.allCases where method != .skyClick {
+            XCTAssertEqual(
+                clickActionSnapshotRecoveryPolicy(for: method),
+                .allowActivation
+            )
+        }
+    }
+
+    func testFixtureStateFocusProbeFieldsRemainBackwardCompatible() throws {
+        let legacyPayload = #"""
+        {
+          "windowTitle": "Legacy Fixture",
+          "windowBounds": {"x": 1, "y": 2, "width": 3, "height": 4},
+          "focusedIdentifier": null,
+          "elements": []
+        }
+        """#
+
+        let state = try JSONDecoder().decode(
+            FixtureAppState.self,
+            from: Data(legacyPayload.utf8)
+        )
+        XCTAssertNil(state.processIdentifier)
+        XCTAssertNil(state.isActive)
+        XCTAssertNil(state.isKeyWindow)
+        XCTAssertNil(state.activationLossCount)
+        XCTAssertNil(state.keyWindowLossCount)
     }
 
     func testClickMethodRejectsUnknownValues() {
@@ -1375,7 +1408,7 @@ final class OpenComputerUseKitTests: XCTestCase {
             XCTAssertThrowsError(try parseClickMethod(value)) { error in
                 XCTAssertEqual(
                     (error as? ComputerUseError)?.errorDescription,
-                    "Invalid click_method '\(value)'. Expected one of: auto, accessibility, app_post, global"
+                    "Invalid click_method '\(value)'. Expected one of: auto, accessibility, app_post, sky_click, global"
                 )
             }
         }
@@ -1412,6 +1445,155 @@ final class OpenComputerUseKitTests: XCTestCase {
                 hasElementIndex: false,
                 environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "1"]
             )
+        )
+    }
+
+    func testSkyClickArgumentsRequireLeftButtonAndSingleOrDoubleClick() throws {
+        XCTAssertNoThrow(
+            try validateSkyClickArguments(method: .skyClick, mouseButton: " LEFT ", clickCount: 1)
+        )
+        XCTAssertNoThrow(
+            try validateSkyClickArguments(method: .skyClick, mouseButton: "left", clickCount: 2)
+        )
+        XCTAssertNoThrow(
+            try validateSkyClickArguments(method: .appPost, mouseButton: "right", clickCount: 5)
+        )
+
+        XCTAssertThrowsError(
+            try validateSkyClickArguments(method: .skyClick, mouseButton: "right", clickCount: 1)
+        ) { error in
+            XCTAssertEqual(
+                (error as? ComputerUseError)?.errorDescription,
+                "click_method 'sky_click' only supports mouse_button 'left'"
+            )
+        }
+        XCTAssertThrowsError(
+            try validateSkyClickArguments(method: .skyClick, mouseButton: "left", clickCount: 3)
+        ) { error in
+            XCTAssertEqual(
+                (error as? ComputerUseError)?.errorDescription,
+                "click_method 'sky_click' supports click_count 1 or 2"
+            )
+        }
+    }
+
+    func testSkyClickRecipeIncludesMovePrimerAndTargetPairs() throws {
+        let single = try skyClickEventRecipe(clickCount: 1)
+        XCTAssertEqual(single.count, 5)
+        XCTAssertEqual(single.map(\.kind), [.moved, .down, .up, .down, .up])
+        XCTAssertEqual(single.map(\.pointKind), [.target, .primer, .primer, .target, .target])
+        XCTAssertEqual(single.map(\.phase), [2, 1, 2, 3, 3])
+        XCTAssertEqual(single.map(\.clickState), [0, 1, 1, 1, 1])
+
+        let double = try skyClickEventRecipe(clickCount: 2)
+        XCTAssertEqual(double.count, 7)
+        XCTAssertEqual(double.suffix(4).map(\.clickState), [1, 1, 2, 2])
+        XCTAssertEqual(double[4].delayAfter, 0.080, accuracy: 0.000_001)
+        XCTAssertEqual(double.last?.delayAfter, 0)
+    }
+
+    func testSkyClickRecipeRejectsUnsupportedClickCounts() {
+        for count in [0, 3] {
+            XCTAssertThrowsError(try skyClickEventRecipe(clickCount: count)) { error in
+                XCTAssertEqual(
+                    (error as? ComputerUseError)?.errorDescription,
+                    "click_method 'sky_click' supports click_count 1 or 2"
+                )
+            }
+        }
+    }
+
+    func testSkyClickWindowValidationRequiresMatchingOnScreenOwner() {
+        let matching: [String: Any] = [
+            kCGWindowNumber as String: NSNumber(value: UInt32(321)),
+            kCGWindowOwnerPID as String: NSNumber(value: Int32(1234)),
+            kCGWindowIsOnscreen as String: NSNumber(value: true),
+        ]
+        XCTAssertTrue(
+            skyClickWindowMatchesTarget(windowInfo: [matching], windowID: 321, pid: 1234)
+        )
+        XCTAssertFalse(
+            skyClickWindowMatchesTarget(windowInfo: [matching], windowID: 322, pid: 1234)
+        )
+        XCTAssertFalse(
+            skyClickWindowMatchesTarget(windowInfo: [matching], windowID: 321, pid: 1235)
+        )
+
+        var offScreen = matching
+        offScreen[kCGWindowIsOnscreen as String] = NSNumber(value: false)
+        XCTAssertFalse(
+            skyClickWindowMatchesTarget(windowInfo: [offScreen], windowID: 321, pid: 1234)
+        )
+    }
+
+    func testSkyLightCapabilityReportsMissingSymbols() {
+        XCTAssertEqual(
+            SkyLightSPICapability(missingSymbols: []).unavailableReason,
+            "available"
+        )
+        XCTAssertEqual(
+            SkyLightSPICapability(missingSymbols: ["SLEventPostToPid"]).unavailableReason,
+            "missing private click symbols: SLEventPostToPid"
+        )
+    }
+
+    func testSkyLightActivationRecordEncodesWindowAndFocusState() {
+        let focused = skyLightActivationRecord(windowID: 0x1234_5678, focused: true)
+        XCTAssertEqual(focused.count, 0xF8)
+        XCTAssertEqual(focused[0x04], 0xF8)
+        XCTAssertEqual(focused[0x08], 0x0D)
+        XCTAssertEqual(Array(focused[0x3C...0x3F]), [0x78, 0x56, 0x34, 0x12])
+        XCTAssertEqual(focused[0x8A], 0x01)
+
+        let defocused = skyLightActivationRecord(windowID: 42, focused: false)
+        XCTAssertEqual(defocused[0x8A], 0x02)
+    }
+
+    func testSkyLightSyntheticFocusPlanOnlyAddressesTarget() {
+        let targetPSN = [UInt8](repeating: 7, count: 8)
+        let plan = skyLightSyntheticTargetFocusPlan(
+            targetPSN: targetPSN,
+            targetWindowID: 321
+        )
+
+        XCTAssertEqual(
+            plan,
+            SkyLightSyntheticFocusPlan(
+                activateTarget: SkyLightActivationCommand(
+                    psn: targetPSN,
+                    windowID: 321,
+                    focused: true
+                ),
+                deactivateTarget: SkyLightActivationCommand(
+                    psn: targetPSN,
+                    windowID: 321,
+                    focused: false
+                )
+            )
+        )
+    }
+
+    func testSkyLightRuntimeSPIProbeCanStampEventWithoutPosting() throws {
+        let spi = SkyLightSPI.shared
+        guard spi.capability.isAvailable else {
+            throw XCTSkip("SkyLight SPI unavailable: \(spi.capability.unavailableReason)")
+        }
+        guard
+            let source = CGEventSource(stateID: .hidSystemState),
+            let event = CGEvent(
+                mouseEventSource: source,
+                mouseType: .mouseMoved,
+                mouseCursorPosition: CGPoint(x: 10, y: 20),
+                mouseButton: .left
+            )
+        else {
+            return XCTFail("Failed to create a probe CGEvent")
+        }
+
+        try spi.setIntegerField(event, field: 1, value: 2)
+        XCTAssertEqual(event.getIntegerValueField(.mouseEventClickState), 2)
+        XCTAssertNoThrow(
+            try spi.setWindowLocation(event, point: CGPoint(x: 3, y: 4))
         )
     }
 

@@ -934,6 +934,8 @@ try {
                     Send-MouseClick $hwnd $point.x $point.y $operation.mouse_button ([int]$operation.click_count)
                 } elseif ($clickMethod -eq "global") {
                     throw "click_method 'global' is not supported on Windows"
+                } elseif ($clickMethod -eq "sky_click") {
+                    throw "click_method 'sky_click' is not supported on Windows"
                 } elseif ($clickMethod -eq "auto") {
                     $handled = $false
                     if ($null -ne $element -and $operation.mouse_button -ne "right" -and $operation.mouse_button -ne "middle") {

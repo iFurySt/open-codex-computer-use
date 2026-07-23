@@ -800,6 +800,8 @@ def perform_operation(operation):
                 )
         elif click_method == "app_post":
             raise RuntimeError("click_method 'app_post' is not supported on Linux")
+        elif click_method == "sky_click":
+            raise RuntimeError("click_method 'sky_click' is not supported on Linux")
         elif click_method == "global":
             x, y = screen_point(
                 bounds,

@@ -21,7 +21,7 @@ func TestClickMethodSchemaAndParser(t *testing.T) {
 	properties := tool.InputSchema["properties"].(map[string]any)
 	method := properties["click_method"].(map[string]any)
 	values := method["enum"].([]string)
-	if strings.Join(values, ",") != "auto,accessibility,app_post,global" {
+	if strings.Join(values, ",") != "auto,accessibility,app_post,sky_click,global" {
 		t.Fatalf("click_method enum = %#v", values)
 	}
 
@@ -30,6 +30,7 @@ func TestClickMethodSchemaAndParser(t *testing.T) {
 		" AUTO ":        "auto",
 		"Accessibility": "accessibility",
 		"app_post":      "app_post",
+		"SKY_CLICK":     "sky_click",
 		"GLOBAL":        "global",
 	} {
 		got, err := parseClickMethod(input)
@@ -42,7 +43,7 @@ func TestClickMethodSchemaAndParser(t *testing.T) {
 	}
 
 	for _, input := range []string{"physical", "targeted"} {
-		if _, err := parseClickMethod(input); err == nil || !strings.Contains(err.Error(), "Expected one of: auto, accessibility, app_post, global") {
+		if _, err := parseClickMethod(input); err == nil || !strings.Contains(err.Error(), "Expected one of: auto, accessibility, app_post, sky_click, global") {
 			t.Fatalf("parseClickMethod(%s) error = %v", input, err)
 		}
 	}
@@ -55,6 +56,11 @@ func TestLinuxClickMethodSafetyAndPlatformSupport(t *testing.T) {
 	result := service.click("Text Editor", "", &x, &y, 1, "left", "app_post")
 	if !result.IsError || result.Content[0].Text != "click_method 'app_post' is not supported on Linux" {
 		t.Fatalf("app_post click result = %#v", result)
+	}
+
+	result = service.click("Text Editor", "", &x, &y, 1, "left", "sky_click")
+	if !result.IsError || result.Content[0].Text != "click_method 'sky_click' is not supported on Linux" {
+		t.Fatalf("sky_click result = %#v", result)
 	}
 
 	t.Setenv("OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS", "")

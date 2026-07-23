@@ -88,6 +88,8 @@ final class FixtureAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     private let dragPadView = DragPadView(frame: NSRect(x: 0, y: 0, width: 320, height: 120))
     private var scrollView: NSScrollView!
     private var counter = 0
+    private var activationLossCount = 0
+    private var keyWindowLossCount = 0
     private weak var observedScrollView: NSScrollView?
     private var commandObserver: NSObjectProtocol?
     private let headless: Bool
@@ -109,6 +111,15 @@ final class FixtureAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         if let commandObserver {
             DistributedNotificationCenter.default().removeObserver(commandObserver)
         }
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        updateExportedState()
+    }
+
+    func applicationDidResignActive(_ notification: Notification) {
+        activationLossCount += 1
+        updateExportedState()
     }
 
     private func buildWindow() {
@@ -230,6 +241,15 @@ final class FixtureAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         updateExportedState()
     }
 
+    func windowDidBecomeKey(_ notification: Notification) {
+        updateExportedState()
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        keyWindowLossCount += 1
+        updateExportedState()
+    }
+
     private func makeScrollView() -> NSScrollView {
         let documentView = NSStackView()
         documentView.orientation = .vertical
@@ -333,11 +353,12 @@ final class FixtureAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     }
 
     private func updateExportedState() {
-        guard let contentView = window.contentView else {
+        guard let window, let contentView = window.contentView else {
             return
         }
 
         let state = FixtureAppState(
+            processIdentifier: getpid(),
             windowTitle: window.title,
             windowBounds: FixtureRect(rect: windowBoundsInQuartzCoordinates()),
             focusedIdentifier: focusedIdentifier(),
@@ -352,7 +373,11 @@ final class FixtureAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
                 element(identifier: "fixture-scroll-view", index: 7, role: "scroll area", title: nil, value: nil, actions: ["Scroll Up", "Scroll Down"], rect: localRect(for: scrollView, in: contentView)),
                 element(identifier: "fixture-drag-status", index: 8, role: "static text", title: nil, value: dragLabel.stringValue, actions: [], rect: localRect(for: dragLabel, in: contentView)),
                 element(identifier: "fixture-drag-pad", index: 9, role: "group", title: "Drag Pad", value: nil, actions: [], rect: localRect(for: dragPadView, in: contentView)),
-            ]
+            ],
+            isActive: NSApp.isActive,
+            isKeyWindow: window.isKeyWindow,
+            activationLossCount: activationLossCount,
+            keyWindowLossCount: keyWindowLossCount
         )
 
         try? FixtureBridge.writeState(state)

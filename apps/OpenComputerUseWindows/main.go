@@ -19,7 +19,7 @@ import (
 
 var version = "0.2.1"
 
-var clickMethodValues = []string{"auto", "accessibility", "app_post", "global"}
+var clickMethodValues = []string{"auto", "accessibility", "app_post", "sky_click", "global"}
 
 //go:embed runtime.ps1
 var windowsRuntimeScript string
@@ -294,6 +294,9 @@ func (s *service) click(app, elementIndex string, x, y *float64, clickCount int,
 	}
 	if clickMethod == "global" {
 		return textResult("click_method 'global' is not supported on Windows", true)
+	}
+	if clickMethod == "sky_click" {
+		return textResult("click_method 'sky_click' is not supported on Windows", true)
 	}
 	snapshot := s.currentSnapshot(app)
 	if snapshot == nil {
@@ -717,7 +720,7 @@ func toolDefinitions() []toolDefinition {
 				"y":             numberProperty("Y coordinate in screenshot pixel coordinates"),
 				"click_count":   integerProperty("Number of clicks. Defaults to 1"),
 				"mouse_button":  enumStringProperty("Mouse button to click. Defaults to left.", []string{"left", "right", "middle"}),
-				"click_method":  enumStringProperty("Click implementation: auto (default), accessibility, app_post, or global. Accessibility requires element_index. Windows supports app_post through HWND messages and does not currently support global.", clickMethodValues),
+				"click_method":  enumStringProperty("Click implementation: auto (default), accessibility, app_post, sky_click, or global. Accessibility requires element_index. Windows supports app_post through HWND messages and does not currently support sky_click or global.", clickMethodValues),
 			}, []string{"app"}),
 		},
 		{

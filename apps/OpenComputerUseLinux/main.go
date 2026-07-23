@@ -22,7 +22,7 @@ import (
 
 var version = "0.2.1"
 
-var clickMethodValues = []string{"auto", "accessibility", "app_post", "global"}
+var clickMethodValues = []string{"auto", "accessibility", "app_post", "sky_click", "global"}
 
 //go:embed runtime.py
 var linuxRuntimeScript string
@@ -297,6 +297,9 @@ func (s *service) click(app, elementIndex string, x, y *float64, clickCount int,
 	}
 	if clickMethod == "app_post" {
 		return textResult("click_method 'app_post' is not supported on Linux", true)
+	}
+	if clickMethod == "sky_click" {
+		return textResult("click_method 'sky_click' is not supported on Linux", true)
 	}
 	if clickMethod == "global" && !globalPointerFallbacksEnabled() {
 		return textResult("click_method 'global' requires OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 because it may move the system pointer and change foreground focus", true)
@@ -1146,7 +1149,7 @@ func toolDefinitions() []toolDefinition {
 				"y":             numberProperty("Y coordinate in screenshot pixel coordinates"),
 				"click_count":   integerProperty("Number of clicks. Defaults to 1"),
 				"mouse_button":  enumStringProperty("Mouse button to click. Defaults to left.", []string{"left", "right", "middle"}),
-				"click_method":  enumStringProperty("Click implementation: auto (default), accessibility, app_post, or global. Accessibility requires element_index. Linux supports global AT-SPI mouse synthesis and does not currently support app_post.", clickMethodValues),
+				"click_method":  enumStringProperty("Click implementation: auto (default), accessibility, app_post, sky_click, or global. Accessibility requires element_index. Linux supports global AT-SPI mouse synthesis and does not currently support app_post or sky_click.", clickMethodValues),
 			}, []string{"app"}),
 		},
 		{
