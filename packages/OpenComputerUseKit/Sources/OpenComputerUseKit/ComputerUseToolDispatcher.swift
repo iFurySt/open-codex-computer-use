@@ -63,7 +63,8 @@ public final class ComputerUseToolDispatcher {
                 x: optionalDouble("x", in: arguments),
                 y: optionalDouble("y", in: arguments),
                 clickCount: Int(optionalDouble("click_count", in: arguments) ?? 1),
-                mouseButton: optionalString("mouse_button", in: arguments) ?? "left"
+                mouseButton: optionalString("mouse_button", in: arguments) ?? "left",
+                clickMethod: try parseClickMethod(optionalString("click_method", in: arguments))
             )
         case "perform_secondary_action":
             return try service.performSecondaryAction(

@@ -105,11 +105,35 @@ open-computer-use snapshot --max-tree-nodes 3000 --max-tree-depth 96 "Google Chr
 - Re-run `get_app_state` after navigation, modal changes, page reloads, or failed actions.
 - Use coordinate actions only when the rendered tree does not expose the target as an element.
 
+## Choosing a Click Method
+
+`click_method` is optional. Omitting it uses `auto`, which preserves the platform's existing semantic-first behavior. Explicit methods never fall back to a different implementation:
+
+- `accessibility`: only invoke the element's accessibility action and require `element_index`.
+- `app_post`: bypass accessibility and post a mouse event directly to the target app/window without moving the system pointer. Supported on macOS and Windows.
+- `global`: bypass accessibility and use the desktop's global pointer path. Supported on macOS and Linux, and requires `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` because it may move the real pointer or change foreground focus.
+
+Use `app_post` for an exact blank-area or overlay click that must not be redirected to an accessibility descendant:
+
+```sh
+open-computer-use call click --args '{"app":"Google Chrome","x":875,"y":375,"click_method":"app_post"}'
+```
+
+Use `global` only after explicitly enabling the process-level safety gate:
+
+```sh
+OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 open-computer-use call click --args '{"app":"Google Chrome","x":875,"y":375,"click_method":"global"}'
+```
+
+Keep the environment override scoped as narrowly as possible. While it remains enabled, the existing `auto` route may also choose the global pointer path after accessibility cannot handle a click.
+
+Windows returns an unsupported error for `global`; Linux returns an unsupported error for `app_post`. An unsupported or failed explicit method does not fall back to `auto`.
+
 ## Platform Notes
 
 ### macOS
 
-The macOS runtime uses Accessibility, ScreenCaptureKit, and targeted input events. It normally avoids moving the user's real pointer. The visual cursor overlay is part of the Open Computer Use experience and can be disabled by the surrounding runtime only when needed.
+The macOS runtime uses Accessibility, ScreenCaptureKit, and app-posted input events. It normally avoids moving the user's real pointer. The visual cursor overlay is part of the Open Computer Use experience and can be disabled by the surrounding runtime only when needed.
 
 ### Windows
 

@@ -8,6 +8,44 @@ struct VisualCursorTarget: Equatable {
     let window: CursorTargetWindow?
 }
 
+public enum ClickMethod: String, CaseIterable, Sendable {
+    case auto
+    case accessibility
+    case appPost = "app_post"
+    case global
+}
+
+func parseClickMethod(_ rawValue: String?) throws -> ClickMethod {
+    let normalized = rawValue?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased() ?? ClickMethod.auto.rawValue
+
+    guard let method = ClickMethod(rawValue: normalized) else {
+        let expected = ClickMethod.allCases.map(\.rawValue).joined(separator: ", ")
+        throw ComputerUseError.message(
+            "Invalid click_method '\(rawValue ?? "")'. Expected one of: \(expected)"
+        )
+    }
+
+    return method
+}
+
+func validateClickMethod(
+    _ method: ClickMethod,
+    hasElementIndex: Bool,
+    environment: [String: String]
+) throws {
+    if method == .accessibility, !hasElementIndex {
+        throw ComputerUseError.message("click_method 'accessibility' requires element_index")
+    }
+
+    if method == .global, !globalPointerFallbacksEnabled(environment: environment) {
+        throw ComputerUseError.message(
+            "click_method 'global' requires OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 because it may move the system pointer and change foreground focus"
+        )
+    }
+}
+
 struct VisualCursorScreenMapping: Equatable {
     let screenStateFrame: CGRect
     let appKitFrame: CGRect
@@ -368,10 +406,30 @@ public final class ComputerUseService {
         snapshotResult(for: try refreshSnapshot(for: query, textLimit: textLimit, treeLimits: treeLimits), style: .fullState)
     }
 
-    public func click(app query: String, elementIndex: String?, x: Double?, y: Double?, clickCount: Int, mouseButton: String) throws -> ToolCallResult {
+    public func click(
+        app query: String,
+        elementIndex: String?,
+        x: Double?,
+        y: Double?,
+        clickCount: Int,
+        mouseButton: String,
+        clickMethod: ClickMethod = .auto
+    ) throws -> ToolCallResult {
+        try validateClickMethod(
+            clickMethod,
+            hasElementIndex: elementIndex != nil,
+            environment: ProcessInfo.processInfo.environment
+        )
+
         let snapshot = try currentSnapshot(for: query)
         let button = MouseButtonKind(rawValue: mouseButton.lowercased()) ?? .left
         if snapshot.mode == .fixture {
+            guard clickMethod == .auto else {
+                throw ComputerUseError.message(
+                    "click_method '\(clickMethod.rawValue)' is not supported for fixture apps"
+                )
+            }
+
             let cursorTarget: VisualCursorTarget?
             if let elementIndex {
                 let record = try lookupElement(snapshot: snapshot, index: elementIndex)
@@ -409,15 +467,40 @@ public final class ComputerUseService {
             moveVisualCursor(to: cursorTarget)
 
             do {
-                if !(try performAXClickSequence(
-                    on: record,
-                    snapshot: snapshot,
-                    button: button,
-                    clickCount: clickCount,
-                    includeNearbyHitTesting: true,
-                    allowActivationFallback: true
-                )) {
-                    try performNonAXClickFallback(
+                switch clickMethod {
+                case .auto:
+                    if !(try performAXClickSequence(
+                        on: record,
+                        snapshot: snapshot,
+                        button: button,
+                        clickCount: clickCount,
+                        includeNearbyHitTesting: true,
+                        allowActivationFallback: true
+                    )) {
+                        try performNonAXClickFallback(
+                            at: targetPoint,
+                            button: button,
+                            clickCount: clickCount,
+                            targetDescription: "element_index=\(elementIndex)",
+                            snapshot: snapshot
+                        )
+                    }
+                case .accessibility:
+                    guard try performAXClickSequence(
+                        on: record,
+                        snapshot: snapshot,
+                        button: button,
+                        clickCount: clickCount,
+                        includeNearbyHitTesting: true,
+                        allowActivationFallback: true
+                    ) else {
+                        throw ComputerUseError.message(
+                            "click_method 'accessibility' could not click element_index=\(elementIndex)"
+                        )
+                    }
+                case .appPost, .global:
+                    try performExplicitMouseClick(
+                        method: clickMethod,
                         at: targetPoint,
                         button: button,
                         clickCount: clickCount,
@@ -444,24 +527,38 @@ public final class ComputerUseService {
             moveVisualCursor(to: cursorTarget)
 
             do {
-                let candidates = try clickCandidates(at: point, in: snapshot)
-                var handled = false
-                for record in candidates {
-                    if try performAXClickSequence(
-                        on: record,
-                        snapshot: snapshot,
-                        button: button,
-                        clickCount: clickCount,
-                        includeNearbyHitTesting: false,
-                        allowActivationFallback: false
-                    ) {
-                        handled = true
-                        break
+                switch clickMethod {
+                case .auto:
+                    let candidates = try clickCandidates(at: point, in: snapshot)
+                    var handled = false
+                    for record in candidates {
+                        if try performAXClickSequence(
+                            on: record,
+                            snapshot: snapshot,
+                            button: button,
+                            clickCount: clickCount,
+                            includeNearbyHitTesting: false,
+                            allowActivationFallback: false
+                        ) {
+                            handled = true
+                            break
+                        }
                     }
-                }
 
-                if !handled {
-                    try performNonAXClickFallback(
+                    if !handled {
+                        try performNonAXClickFallback(
+                            at: targetPoint,
+                            button: button,
+                            clickCount: clickCount,
+                            targetDescription: "x=\(Int(screenshotPoint.x)) y=\(Int(screenshotPoint.y))",
+                            snapshot: snapshot
+                        )
+                    }
+                case .accessibility:
+                    throw ComputerUseError.message("click_method 'accessibility' requires element_index")
+                case .appPost, .global:
+                    try performExplicitMouseClick(
+                        method: clickMethod,
                         at: targetPoint,
                         button: button,
                         clickCount: clickCount,
@@ -1686,6 +1783,41 @@ public final class ComputerUseService {
                     "click could not be handled through accessibility, and global pointer fallback is disabled. Set OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 to allow physical-pointer fallback for this process."
                 )
             }
+        }
+    }
+
+    private func performExplicitMouseClick(
+        method: ClickMethod,
+        at point: CGPoint,
+        button: MouseButtonKind,
+        clickCount: Int,
+        targetDescription: String,
+        snapshot: AppSnapshot
+    ) throws {
+        let eventPoint = inputEventPoint(fromScreenStatePoint: point)
+
+        switch method {
+        case .appPost:
+            debugClickDecision("requested=app_post executed=pid_post target=\(targetDescription)")
+            try InputSimulation.clickTargeted(
+                at: eventPoint,
+                button: button,
+                clickCount: clickCount,
+                pid: snapshot.app.pid
+            )
+        case .global:
+            guard globalPointerFallbacksEnabled(environment: ProcessInfo.processInfo.environment) else {
+                throw ComputerUseError.message(
+                    "click_method 'global' requires OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 because it may move the system pointer and change foreground focus"
+                )
+            }
+            debugClickDecision("requested=global executed=global_hid target=\(targetDescription)")
+            InputSimulation.prepareAppForGlobalPointerInput(snapshot.app)
+            try InputSimulation.clickGlobally(at: eventPoint, button: button, clickCount: clickCount)
+        case .auto, .accessibility:
+            throw ComputerUseError.message(
+                "click_method '\(method.rawValue)' is not a direct mouse event method"
+            )
         }
     }
 

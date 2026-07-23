@@ -27,6 +27,8 @@
   - `Open Computer Use.app` 的系统权限
   - 本地使用场景
   共同提供。
+- `click_method=global` 是显式的系统级指针路径，可能移动真实鼠标、改变前台焦点或命中坐标处的其他窗口。调用参数本身不视为足够授权；macOS 和支持该模式的 Linux runtime 还要求进程环境中设置 `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1`。未设置时必须在任何可见 cursor 移动或真实输入事件之前拒绝请求。
+- `click_method=app_post` 与 `accessibility` 不允许静默切换到 `global`。这保证调用方选择的非侵入边界在失败时仍然成立。
 - 下一阶段应优先补：
   - session 级审批
   - 更清楚的敏感 app / 系统设置防护策略

@@ -69,7 +69,7 @@ enum InputSimulation {
 
     static func clickTargeted(at point: CGPoint, button: MouseButtonKind, clickCount: Int, pid: pid_t) throws {
         guard let source = CGEventSource(stateID: .combinedSessionState) else {
-            throw ComputerUseError.message("Failed to create targeted event source.")
+            throw ComputerUseError.message("Failed to create app-post event source.")
         }
 
         for _ in 0..<max(clickCount, 1) {

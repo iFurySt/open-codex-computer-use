@@ -628,6 +628,10 @@ final class OpenComputerUseKitTests: XCTestCase {
             ((tools["click"]?.inputSchema["properties"] as? [String: [String: Any]])?["mouse_button"]?["enum"] as? [String]) ?? [],
             ["left", "right", "middle"]
         )
+        XCTAssertEqual(
+            ((tools["click"]?.inputSchema["properties"] as? [String: [String: Any]])?["click_method"]?["enum"] as? [String]) ?? [],
+            ["auto", "accessibility", "app_post", "global"]
+        )
         let getAppStateSchema = tools["get_app_state"]?.inputSchema
         let getAppStateProperties = getAppStateSchema?["properties"] as? [String: [String: Any]]
         XCTAssertNil(getAppStateProperties?["show_full_text"])
@@ -1356,6 +1360,59 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertTrue(globalPointerFallbacksEnabled(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "yes"]))
         XCTAssertFalse(globalPointerFallbacksEnabled(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "0"]))
         XCTAssertFalse(globalPointerFallbacksEnabled(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "false"]))
+    }
+
+    func testClickMethodDefaultsToAutoAndNormalizesExplicitValues() throws {
+        XCTAssertEqual(try parseClickMethod(nil), .auto)
+        XCTAssertEqual(try parseClickMethod(" AUTO "), .auto)
+        XCTAssertEqual(try parseClickMethod("Accessibility"), .accessibility)
+        XCTAssertEqual(try parseClickMethod(" APP_POST "), .appPost)
+        XCTAssertEqual(try parseClickMethod("GLOBAL"), .global)
+    }
+
+    func testClickMethodRejectsUnknownValues() {
+        for value in ["physical", "targeted"] {
+            XCTAssertThrowsError(try parseClickMethod(value)) { error in
+                XCTAssertEqual(
+                    (error as? ComputerUseError)?.errorDescription,
+                    "Invalid click_method '\(value)'. Expected one of: auto, accessibility, app_post, global"
+                )
+            }
+        }
+    }
+
+    func testAccessibilityClickMethodRequiresElementIndex() {
+        XCTAssertThrowsError(
+            try validateClickMethod(.accessibility, hasElementIndex: false, environment: [:])
+        ) { error in
+            XCTAssertEqual(
+                (error as? ComputerUseError)?.errorDescription,
+                "click_method 'accessibility' requires element_index"
+            )
+        }
+
+        XCTAssertNoThrow(
+            try validateClickMethod(.accessibility, hasElementIndex: true, environment: [:])
+        )
+    }
+
+    func testGlobalClickMethodRequiresExplicitPointerAuthorization() {
+        XCTAssertThrowsError(
+            try validateClickMethod(.global, hasElementIndex: false, environment: [:])
+        ) { error in
+            XCTAssertEqual(
+                (error as? ComputerUseError)?.errorDescription,
+                "click_method 'global' requires OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 because it may move the system pointer and change foreground focus"
+            )
+        }
+
+        XCTAssertNoThrow(
+            try validateClickMethod(
+                .global,
+                hasElementIndex: false,
+                environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "1"]
+            )
+        )
     }
 
     func testSetValueAttributeGateMatchesOfficialSettableBoundary() throws {

@@ -16,6 +16,59 @@ func TestToolDefinitionCount(t *testing.T) {
 	}
 }
 
+func TestClickMethodSchemaAndParser(t *testing.T) {
+	tool := findToolDefinition(t, "click")
+	properties := tool.InputSchema["properties"].(map[string]any)
+	method := properties["click_method"].(map[string]any)
+	values := method["enum"].([]string)
+	if strings.Join(values, ",") != "auto,accessibility,app_post,global" {
+		t.Fatalf("click_method enum = %#v", values)
+	}
+
+	for input, want := range map[string]string{
+		"":              "auto",
+		" AUTO ":        "auto",
+		"Accessibility": "accessibility",
+		"app_post":      "app_post",
+		"GLOBAL":        "global",
+	} {
+		got, err := parseClickMethod(input)
+		if err != nil {
+			t.Fatalf("parseClickMethod(%q): %v", input, err)
+		}
+		if got != want {
+			t.Fatalf("parseClickMethod(%q) = %q, want %q", input, got, want)
+		}
+	}
+
+	for _, input := range []string{"physical", "targeted"} {
+		if _, err := parseClickMethod(input); err == nil || !strings.Contains(err.Error(), "Expected one of: auto, accessibility, app_post, global") {
+			t.Fatalf("parseClickMethod(%s) error = %v", input, err)
+		}
+	}
+}
+
+func TestLinuxClickMethodSafetyAndPlatformSupport(t *testing.T) {
+	x, y := 10.0, 20.0
+	service := newService()
+
+	result := service.click("Text Editor", "", &x, &y, 1, "left", "app_post")
+	if !result.IsError || result.Content[0].Text != "click_method 'app_post' is not supported on Linux" {
+		t.Fatalf("app_post click result = %#v", result)
+	}
+
+	t.Setenv("OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS", "")
+	result = service.click("Text Editor", "", &x, &y, 1, "left", "global")
+	if !result.IsError || !strings.Contains(result.Content[0].Text, "requires OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1") {
+		t.Fatalf("unauthorized global click result = %#v", result)
+	}
+
+	t.Setenv("OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS", "yes")
+	if !globalPointerFallbacksEnabled() {
+		t.Fatal("global pointer authorization should accept yes")
+	}
+}
+
 func TestGetAppStateSchemaIncludesTextLimit(t *testing.T) {
 	tool := findToolDefinition(t, "get_app_state")
 	properties := tool.InputSchema["properties"].(map[string]any)

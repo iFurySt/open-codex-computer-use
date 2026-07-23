@@ -22,6 +22,8 @@ import (
 
 var version = "0.2.1"
 
+var clickMethodValues = []string{"auto", "accessibility", "app_post", "global"}
+
 //go:embed runtime.py
 var linuxRuntimeScript string
 
@@ -144,6 +146,7 @@ type linuxRequest struct {
 	ToY          *float64       `json:"to_y,omitempty"`
 	ClickCount   int            `json:"click_count,omitempty"`
 	MouseButton  string         `json:"mouse_button,omitempty"`
+	ClickMethod  string         `json:"click_method,omitempty"`
 	Action       string         `json:"action,omitempty"`
 	Direction    string         `json:"direction,omitempty"`
 	Pages        float64        `json:"pages,omitempty"`
@@ -202,6 +205,10 @@ func (s *service) callTool(name string, args map[string]any) toolCallResult {
 		}
 		return s.getAppState(requiredString(args, "app"), textLimit, maxTreeNodes, maxTreeDepth)
 	case "click":
+		clickMethod, err := parseClickMethod(optionalString(args, "click_method"))
+		if err != nil {
+			return textResult(err.Error(), true)
+		}
 		return s.click(
 			requiredString(args, "app"),
 			optionalElementIndex(args),
@@ -209,6 +216,7 @@ func (s *service) callTool(name string, args map[string]any) toolCallResult {
 			optionalFloat(args, "y"),
 			intValue(optionalFloat(args, "click_count"), 1),
 			defaultString(optionalString(args, "mouse_button"), "left"),
+			clickMethod,
 		)
 	case "perform_secondary_action":
 		return s.performSecondaryAction(
@@ -277,12 +285,21 @@ func (s *service) getAppState(app string, textLimit *textLimit, maxTreeNodes, ma
 	return snapshot.result()
 }
 
-func (s *service) click(app, elementIndex string, x, y *float64, clickCount int, mouseButton string) toolCallResult {
+func (s *service) click(app, elementIndex string, x, y *float64, clickCount int, mouseButton, clickMethod string) toolCallResult {
 	if app == "" {
 		return textResult("Missing required argument: app", true)
 	}
 	if elementIndex == "" && (x == nil || y == nil) {
 		return textResult("click requires either element_index or x/y", true)
+	}
+	if clickMethod == "accessibility" && elementIndex == "" {
+		return textResult("click_method 'accessibility' requires element_index", true)
+	}
+	if clickMethod == "app_post" {
+		return textResult("click_method 'app_post' is not supported on Linux", true)
+	}
+	if clickMethod == "global" && !globalPointerFallbacksEnabled() {
+		return textResult("click_method 'global' requires OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 because it may move the system pointer and change foreground focus", true)
 	}
 	snapshot := s.currentSnapshot(app)
 	if snapshot == nil {
@@ -295,6 +312,7 @@ func (s *service) click(app, elementIndex string, x, y *float64, clickCount int,
 		Y:            y,
 		ClickCount:   clickCount,
 		MouseButton:  mouseButton,
+		ClickMethod:  clickMethod,
 		WindowBounds: snapshot.WindowBounds,
 	}
 	if elementIndex != "" {
@@ -1093,6 +1111,28 @@ func defaultString(value, fallback string) string {
 	return value
 }
 
+func parseClickMethod(value string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "" {
+		return "auto", nil
+	}
+	for _, candidate := range clickMethodValues {
+		if normalized == candidate {
+			return normalized, nil
+		}
+	}
+	return "", fmt.Errorf("Invalid click_method %q. Expected one of: %s", value, strings.Join(clickMethodValues, ", "))
+}
+
+func globalPointerFallbacksEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS"))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
 func toolDefinitions() []toolDefinition {
 	return []toolDefinition{
 		{
@@ -1106,6 +1146,7 @@ func toolDefinitions() []toolDefinition {
 				"y":             numberProperty("Y coordinate in screenshot pixel coordinates"),
 				"click_count":   integerProperty("Number of clicks. Defaults to 1"),
 				"mouse_button":  enumStringProperty("Mouse button to click. Defaults to left.", []string{"left", "right", "middle"}),
+				"click_method":  enumStringProperty("Click implementation: auto (default), accessibility, app_post, or global. Accessibility requires element_index. Linux supports global AT-SPI mouse synthesis and does not currently support app_post.", clickMethodValues),
 			}, []string{"app"}),
 		},
 		{

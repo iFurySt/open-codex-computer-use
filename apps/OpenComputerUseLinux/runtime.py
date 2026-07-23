@@ -786,10 +786,21 @@ def perform_operation(operation):
     element = find_element(app, element_record)
 
     if tool == "click":
-        handled = False
-        if element is not None and operation.get("mouse_button", "left") == "left":
-            handled = do_action_by_index(element, preferred_action_index(element))
-        if not handled:
+        click_method = (operation.get("click_method") or "auto").lower()
+        if click_method == "accessibility":
+            if element is None:
+                raise RuntimeError("click_method 'accessibility' requires element_index")
+            if operation.get("mouse_button", "left") != "left":
+                raise RuntimeError(
+                    "click_method 'accessibility' only supports mouse_button 'left'"
+                )
+            if not do_action_by_index(element, preferred_action_index(element)):
+                raise RuntimeError(
+                    "click_method 'accessibility' could not click the requested element"
+                )
+        elif click_method == "app_post":
+            raise RuntimeError("click_method 'app_post' is not supported on Linux")
+        elif click_method == "global":
             x, y = screen_point(
                 bounds,
                 element_record,
@@ -799,6 +810,25 @@ def perform_operation(operation):
             send_mouse_click(
                 x, y, operation.get("mouse_button", "left"), operation.get("click_count", 1)
             )
+        elif click_method == "auto":
+            handled = False
+            if element is not None and operation.get("mouse_button", "left") == "left":
+                handled = do_action_by_index(element, preferred_action_index(element))
+            if not handled:
+                x, y = screen_point(
+                    bounds,
+                    element_record,
+                    operation.get("x"),
+                    operation.get("y"),
+                )
+                send_mouse_click(
+                    x,
+                    y,
+                    operation.get("mouse_button", "left"),
+                    operation.get("click_count", 1),
+                )
+        else:
+            raise RuntimeError("Invalid click_method '{}'".format(click_method))
     elif tool == "perform_secondary_action":
         invoke_secondary_action(element, operation.get("action", ""))
     elif tool == "scroll":

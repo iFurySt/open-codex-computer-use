@@ -911,11 +911,18 @@ try {
 
         switch ($operation.tool) {
             "click" {
-                $handled = $false
-                if ($null -ne $element -and $operation.mouse_button -ne "right" -and $operation.mouse_button -ne "middle") {
-                    $handled = Invoke-PreferredClick $element
-                }
-                if (-not $handled) {
+                $clickMethod = [string]$operation.click_method
+                if ([string]::IsNullOrWhiteSpace($clickMethod)) { $clickMethod = "auto" }
+
+                if ($clickMethod -eq "accessibility") {
+                    if ($null -eq $element) { throw "click_method 'accessibility' requires element_index" }
+                    if ($operation.mouse_button -eq "right" -or $operation.mouse_button -eq "middle") {
+                        throw "click_method 'accessibility' does not support mouse_button '$($operation.mouse_button)'"
+                    }
+                    if (-not (Invoke-PreferredClick $element)) {
+                        throw "click_method 'accessibility' could not click the requested element"
+                    }
+                } elseif ($clickMethod -eq "app_post") {
                     if ($null -ne $operation.element -and $null -ne $operation.element.frame) {
                         $point = Get-ScreenPoint $operation.element.frame $windowBounds
                     } else {
@@ -925,6 +932,26 @@ try {
                         }
                     }
                     Send-MouseClick $hwnd $point.x $point.y $operation.mouse_button ([int]$operation.click_count)
+                } elseif ($clickMethod -eq "global") {
+                    throw "click_method 'global' is not supported on Windows"
+                } elseif ($clickMethod -eq "auto") {
+                    $handled = $false
+                    if ($null -ne $element -and $operation.mouse_button -ne "right" -and $operation.mouse_button -ne "middle") {
+                        $handled = Invoke-PreferredClick $element
+                    }
+                    if (-not $handled) {
+                        if ($null -ne $operation.element -and $null -ne $operation.element.frame) {
+                            $point = Get-ScreenPoint $operation.element.frame $windowBounds
+                        } else {
+                            $point = [pscustomobject]@{
+                                x = [int][math]::Round($windowBounds.x + [double]$operation.x)
+                                y = [int][math]::Round($windowBounds.y + [double]$operation.y)
+                            }
+                        }
+                        Send-MouseClick $hwnd $point.x $point.y $operation.mouse_button ([int]$operation.click_count)
+                    }
+                } else {
+                    throw "Invalid click_method '$clickMethod'"
                 }
             }
             "perform_secondary_action" {
