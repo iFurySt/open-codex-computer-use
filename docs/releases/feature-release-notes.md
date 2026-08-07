@@ -1,5 +1,11 @@
 # 功能发布记录
 
+## 2026-08
+
+| 日期 | 功能域 | 用户价值 | 变更摘要 |
+| --- | --- | --- | --- |
+| 2026-08-08 | Linux AT-SPI 文本能力检测 | Ubuntu 24.04 等 PyGObject 环境中的 `get_app_state`、`type_text` 和 `set_value` 不再因缺少非标准 `Accessible.is_text` / `is_editable_text` 属性而崩溃。 | Linux bridge 改为通过标准 `Accessible.get_interfaces()` 检测 `Text` / `EditableText`，并新增不依赖真实桌面的 Python 回归测试。 |
+
 ## 2026-07
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |

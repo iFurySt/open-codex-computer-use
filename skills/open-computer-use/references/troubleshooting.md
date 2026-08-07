@@ -91,6 +91,10 @@ Windows UI Automation and Linux AT-SPI require a live user desktop. SSH sessions
 
 If desktop access is missing, ask the user to run the command from the logged-in desktop session or start the target app visibly in that session.
 
+## Linux Accessible Interface Errors
+
+If a Linux release reports that `Accessible` has no `is_text` or `is_editable_text` attribute, upgrade to a release containing the AT-SPI interface-detection fix. Current source checks `Accessible.get_interfaces()` for `Text` and `EditableText`, which is compatible with the PyGObject bindings used by Ubuntu 24.04.
+
 ## Permission And Safety Issues
 
 - Do not bypass macOS TCC prompts.

@@ -50,6 +50,12 @@ def safe(call, default=None):
         return default
 
 
+def supports_interface(node, interface_name):
+    interfaces = safe(lambda: node.get_interfaces(), [])
+    expected = str(interface_name).casefold()
+    return any(str(interface).casefold() == expected for interface in interfaces)
+
+
 def require_desktop_session():
     missing = []
     if not os.environ.get("XDG_RUNTIME_DIR"):
@@ -217,7 +223,7 @@ def accessible_id(node):
 
 
 def text_value(node, text_limit=DEFAULT_TEXT_LIMIT):
-    if not bool(safe(node.is_text, False)):
+    if not supports_interface(node, "Text"):
         return ""
     text_iface = safe(node.get_text_iface)
     if text_iface is None:
@@ -407,7 +413,7 @@ def selected_text(app_pid, text_limit=DEFAULT_TEXT_LIMIT):
             focused = find_first(
                 win, lambda node: state_contains(node, Atspi.StateType.FOCUSED)
             )
-            if focused is None or not bool(safe(focused.is_text, False)):
+            if focused is None or not supports_interface(focused, "Text"):
                 return None
             text_iface = safe(focused.get_text_iface)
             selections = safe(lambda: Atspi.Text.get_text_selections(text_iface), [])
@@ -690,8 +696,8 @@ def send_text(text):
 
 def find_editable_text(root):
     def is_editable(node):
-        return bool(safe(node.is_editable_text, False)) and bool(
-            safe(node.is_text, False)
+        return supports_interface(node, "EditableText") and supports_interface(
+            node, "Text"
         )
 
     return find_first(root, is_editable)
@@ -717,7 +723,7 @@ def insert_text(root, text):
 
 
 def set_element_value(node, value):
-    if node is not None and bool(safe(node.is_editable_text, False)):
+    if node is not None and supports_interface(node, "EditableText"):
         editable = safe(node.get_editable_text_iface)
         if editable is not None:
             return bool(

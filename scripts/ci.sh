@@ -16,6 +16,11 @@ while IFS= read -r file; do
   node --check "$file"
 done < <(find "${repo_root}/scripts" -type f -name '*.mjs' | sort)
 
+(
+  cd "${repo_root}/apps/OpenComputerUseLinux"
+  python3 -m unittest -v runtime_test.py
+)
+
 if command -v go >/dev/null 2>&1; then
   (
     cd "${repo_root}/apps/OpenComputerUseWindows"
