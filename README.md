@@ -164,11 +164,11 @@ Cursor Motion is an open-source cursor motion system for macOS, based on public 
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=iFurySt%2Fopen-codex-computer-use&type=date&legend=top-left">
+<a href="https://star-history.dera.page/#iFurySt/open-codex-computer-use&type=date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ifuryst/open-codex-computer-use&type=date&theme=dark&legend=top-left" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ifuryst/open-codex-computer-use&type=date&legend=top-left" />
-    <img alt="Star History Chart for open-computer-use" src="https://api.star-history.com/chart?repos=ifuryst/open-codex-computer-use&type=date&legend=top-left" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=ifuryst/open-codex-computer-use&type=date&theme=dark&legend=top-left" />
+    <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=ifuryst/open-codex-computer-use&type=date&legend=top-left" />
+    <img alt="Star History Chart for open-computer-use" src="https://star-history.dera.page/svg?repos=ifuryst/open-codex-computer-use&type=date&legend=top-left" />
   </picture>
 </a>
 

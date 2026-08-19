@@ -148,11 +148,11 @@ Cursor Motion 是一个面向 macOS 的开源光标运动系统，基于 Softwar
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=iFurySt%2Fopen-codex-computer-use&type=date&legend=top-left">
+<a href="https://star-history.dera.page/#iFurySt/open-codex-computer-use&type=date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ifuryst/open-codex-computer-use&type=date&theme=dark&legend=top-left" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ifuryst/open-codex-computer-use&type=date&legend=top-left" />
-    <img alt="open-computer-use Star History 趋势图" src="https://api.star-history.com/chart?repos=ifuryst/open-codex-computer-use&type=date&legend=top-left" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=ifuryst/open-codex-computer-use&type=date&theme=dark&legend=top-left" />
+    <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=ifuryst/open-codex-computer-use&type=date&legend=top-left" />
+    <img alt="open-computer-use Star History 趋势图" src="https://star-history.dera.page/svg?repos=ifuryst/open-codex-computer-use&type=date&legend=top-left" />
   </picture>
 </a>
 
