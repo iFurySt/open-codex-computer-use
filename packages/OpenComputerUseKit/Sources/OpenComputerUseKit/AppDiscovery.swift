@@ -166,6 +166,12 @@ enum AppDiscovery {
         throw ComputerUseError.appNotFound(normalizedQuery)
     }
 
+    struct ResolutionCandidate {
+        let name: String
+        let executableName: String?
+        let isRegularApp: Bool
+    }
+
     private static func resolvedRunningApp(in descriptors: [RunningAppDescriptor], matching query: String) -> RunningAppDescriptor? {
         if isBundleIdentifierQuery(query) {
             return descriptors.first(where: { descriptor in
@@ -173,14 +179,56 @@ enum AppDiscovery {
             })
         }
 
-        return descriptors.first(where: { descriptor in
-            guard !AppSafetyPolicy.isBlocked(bundleIdentifier: descriptor.bundleIdentifier) else {
-                return false
+        let allowed = descriptors.filter { descriptor in
+            !AppSafetyPolicy.isBlocked(bundleIdentifier: descriptor.bundleIdentifier)
+        }
+        let candidates = allowed.map { descriptor in
+            ResolutionCandidate(
+                name: descriptor.name,
+                executableName: descriptor.runningApplication.executableURL?.deletingPathExtension().lastPathComponent,
+                isRegularApp: descriptor.runningApplication.activationPolicy == .regular
+            )
+        }
+
+        guard let index = bestResolutionIndex(of: candidates, matching: query) else {
+            return nil
+        }
+
+        return allowed[index]
+    }
+
+    static func bestResolutionIndex(of candidates: [ResolutionCandidate], matching query: String) -> Int? {
+        var best: (rank: Int, index: Int)?
+
+        for (index, candidate) in candidates.enumerated() {
+            let rank: Int?
+            if candidate.isRegularApp, candidate.name.caseInsensitiveCompare(query) == .orderedSame {
+                rank = 0
+            } else if candidate.isRegularApp, candidate.executableName?.caseInsensitiveCompare(query) == .orderedSame {
+                rank = 1
+            } else if candidate.name.caseInsensitiveCompare(query) == .orderedSame {
+                rank = 2
+            } else if candidate.executableName?.caseInsensitiveCompare(query) == .orderedSame {
+                rank = 3
+            } else {
+                rank = nil
             }
 
-            return descriptor.name.caseInsensitiveCompare(query) == .orderedSame
-                || descriptor.runningApplication.executableURL?.deletingPathExtension().lastPathComponent.caseInsensitiveCompare(query) == .orderedSame
-        })
+            guard let rank else {
+                continue
+            }
+
+            if let current = best, rank >= current.rank {
+                continue
+            }
+
+            best = (rank, index)
+            if rank == 0 {
+                break
+            }
+        }
+
+        return best?.index
     }
 
     private static func userFacingRunningApps() -> [RunningAppDescriptor] {

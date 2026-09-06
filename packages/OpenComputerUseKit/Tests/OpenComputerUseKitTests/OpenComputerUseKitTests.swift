@@ -361,6 +361,26 @@ final class OpenComputerUseKitTests: XCTestCase {
         }
     }
 
+    func testAppNameResolutionPrefersRegularAppsAndDisplayNames() {
+        let ranked = [
+            AppDiscovery.ResolutionCandidate(name: "Safari", executableName: nil, isRegularApp: true),
+            AppDiscovery.ResolutionCandidate(name: "Browser", executableName: "Safari", isRegularApp: true),
+            AppDiscovery.ResolutionCandidate(name: "Safari", executableName: nil, isRegularApp: false),
+            AppDiscovery.ResolutionCandidate(name: "Browser Helper", executableName: "Safari", isRegularApp: false),
+        ]
+        for preferred in ranked.indices {
+            for fallback in ranked.indices where fallback > preferred {
+                XCTAssertEqual(AppDiscovery.bestResolutionIndex(of: [ranked[fallback], ranked[preferred]], matching: "sAfArI"), 1)
+                XCTAssertEqual(AppDiscovery.bestResolutionIndex(of: [ranked[preferred], ranked[fallback]], matching: "sAfArI"), 0)
+            }
+        }
+        for candidate in ranked {
+            XCTAssertEqual(AppDiscovery.bestResolutionIndex(of: [candidate, candidate], matching: "Safari"), 0)
+        }
+        XCTAssertNil(AppDiscovery.bestResolutionIndex(of: ranked, matching: "missing"))
+        XCTAssertNil(AppDiscovery.bestResolutionIndex(of: [], matching: "Safari"))
+    }
+
     func testMacOSAppAgentProxyDecisionKeepsNonAutomationCommandsLocal() {
         for command in [
             OpenComputerUseCLICommand.turnEnded(payload: nil),
