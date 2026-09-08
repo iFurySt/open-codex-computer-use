@@ -668,6 +668,10 @@ final class OpenComputerUseKitTests: XCTestCase {
             ((tools["click"]?.inputSchema["properties"] as? [String: [String: Any]])?["click_method"]?["enum"] as? [String]) ?? [],
             ["auto", "accessibility", "app_post", "sky_click", "global"]
         )
+        let dragDescription = tools["drag"]?.description ?? ""
+        XCTAssertTrue(dragDescription.contains("OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1"))
+        XCTAssertTrue(dragDescription.contains("window moves, text selection, or Finder drag-and-drop"))
+        XCTAssertTrue(dragDescription.hasSuffix("This tool is part of plugin `Computer Use`."))
         let getAppStateSchema = tools["get_app_state"]?.inputSchema
         let getAppStateProperties = getAppStateSchema?["properties"] as? [String: [String: Any]]
         XCTAssertNil(getAppStateProperties?["show_full_text"])
@@ -1469,6 +1473,49 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertTrue(globalPointerFallbacksEnabled(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "yes"]))
         XCTAssertFalse(globalPointerFallbacksEnabled(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "0"]))
         XCTAssertFalse(globalPointerFallbacksEnabled(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "false"]))
+    }
+
+    func testDragDeliveryPathFollowsGlobalPointerGate() {
+        XCTAssertEqual(dragDeliveryPath(environment: [:]), .appPost)
+        XCTAssertEqual(dragDeliveryPath(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "0"]), .appPost)
+        XCTAssertEqual(dragDeliveryPath(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "1"]), .global)
+        XCTAssertEqual(dragDeliveryPath(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": " True "]), .global)
+    }
+
+    func testDragDeliveryNoteExplainsWhyDefaultPathCannotDriveWindowServerDrags() {
+        let appPostNote = dragDeliveryNote(for: .appPost)
+        XCTAssertTrue(appPostNote.hasPrefix("Drag delivered via app_post"))
+        XCTAssertTrue(appPostNote.contains("system pointer did not move"))
+        XCTAssertTrue(appPostNote.contains("window moves"))
+        XCTAssertTrue(appPostNote.contains("text selection"))
+        XCTAssertTrue(appPostNote.contains("Finder drag-and-drop"))
+        XCTAssertTrue(appPostNote.contains("OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1"))
+
+        let globalNote = dragDeliveryNote(for: .global)
+        XCTAssertTrue(globalNote.hasPrefix("Drag delivered via global pointer path"))
+        XCTAssertTrue(globalNote.contains("real pointer may have moved"))
+    }
+
+    func testDragDeliveryNoteIsInsertedAfterSnapshotTextAndBeforeScreenshot() {
+        let snapshotText = "App=com.example.app (pid 42)\nWindow: \"Example\", App: Example."
+        let result = ToolCallResult(content: [.text(snapshotText), .pngImage(Data([0x89, 0x50, 0x4E, 0x47]))])
+
+        let annotated = appendingDragDeliveryNote(to: result, path: .appPost)
+
+        XCTAssertEqual(annotated.primaryText, snapshotText)
+        XCTAssertEqual(annotated.content.count, 3)
+        XCTAssertEqual(annotated.content[1].dictionary["type"] as? String, "text")
+        XCTAssertEqual(annotated.content[1].dictionary["text"] as? String, dragDeliveryNote(for: .appPost))
+        XCTAssertEqual(annotated.content[2].dictionary["type"] as? String, "image")
+        XCTAssertFalse(annotated.isError)
+    }
+
+    func testDragDeliveryNoteIsAppendedWhenResultHasNoScreenshot() {
+        let annotated = appendingDragDeliveryNote(to: .text("App=com.example.app (pid 42)"), path: .global)
+
+        XCTAssertEqual(annotated.primaryText, "App=com.example.app (pid 42)")
+        XCTAssertEqual(annotated.content.count, 2)
+        XCTAssertEqual(annotated.content[1].dictionary["text"] as? String, dragDeliveryNote(for: .global))
     }
 
     func testClickMethodDefaultsToAutoAndNormalizesExplicitValues() throws {

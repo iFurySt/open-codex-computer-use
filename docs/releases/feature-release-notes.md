@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-09-08 | drag 投递路径可见性 | 在默认安全配置下调用 `drag` 做窗口移动、文本拖选或 Finder 拖放时，结果会明确说明事件只投递给目标进程、为何没有效果，以及需要设置哪个环境变量，不再表现为“成功但无效果”。 | `drag` 结果新增一条 `Drag delivered via app_post` / `Drag delivered via global pointer path` 文本项；tool description 补充默认路径限制与 `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` 说明；skill 文档新增 Drag Delivery 章节；默认行为与安全门本身不变。 |
 | 2026-09-08 | macOS 应用定位与 secondary action | 按名称定位应用时减少误选后台 helper，执行 secondary action 时避免动作错配。 | 发布 `0.3.4`：优先匹配普通应用；支持 Safari custom action 短名称，并修复过滤后的动作映射和名称冲突。 |
 | 2026-09-06 | macOS secondary action | Agent 可以通过 Safari 暴露的 `close tab` secondary action 可靠关闭标签页，不会因内部动作被过滤而误执行另一项动作。 | macOS renderer 将 `Name:close tab ...` 形式的 AppKit custom action descriptor 显示为短名称，executor 从同一组过滤后的 raw actions 做等价名称匹配，并拒绝歧义匹配；短名称与其他原始 action 冲突时保留完整 descriptor，避免误执行同名原始动作。 |
 | 2026-09-06 | macOS 应用名称解析 | 按名称定位 Safari 等应用时优先匹配真实应用，避免同名后台 helper 抢占匹配结果。 | 按普通应用名称、普通应用 executable、后台应用名称、后台 executable 分级匹配；同级保持原顺序，bundle identifier 和安全过滤规则不变。 |

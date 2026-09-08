@@ -185,6 +185,40 @@ func globalPointerFallbacksEnabled(environment: [String: String]) -> Bool {
     return ["1", "true", "yes", "on"].contains(rawValue)
 }
 
+/// How a `drag` is delivered. `drag` has no method argument; the path is decided
+/// by the same process-level gate that authorizes `click_method=global`.
+enum DragDeliveryPath: String, CaseIterable {
+    /// `CGEvent.postToPid`: never moves the system pointer, but the events do not
+    /// pass through the window server, so window-server drag sessions (window
+    /// moves, text selection, Finder drag-and-drop) are not driven.
+    case appPost = "app_post"
+    /// `.cghidEventTap`: drives window-server drag sessions and may move the
+    /// real pointer or change foreground focus.
+    case global
+}
+
+func dragDeliveryPath(environment: [String: String]) -> DragDeliveryPath {
+    globalPointerFallbacksEnabled(environment: environment) ? .global : .appPost
+}
+
+func dragDeliveryNote(for path: DragDeliveryPath) -> String {
+    switch path {
+    case .appPost:
+        return "Drag delivered via app_post: mouse events were posted directly to the target process and the system pointer did not move. This path cannot drive window-server drag sessions such as window moves, text selection, or Finder drag-and-drop. If the drag had no effect, set OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 in the server process environment to use the global pointer path, which may move the real pointer and change foreground focus."
+    case .global:
+        return "Drag delivered via global pointer path: OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS is enabled, so the real pointer may have moved and foreground focus may have changed."
+    }
+}
+
+/// Inserts the delivery note after the snapshot text and before any screenshot,
+/// so `primaryText` remains the snapshot for existing consumers.
+func appendingDragDeliveryNote(to result: ToolCallResult, path: DragDeliveryPath) -> ToolCallResult {
+    var content = result.content
+    let insertIndex = content.firstIndex { $0.dictionary["type"] as? String == "image" } ?? content.endIndex
+    content.insert(.text(dragDeliveryNote(for: path)), at: insertIndex)
+    return ToolCallResult(content: content, isError: result.isError)
+}
+
 func screenshotPixelScale(
     screenshotPixelSize: CGSize?,
     windowBounds: CGRect?
@@ -702,13 +736,16 @@ public final class ComputerUseService {
 
         let start = try screenshotToGlobalPoint(snapshot: snapshot, x: fromX, y: fromY)
         let end = try screenshotToGlobalPoint(snapshot: snapshot, x: toX, y: toY)
-        try performDragEvent(
+        let path = try performDragEvent(
             from: start,
             to: end,
             targetDescription: "from=(\(Int(fromX)), \(Int(fromY))) to=(\(Int(toX)), \(Int(toY)))",
             snapshot: snapshot
         )
-        return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+        return appendingDragDeliveryNote(
+            to: snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult),
+            path: path
+        )
     }
 
     public func typeText(app query: String, text: String) throws -> ToolCallResult {
@@ -1773,11 +1810,13 @@ public final class ComputerUseService {
         to end: CGPoint,
         targetDescription: String,
         snapshot: AppSnapshot
-    ) throws {
+    ) throws -> DragDeliveryPath {
         let eventStart = inputEventPoint(fromScreenStatePoint: start)
         let eventEnd = inputEventPoint(fromScreenStatePoint: end)
+        let path = dragDeliveryPath(environment: ProcessInfo.processInfo.environment)
 
-        if globalPointerFallbacksEnabled(environment: ProcessInfo.processInfo.environment) {
+        switch path {
+        case .global:
             debugInputFallback(
                 tool: "drag",
                 targetDescription: targetDescription,
@@ -1785,10 +1824,11 @@ public final class ComputerUseService {
             )
             InputSimulation.prepareAppForGlobalPointerInput(snapshot.app)
             try InputSimulation.dragGlobally(from: eventStart, to: eventEnd)
-            return
+        case .appPost:
+            try InputSimulation.dragTargeted(from: eventStart, to: eventEnd, pid: snapshot.app.pid)
         }
 
-        try InputSimulation.dragTargeted(from: eventStart, to: eventEnd, pid: snapshot.app.pid)
+        return path
     }
 
     private func performNonAXClickFallback(
