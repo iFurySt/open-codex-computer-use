@@ -1475,6 +1475,22 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertFalse(globalPointerFallbacksEnabled(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "false"]))
     }
 
+    func testDragStepCountScalesWithDistanceAndClampsToBounds() {
+        XCTAssertEqual(InputSimulation.dragStepCount(from: .zero, to: .zero), 10)
+        XCTAssertEqual(InputSimulation.dragStepCount(from: CGPoint(x: 0, y: 0), to: CGPoint(x: 8, y: 0)), 10)
+        XCTAssertEqual(InputSimulation.dragStepCount(from: CGPoint(x: 0, y: 0), to: CGPoint(x: 200, y: 0)), 50)
+        XCTAssertEqual(InputSimulation.dragStepCount(from: CGPoint(x: 0, y: 0), to: CGPoint(x: 5000, y: 0)), 60)
+    }
+
+    func testNeedsDragEventNumberGatesOnRecentMacOS() {
+        // Older macOS ignores the gesture event number; 26+ needs it (codex#43047).
+        XCTAssertFalse(InputSimulation.needsDragEventNumber(majorVersion: 14))
+        XCTAssertFalse(InputSimulation.needsDragEventNumber(majorVersion: 15))
+        XCTAssertFalse(InputSimulation.needsDragEventNumber(majorVersion: 25))
+        XCTAssertTrue(InputSimulation.needsDragEventNumber(majorVersion: 26))
+        XCTAssertTrue(InputSimulation.needsDragEventNumber(majorVersion: 27))
+    }
+
     func testDragDeliveryPathFollowsGlobalPointerGate() {
         XCTAssertEqual(dragDeliveryPath(environment: [:]), .appPost)
         XCTAssertEqual(dragDeliveryPath(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "0"]), .appPost)

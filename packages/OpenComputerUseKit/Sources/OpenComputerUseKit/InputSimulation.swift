@@ -140,23 +140,29 @@ enum InputSimulation {
     }
 
     static func dragGlobally(from start: CGPoint, to end: CGPoint) throws {
-        guard let source = CGEventSource(stateID: .hidSystemState) else {
-            throw ComputerUseError.message("Failed to create HID event source.")
-        }
+        // A nil (default) event source posted to the HID tap, with per-step deltas and
+        // no timestamp override. This is what lets macOS recognize the synthetic
+        // sequence as a real window-server drag on current releases.
+        let gesture = dragGestureEventNumber()
+        try postMouseEvent(type: .mouseMoved, source: nil, point: start, button: .left, clickState: 1)
+        try postMouseEvent(type: .leftMouseDown, source: nil, point: start, button: .left, clickState: 1, eventNumber: gesture)
+        // Clear the OS drag threshold before motion, or the gesture reads as a click.
+        Thread.sleep(forTimeInterval: 0.05)
 
-        try postMouseEvent(type: .mouseMoved, source: source, point: start, button: .left, clickState: 1)
-        try postMouseEvent(type: .leftMouseDown, source: source, point: start, button: .left, clickState: 1)
-
-        for step in 1...10 {
-            let progress = CGFloat(step) / 10
+        var previous = start
+        let steps = dragStepCount(from: start, to: end)
+        for step in 1...steps {
+            let progress = CGFloat(step) / CGFloat(steps)
             let point = CGPoint(
                 x: start.x + ((end.x - start.x) * progress),
                 y: start.y + ((end.y - start.y) * progress)
             )
-            try postMouseEvent(type: .leftMouseDragged, source: source, point: point, button: .left, clickState: 1)
+            let delta = CGSize(width: point.x - previous.x, height: point.y - previous.y)
+            try postMouseEvent(type: .leftMouseDragged, source: nil, point: point, button: .left, clickState: 1, delta: delta, eventNumber: gesture)
+            previous = point
         }
 
-        try postMouseEvent(type: .leftMouseUp, source: source, point: end, button: .left, clickState: 1)
+        try postMouseEvent(type: .leftMouseUp, source: nil, point: end, button: .left, clickState: 1, eventNumber: gesture)
     }
 
     static func typeText(_ text: String, pid: pid_t) throws {
@@ -241,14 +247,57 @@ enum InputSimulation {
         Thread.sleep(forTimeInterval: 0.1)
     }
 
-    private static func postMouseEvent(type: CGEventType, source: CGEventSource, point: CGPoint, button: CGMouseButton, clickState: Int) throws {
+    private static func postMouseEvent(type: CGEventType, source: CGEventSource?, point: CGPoint, button: CGMouseButton, clickState: Int, delta: CGSize? = nil, eventNumber: Int64? = nil) throws {
         guard let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: point, mouseButton: button) else {
             throw ComputerUseError.message("Failed to create mouse event \(type.rawValue).")
         }
 
         event.setIntegerValueField(.mouseEventClickState, value: Int64(clickState))
+        applyDragMotionFields(to: event, delta: delta, eventNumber: eventNumber)
         event.post(tap: .cghidEventTap)
         Thread.sleep(forTimeInterval: 0.03)
+    }
+
+    /// A synthetic macOS drag registers only when each dragged event carries the
+    /// per-step movement delta: macOS reads kCGMouseEventDeltaX/Y (both the integer
+    /// and double fields), not the absolute position, to decide the pointer moved.
+    /// Applied only to drag events (delta != nil); clicks are unchanged.
+    private static func applyDragMotionFields(to event: CGEvent, delta: CGSize?, eventNumber: Int64? = nil) {
+        if eventNumber != nil || delta != nil {
+            event.flags = []
+        }
+        if let eventNumber {
+            event.setIntegerValueField(.mouseEventNumber, value: eventNumber)
+        }
+        guard let delta else { return }
+        let dx = Int64(delta.width.rounded())
+        let dy = Int64(delta.height.rounded())
+        event.setIntegerValueField(.mouseEventDeltaX, value: dx)
+        event.setIntegerValueField(.mouseEventDeltaY, value: dy)
+        event.setDoubleValueField(.mouseEventDeltaX, value: Double(dx))
+        event.setDoubleValueField(.mouseEventDeltaY, value: Double(dy))
+    }
+
+    /// Whether synthetic drag events need a matching gesture event number. Older
+    /// macOS ignores it; recent releases require it (codex#43047 reports 26/27).
+    static func needsDragEventNumber(majorVersion: Int) -> Bool { majorVersion >= 26 }
+
+    /// A gesture identity shared by the down/dragged/up sequence, seeded above the
+    /// system's last event number so recent macOS treats the sequence as one drag.
+    private static func dragGestureEventNumber() -> Int64? {
+        guard needsDragEventNumber(majorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion) else { return nil }
+        let hid = CGEventSourceStateID.hidSystemState
+        let base = Int64(CGEventSource.counterForEventType(hid, eventType: .leftMouseDown))
+            + Int64(CGEventSource.counterForEventType(hid, eventType: .rightMouseDown))
+            + Int64(CGEventSource.counterForEventType(hid, eventType: .otherMouseDown))
+        return base + 1
+    }
+
+    /// Coarse interpolation makes large per-event jumps that macOS drag recognition
+    /// can miss, so scale step count with distance (~4px/step) within a sane range.
+    static func dragStepCount(from start: CGPoint, to end: CGPoint) -> Int {
+        let distance = hypot(end.x - start.x, end.y - start.y)
+        return min(max(Int((distance / 4).rounded(.up)), 10), 60)
     }
 
     private static func postMouseEventToPid(type: CGEventType, source: CGEventSource, point: CGPoint, button: CGMouseButton, clickState: Int, pid: pid_t) throws {
