@@ -51,6 +51,30 @@ func validateClickMethod(
     }
 }
 
+public enum KeyMethod: String, CaseIterable, Sendable {
+    case auto
+    case skyKey = "sky_key"
+}
+
+func keyActionSnapshotRecoveryPolicy(for method: KeyMethod) -> SnapshotRecoveryPolicy {
+    method == .skyKey ? .readOnly : .allowActivation
+}
+
+func parseKeyMethod(_ rawValue: String?) throws -> KeyMethod {
+    let normalized = rawValue?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased() ?? KeyMethod.auto.rawValue
+
+    guard let method = KeyMethod(rawValue: normalized) else {
+        let expected = KeyMethod.allCases.map(\.rawValue).joined(separator: ", ")
+        throw ComputerUseError.message(
+            "Invalid key_method '\(rawValue ?? "")'. Expected one of: \(expected)"
+        )
+    }
+
+    return method
+}
+
 func validateSkyClickArguments(
     method: ClickMethod,
     mouseButton: String,
@@ -711,12 +735,22 @@ public final class ComputerUseService {
         return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
     }
 
-    public func typeText(app query: String, text: String) throws -> ToolCallResult {
+    public func typeText(app query: String, text: String, keyMethod: KeyMethod = .auto) throws -> ToolCallResult {
         let snapshot = try currentSnapshot(for: query)
         if snapshot.mode == .fixture {
+            try requireAutoKeyMethodForFixture(keyMethod)
             try FixtureBridge.post(FixtureCommand(kind: "type_text", identifier: "fixture-input", value: text))
             Thread.sleep(forTimeInterval: 0.15)
             return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+        }
+
+        if keyMethod == .skyKey {
+            let target = try skyKeyTarget(for: snapshot)
+            try InputSimulation.typeTextWithSkyLight(text, windowID: target.windowID, pid: target.pid)
+            return snapshotResult(
+                for: try refreshSnapshot(for: query, recoveryPolicy: keyActionSnapshotRecoveryPolicy(for: keyMethod)),
+                style: .actionResult
+            )
         }
 
         if try typeTextBySettingFocusedValueIfAvailable(text, in: snapshot) {
@@ -732,16 +766,44 @@ public final class ComputerUseService {
         return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
     }
 
-    public func pressKey(app query: String, key: String) throws -> ToolCallResult {
+    public func pressKey(app query: String, key: String, keyMethod: KeyMethod = .auto) throws -> ToolCallResult {
         let snapshot = try currentSnapshot(for: query)
         if snapshot.mode == .fixture {
+            try requireAutoKeyMethodForFixture(keyMethod)
             try FixtureBridge.post(FixtureCommand(kind: "press_key", identifier: "fixture-key-capture", value: key))
             Thread.sleep(forTimeInterval: 0.15)
             return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
         }
 
+        if keyMethod == .skyKey {
+            let target = try skyKeyTarget(for: snapshot)
+            try InputSimulation.pressKeyWithSkyLight(key, windowID: target.windowID, pid: target.pid)
+            return snapshotResult(
+                for: try refreshSnapshot(for: query, recoveryPolicy: keyActionSnapshotRecoveryPolicy(for: keyMethod)),
+                style: .actionResult
+            )
+        }
+
         try InputSimulation.pressKey(key, pid: snapshot.app.pid)
         return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+    }
+
+    private func requireAutoKeyMethodForFixture(_ keyMethod: KeyMethod) throws {
+        guard keyMethod == .auto else {
+            throw ComputerUseError.message(
+                "key_method '\(keyMethod.rawValue)' is not supported for fixture apps"
+            )
+        }
+    }
+
+    private func skyKeyTarget(for snapshot: AppSnapshot) throws -> SkyKeyboardTarget {
+        guard let windowID = snapshot.targetWindowID else {
+            throw ComputerUseError.stateUnavailable(
+                "key_method 'sky_key' requires a current on-screen target window. Run get_app_state again."
+            )
+        }
+
+        return SkyKeyboardTarget(windowID: windowID, pid: snapshot.app.pid)
     }
 
     public func setValue(app query: String, elementIndex: String, value: String) throws -> ToolCallResult {

@@ -1682,6 +1682,76 @@ final class OpenComputerUseKitTests: XCTestCase {
         )
     }
 
+    func testSkyLightKeyWindowRecordsFollowYabaiLayout() {
+        let records = skyLightKeyWindowRecords(windowID: 0x1234_5678)
+        XCTAssertEqual(records.map(\.count), [0xF8, 0xF8])
+        XCTAssertEqual(records.map { $0[0x08] }, [0x01, 0x02])
+        for record in records {
+            XCTAssertEqual(record[0x04], 0xF8)
+            XCTAssertEqual(record[0x3A], 0x10)
+            XCTAssertEqual(Array(record[0x3C...0x3F]), [0x78, 0x56, 0x34, 0x12])
+            XCTAssertEqual(Array(record[0x20..<0x30]), [UInt8](repeating: 0xFF, count: 0x10))
+            XCTAssertEqual(record[0x8A], 0, "key-window records must not carry the activation focus marker")
+        }
+    }
+
+    func testSkyMenuKeyEquivalentOnlyCoversCommandCharacterChords() throws {
+        XCTAssertEqual(
+            skyMenuKeyEquivalent(for: try KeyPressParser.parse("cmd+a")),
+            SkyMenuKeyEquivalent(character: "A", modifiers: 0)
+        )
+        XCTAssertEqual(
+            skyMenuKeyEquivalent(for: try KeyPressParser.parse("cmd+shift+option+ctrl+z")),
+            SkyMenuKeyEquivalent(character: "Z", modifiers: 7)
+        )
+        XCTAssertNil(skyMenuKeyEquivalent(for: try KeyPressParser.parse("shift+a")), "non-command chords are key events")
+        XCTAssertNil(skyMenuKeyEquivalent(for: try KeyPressParser.parse("cmd+shift+left")), "navigation chords are key bindings, not menu items")
+        XCTAssertNil(skyMenuKeyEquivalent(for: try KeyPressParser.parse("return")))
+    }
+
+    func testSkyMenuItemMatchingIsCaseInsensitiveAndSkipsDisabledItems() {
+        let selectAll = SkyMenuKeyEquivalent(character: "A", modifiers: 0)
+        XCTAssertTrue(skyMenuItemMatches(cmdChar: "a", cmdModifiers: nil, enabled: nil, equivalent: selectAll))
+        XCTAssertTrue(skyMenuItemMatches(cmdChar: "A", cmdModifiers: 0, enabled: true, equivalent: selectAll))
+        XCTAssertFalse(skyMenuItemMatches(cmdChar: "A", cmdModifiers: 1, enabled: true, equivalent: selectAll))
+        XCTAssertFalse(skyMenuItemMatches(cmdChar: "A", cmdModifiers: 0, enabled: false, equivalent: selectAll))
+        XCTAssertFalse(skyMenuItemMatches(cmdChar: nil, cmdModifiers: 0, enabled: true, equivalent: selectAll))
+    }
+
+    func testSkyKeyWindowValidationAllowsOffScreenWindowsOfTheSameOwner() {
+        let offScreen: [String: Any] = [
+            kCGWindowNumber as String: NSNumber(value: UInt32(321)),
+            kCGWindowOwnerPID as String: NSNumber(value: Int32(1234)),
+            kCGWindowIsOnscreen as String: NSNumber(value: false),
+        ]
+        XCTAssertTrue(skyKeyWindowMatchesTarget(windowInfo: [offScreen], windowID: 321, pid: 1234))
+        XCTAssertFalse(skyKeyWindowMatchesTarget(windowInfo: [offScreen], windowID: 321, pid: 1235))
+        XCTAssertFalse(skyKeyWindowMatchesTarget(windowInfo: [offScreen], windowID: 322, pid: 1234))
+        XCTAssertFalse(skyClickWindowMatchesTarget(windowInfo: [offScreen], windowID: 321, pid: 1234), "sky_click keeps requiring an on-screen window")
+    }
+
+    func testKeyMethodParsingAndPolicy() throws {
+        XCTAssertEqual(try parseKeyMethod(nil), .auto)
+        XCTAssertEqual(try parseKeyMethod(" SKY_KEY "), .skyKey)
+        XCTAssertThrowsError(try parseKeyMethod("global")) { error in
+            XCTAssertEqual(
+                (error as? ComputerUseError)?.errorDescription,
+                "Invalid key_method 'global'. Expected one of: auto, sky_key"
+            )
+        }
+        XCTAssertEqual(keyActionSnapshotRecoveryPolicy(for: .skyKey), .readOnly)
+        XCTAssertEqual(keyActionSnapshotRecoveryPolicy(for: .auto), .allowActivation)
+    }
+
+    func testKeyboardToolSchemasExposeKeyMethod() {
+        for name in ["type_text", "press_key"] {
+            let tool = ToolDefinitions.all.first { $0.name == name }
+            let properties = tool?.inputSchema["properties"] as? [String: Any]
+            let keyMethod = properties?["key_method"] as? [String: Any]
+            XCTAssertEqual(keyMethod?["enum"] as? [String], ["auto", "sky_key"], name)
+        }
+    }
+
     func testSkyLightRuntimeSPIProbeCanStampEventWithoutPosting() throws {
         let spi = SkyLightSPI.shared
         guard spi.capability.isAvailable else {

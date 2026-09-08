@@ -47,6 +47,29 @@ func skyLightActivationRecord(windowID: CGWindowID, focused: Bool) -> [UInt8] {
     return record
 }
 
+/// yabai's `window_manager_make_key_window` record pair. Posted to the target
+/// PSN after the app-activation record, it makes AppKit inside the target treat
+/// `windowID` as its key window without a front-process switch or raise. This
+/// is what Chromium's page focus keys off (`OnWindowIsKeyChanged`), so it is
+/// the difference between key events being received and text being inserted.
+func skyLightKeyWindowRecords(windowID: CGWindowID) -> [[UInt8]] {
+    var record = [UInt8](repeating: 0, count: 0xF8)
+    record[0x04] = 0xF8
+    record[0x3A] = 0x10
+    record[0x3C] = UInt8(truncatingIfNeeded: windowID)
+    record[0x3D] = UInt8(truncatingIfNeeded: windowID >> 8)
+    record[0x3E] = UInt8(truncatingIfNeeded: windowID >> 16)
+    record[0x3F] = UInt8(truncatingIfNeeded: windowID >> 24)
+    for index in 0x20..<0x30 {
+        record[index] = 0xFF
+    }
+    return [UInt8(0x01), UInt8(0x02)].map { eventKind in
+        var copy = record
+        copy[0x08] = eventKind
+        return copy
+    }
+}
+
 struct SkyLightSPICapability: Equatable, Sendable {
     let missingSymbols: [String]
 
@@ -63,11 +86,13 @@ struct SkyLightSPICapability: Equatable, Sendable {
     }
 }
 
-/// Runtime-only bridge for the private SkyLight functions used by `sky_click`.
+/// Runtime-only bridge for the private SkyLight functions used by `sky_click`
+/// and `sky_key`.
 ///
-/// The declarations and event-field recipe are derived from the MIT-licensed
-/// Cua Driver and yabai implementations. Keep all undocumented ABI in this
-/// file so a future macOS compatibility change has one review boundary.
+/// The declarations, event-field recipe and key-window records are derived
+/// from the MIT-licensed Cua Driver and yabai implementations. Keep all
+/// undocumented ABI in this file so a future macOS compatibility change has
+/// one review boundary.
 final class SkyLightSPI: @unchecked Sendable {
     static let shared = SkyLightSPI()
 
@@ -180,6 +205,30 @@ final class SkyLightSPI: @unchecked Sendable {
         return SkyLightSyntheticFocusContext(
             deactivateTarget: plan.deactivateTarget
         )
+    }
+
+    /// Make the target window key inside the target app while it is in the
+    /// synthetic-active state. Must follow `beginSyntheticTargetFocus`; posted
+    /// the other way round the records are ignored. `endSyntheticTargetFocus`
+    /// releases the key state again (the target sees resignKey/blur).
+    func makeSyntheticTargetWindowKey(_ context: SkyLightSyntheticFocusContext) throws {
+        guard let postEventRecordFunction else {
+            throw unavailableError()
+        }
+
+        let command = context.deactivateTarget
+        for record in skyLightKeyWindowRecords(windowID: command.windowID) {
+            let status = command.psn.withUnsafeBytes { psnBytes in
+                record.withUnsafeBufferPointer { recordBytes in
+                    postEventRecordFunction(psnBytes.baseAddress, recordBytes.baseAddress)
+                }
+            }
+            guard status == 0 else {
+                throw ComputerUseError.message(
+                    "key_method 'sky_key' synthetic key-window event failed (OSStatus \(status))"
+                )
+            }
+        }
     }
 
     func endSyntheticTargetFocus(_ context: SkyLightSyntheticFocusContext) throws {

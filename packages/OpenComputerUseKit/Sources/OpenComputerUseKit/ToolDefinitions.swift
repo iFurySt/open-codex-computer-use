@@ -109,6 +109,7 @@ public enum ToolDefinitions {
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier"),
                     "key": stringProperty(description: "Key or key combination to press"),
+                    "key_method": keyMethodProperty(),
                 ],
                 required: ["app", "key"]
             )
@@ -148,6 +149,7 @@ public enum ToolDefinitions {
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier"),
                     "text": stringProperty(description: "Literal text to type"),
+                    "key_method": keyMethodProperty(),
                 ],
                 required: ["app", "text"]
             )
@@ -183,6 +185,13 @@ private func readOnlyAnnotations() -> [String: Any] {
         "openWorldHint": false,
         "readOnlyHint": true,
     ]
+}
+
+private func keyMethodProperty() -> [String: Any] {
+    stringProperty(
+        description: "Keyboard delivery: auto (default) or sky_key. sky_key posts authenticated keyboard events through the macOS SkyLight background-window path to the current target window without changing foreground focus. Requires a current on-screen target window from get_app_state.",
+        enumValues: KeyMethod.allCases.map(\.rawValue)
+    )
 }
 
 private func stringProperty(description: String, enumValues: [String]? = nil) -> [String: Any] {

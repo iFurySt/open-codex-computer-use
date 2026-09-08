@@ -99,6 +99,20 @@ enum InputSimulation {
         )
     }
 
+    static func typeTextWithSkyLight(_ text: String, windowID: CGWindowID, pid: pid_t) throws {
+        try SkyKeyboardDispatcher.typeText(
+            target: SkyKeyboardTarget(windowID: windowID, pid: pid),
+            text: text
+        )
+    }
+
+    static func pressKeyWithSkyLight(_ specification: String, windowID: CGWindowID, pid: pid_t) throws {
+        try SkyKeyboardDispatcher.pressKey(
+            target: SkyKeyboardTarget(windowID: windowID, pid: pid),
+            key: specification
+        )
+    }
+
     static func scrollTargeted(at point: CGPoint, direction: String, pages: Double, pid: pid_t) throws {
         guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2, wheel1: wheel1(direction: direction, pages: pages), wheel2: wheel2(direction: direction, pages: pages), wheel3: 0) else {
             throw ComputerUseError.message("Failed to create scroll event.")

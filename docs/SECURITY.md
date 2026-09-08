@@ -30,6 +30,7 @@
 - `click_method=global` 是显式的系统级指针路径，可能移动真实鼠标、改变前台焦点或命中坐标处的其他窗口。调用参数本身不视为足够授权；macOS 和支持该模式的 Linux runtime 还要求进程环境中设置 `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1`。未设置时必须在任何可见 cursor 移动或真实输入事件之前拒绝请求。
 - `click_method=app_post`、`sky_click` 与 `accessibility` 不允许静默切换到 `global`。这保证调用方选择的非侵入边界在失败时仍然成立。
 - `click_method=sky_click` 是显式 macOS 私有 SPI 能力，不进入 `auto`。它不移动系统指针、不改变 WindowServer frontmost app，也不 raise 或切换目标窗口；内部只让目标应用短暂进入 synthetic-active 状态，绝不向真实前台应用发送 defocus record，renderer settle 后也只撤销目标的合成状态。点击后的 action-result snapshot 禁止 activate / `AXRaise` 恢复。它仍会向指定 PID/window 注入真实输入语义，因此只允许使用当前 snapshot 的 on-screen、同 PID 窗口，并在窗口身份不匹配、target-focus record 失败或私有符号缺失时 fail closed。第一版仅支持同一 Space 内的左键单击/双击。
+- `key_method=sky_key` 与 `sky_click` 共用同一套边界：显式 macOS 私有 SPI 能力，不进入 `auto`，失败不 fallback；只让目标 app 短暂进入 synthetic-active 并把目标窗口设为其进程内的 key window，绝不向真实前台应用发送任何 record，不移动指针，不 raise，不切 Space。它会向目标 PID 注入真实键盘语义，并可能通过 AX 按下目标菜单项（例如 `cmd+q` 就会退出目标 app），所以只允许当前 snapshot 的同 PID 窗口，隐藏 app 与私有符号缺失时 fail closed。
 - SkyLight ABI、raw event field 和 Chromium 接收行为都不受 Apple 公共兼容性承诺保护。系统升级后的失败不得触发静默 global fallback；应先重新验证符号和受控目标，再决定是否更新实现。
 - 下一阶段应优先补：
   - session 级审批

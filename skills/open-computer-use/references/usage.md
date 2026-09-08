@@ -139,11 +139,28 @@ Keep the environment override scoped as narrowly as possible. While it remains e
 
 Windows returns an unsupported error for `sky_click` and `global`; Linux returns an unsupported error for `app_post` and `sky_click`. An unsupported or failed explicit method does not fall back to `auto`.
 
+## Choosing a Keyboard Method
+
+`key_method` on `type_text` and `press_key` is optional. Omitting it uses `auto`, which keeps the existing accessibility-first typing and app-posted key events. Explicit methods never fall back:
+
+- `sky_key`: use the macOS private SkyLight background-window path. It makes the current target window the key window inside its own app (without raising it, moving the pointer, switching Spaces, or deactivating the foreground app), delivers the keys, and releases that state again. Command chords such as `cmd+a`, `cmd+c` or `cmd+v` are performed through the target's own menu bar. Supported on macOS only.
+
+Use `sky_key` when a Chromium or Electron window is covered by another window or lives on another Space and `auto` typing does not reach it:
+
+```sh
+open-computer-use call get_app_state --args '{"app":"Google Chrome"}'
+open-computer-use call click --args '{"app":"Google Chrome","x":420,"y":260,"click_method":"sky_click"}'
+open-computer-use call type_text --args '{"app":"Google Chrome","text":"hello","key_method":"sky_key"}'
+open-computer-use call press_key --args '{"app":"Google Chrome","key":"cmd+a","key_method":"sky_key"}'
+```
+
+`sky_key` types into whatever element the target window has focused, so click or AX-focus the field first. It fails closed for hidden apps (`cmd+h`), stale window ids, and missing private symbols; Windows and Linux return an unsupported error.
+
 ## Platform Notes
 
 ### macOS
 
-The macOS runtime uses Accessibility, ScreenCaptureKit, app-posted input events, and an explicit private-SkyLight `sky_click` route. It normally avoids moving the user's real pointer. The visual cursor overlay is part of the Open Computer Use experience and can be disabled by the surrounding runtime only when needed. Private SkyLight symbols and raw event fields are not API-stable; re-validate `sky_click` after macOS upgrades.
+The macOS runtime uses Accessibility, ScreenCaptureKit, app-posted input events, and explicit private-SkyLight `sky_click` / `sky_key` routes. It normally avoids moving the user's real pointer. The visual cursor overlay is part of the Open Computer Use experience and can be disabled by the surrounding runtime only when needed. Private SkyLight symbols and raw event fields are not API-stable; re-validate `sky_click` after macOS upgrades.
 
 ### Windows
 

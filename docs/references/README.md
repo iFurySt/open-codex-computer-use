@@ -23,3 +23,5 @@
   - 仓库内 `scripts/computer-use-cli/` 的用途、使用方法，以及为什么探测官方 bundled `computer-use` 时要优先走 `codex app-server` 代理而不是 direct stdio。
 - `macos-skylight-background-click.md`
   - `click_method=sky_click` 的文章与开源实现来源、固定源码版本、Chromium primer 事件序列、未采用范围和 macOS 私有 SPI 兼容性检查。
+- `macos-skylight-background-keyboard.md`
+  - `key_method=sky_key` 的实机研究记录：为什么后台 Chromium 收得到按键却不输入文字、yabai key-window record、菜单快捷键走 AX、跨 Space 验证，以及哪些方案被实测否定。

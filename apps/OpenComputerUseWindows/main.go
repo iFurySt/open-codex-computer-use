@@ -21,6 +21,8 @@ var version = "0.3.4"
 
 var clickMethodValues = []string{"auto", "accessibility", "app_post", "sky_click", "global"}
 
+var keyMethodValues = []string{"auto", "sky_key"}
+
 //go:embed runtime.ps1
 var windowsRuntimeScript string
 
@@ -237,9 +239,17 @@ func (s *service) callTool(name string, args map[string]any) toolCallResult {
 			requiredFloat(args, "to_y"),
 		)
 	case "type_text":
-		return s.typeText(requiredString(args, "app"), requiredString(args, "text"))
+		keyMethod, err := parseKeyMethod(optionalString(args, "key_method"))
+		if err != nil {
+			return textResult(err.Error(), true)
+		}
+		return s.typeText(requiredString(args, "app"), requiredString(args, "text"), keyMethod)
 	case "press_key":
-		return s.pressKey(requiredString(args, "app"), requiredString(args, "key"))
+		keyMethod, err := parseKeyMethod(optionalString(args, "key_method"))
+		if err != nil {
+			return textResult(err.Error(), true)
+		}
+		return s.pressKey(requiredString(args, "app"), requiredString(args, "key"), keyMethod)
 	case "set_value":
 		return s.setValue(requiredString(args, "app"), requiredElementIndex(args), requiredString(args, "value"))
 	default:
@@ -391,12 +401,15 @@ func (s *service) drag(app string, fromX, fromY, toX, toY *float64) toolCallResu
 	return s.actionResult(app, psRequest{Tool: "drag", App: app, FromX: fromX, FromY: fromY, ToX: toX, ToY: toY, WindowBounds: snapshot.WindowBounds})
 }
 
-func (s *service) typeText(app, text string) toolCallResult {
+func (s *service) typeText(app, text, keyMethod string) toolCallResult {
 	if app == "" {
 		return textResult("Missing required argument: app", true)
 	}
 	if text == "" {
 		return textResult("Missing required argument: text", true)
+	}
+	if keyMethod == "sky_key" {
+		return textResult("key_method 'sky_key' is not supported on Windows", true)
 	}
 	if s.currentSnapshot(app) == nil {
 		return textResult("No app state is available for "+app+". Run get_app_state before action tools.", true)
@@ -404,12 +417,15 @@ func (s *service) typeText(app, text string) toolCallResult {
 	return s.actionResult(app, psRequest{Tool: "type_text", App: app, Text: text})
 }
 
-func (s *service) pressKey(app, key string) toolCallResult {
+func (s *service) pressKey(app, key, keyMethod string) toolCallResult {
 	if app == "" {
 		return textResult("Missing required argument: app", true)
 	}
 	if key == "" {
 		return textResult("Missing required argument: key", true)
+	}
+	if keyMethod == "sky_key" {
+		return textResult("key_method 'sky_key' is not supported on Windows", true)
 	}
 	if s.currentSnapshot(app) == nil {
 		return textResult("No app state is available for "+app+". Run get_app_state before action tools.", true)
@@ -694,6 +710,19 @@ func defaultString(value, fallback string) string {
 	return value
 }
 
+func parseKeyMethod(value string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "" {
+		return "auto", nil
+	}
+	for _, candidate := range keyMethodValues {
+		if normalized == candidate {
+			return normalized, nil
+		}
+	}
+	return "", fmt.Errorf("Invalid key_method %q. Expected one of: %s", value, strings.Join(keyMethodValues, ", "))
+}
+
 func parseClickMethod(value string) (string, error) {
 	normalized := strings.ToLower(strings.TrimSpace(value))
 	if normalized == "" {
@@ -767,8 +796,9 @@ func toolDefinitions() []toolDefinition {
 			Description: "Press a key or key-combination on the keyboard, including modifier and navigation keys.\n  - This supports xdotool's `key` syntax.\n  - Examples: \"a\", \"Return\", \"Tab\", \"super+c\", \"Up\", \"KP_0\" (for the numpad 0). This tool is part of plugin `Computer Use`.",
 			Annotations: defaultAnnotations(),
 			InputSchema: objectSchema(map[string]any{
-				"app": stringProperty("App name or bundle identifier"),
-				"key": stringProperty("Key or key-combination to press"),
+				"app":        stringProperty("App name or bundle identifier"),
+				"key":        stringProperty("Key or key-combination to press"),
+				"key_method": enumStringProperty("Keyboard delivery: auto (default) or sky_key. sky_key is the macOS SkyLight background-window path and is not supported on Windows.", keyMethodValues),
 			}, []string{"app", "key"}),
 		},
 		{
@@ -797,8 +827,9 @@ func toolDefinitions() []toolDefinition {
 			Description: "Type literal text using keyboard input. This tool is part of plugin `Computer Use`.",
 			Annotations: defaultAnnotations(),
 			InputSchema: objectSchema(map[string]any{
-				"app":  stringProperty("App name or bundle identifier"),
-				"text": stringProperty("Literal text to type"),
+				"app":        stringProperty("App name or bundle identifier"),
+				"text":       stringProperty("Literal text to type"),
+				"key_method": enumStringProperty("Keyboard delivery: auto (default) or sky_key. sky_key is the macOS SkyLight background-window path and is not supported on Windows.", keyMethodValues),
 			}, []string{"app", "text"}),
 		},
 	}

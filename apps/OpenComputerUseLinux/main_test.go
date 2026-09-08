@@ -383,3 +383,35 @@ func shortTempDir(t *testing.T) string {
 	})
 	return path
 }
+
+func TestLinuxKeyMethodSchemaAndUnsupportedSkyKey(t *testing.T) {
+	for _, name := range []string{"type_text", "press_key"} {
+		tool := findToolDefinition(t, name)
+		properties := tool.InputSchema["properties"].(map[string]any)
+		method := properties["key_method"].(map[string]any)
+		values := method["enum"].([]string)
+		if strings.Join(values, ",") != "auto,sky_key" {
+			t.Fatalf("%s key_method enum = %#v", name, values)
+		}
+	}
+
+	for input, want := range map[string]string{"": "auto", " SKY_KEY ": "sky_key"} {
+		got, err := parseKeyMethod(input)
+		if err != nil || got != want {
+			t.Fatalf("parseKeyMethod(%q) = %q, %v", input, got, err)
+		}
+	}
+	if _, err := parseKeyMethod("global"); err == nil || !strings.Contains(err.Error(), "Expected one of: auto, sky_key") {
+		t.Fatalf("parseKeyMethod(global) error = %v", err)
+	}
+
+	service := newService()
+	result := service.typeText("Text Editor", "hello", "sky_key")
+	if !result.IsError || result.Content[0].Text != "key_method 'sky_key' is not supported on Linux" {
+		t.Fatalf("type_text sky_key result = %#v", result)
+	}
+	result = service.pressKey("Text Editor", "Return", "sky_key")
+	if !result.IsError || result.Content[0].Text != "key_method 'sky_key' is not supported on Linux" {
+		t.Fatalf("press_key sky_key result = %#v", result)
+	}
+}
