@@ -2,7 +2,7 @@
 
 ## Cua Driver
 
-The macOS `sky_click` event recipe and private SkyLight bridge are derived from Cua Driver:
+The macOS `sky_click` event recipe, the private SkyLight bridge shared by `sky_click` and `sky_key`, and the target-only activation record are derived from Cua Driver:
 
 - Project: https://github.com/trycua/cua
 - Source revision: `b8a0f32a06c75225ba24ebb5ab14f6507fa90d15`
@@ -32,7 +32,7 @@ SOFTWARE.
 
 ## yabai
 
-The macOS focus-without-raise event-record pattern is derived from yabai:
+The macOS focus-without-raise event-record pattern and the `sky_key` make-key-window record pair (`window_manager_make_key_window`) are derived from yabai:
 
 - Project: https://github.com/asmvik/yabai
 - Source revision: `dd845723416f5fe92af49fad5ebab00369e07edd`

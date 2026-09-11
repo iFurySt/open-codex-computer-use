@@ -25,6 +25,9 @@ public final class StdioMCPServer {
     }
 
     public func run() throws {
+        defer {
+            resetOpenComputerUseBackgroundWindowState()
+        }
         while let line = readLine(strippingNewline: true) {
             guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 continue
