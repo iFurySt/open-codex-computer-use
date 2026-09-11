@@ -253,7 +253,22 @@ final class OpenComputerUseKitTests: XCTestCase {
     }
 
     func testToolDefinitionCount() {
-        XCTAssertEqual(ToolDefinitions.all.count, 9)
+        XCTAssertEqual(ToolDefinitions.all.count, 10)
+        XCTAssertEqual(
+            ToolDefinitions.all.map(\.name).sorted(),
+            [
+                "click",
+                "drag",
+                "get_app_state",
+                "list_apps",
+                "perform_secondary_action",
+                "press_key",
+                "scroll",
+                "select_text",
+                "set_value",
+                "type_text",
+            ]
+        )
     }
 
     func testReadToolArgumentsAcceptsJSONObject() throws {
@@ -691,6 +706,46 @@ final class OpenComputerUseKitTests: XCTestCase {
             scrollPages?["description"] as? String,
             "Number of pages to scroll. Fractional values are supported. Defaults to 1"
         )
+        XCTAssertEqual(
+            tools["select_text"]?.description,
+            "Select text inside a text element, or place the text cursor before or after it. Provide text exactly as it appears in the accessibility tree, including any Markdown formatting. If the text is not unique, provide surrounding prefix or suffix text to disambiguate it. This tool is part of plugin `Computer Use`."
+        )
+        let selectTextSchema = tools["select_text"]?.inputSchema
+        let selectTextProperties = selectTextSchema?["properties"] as? [String: [String: Any]]
+        XCTAssertEqual(selectTextSchema?["required"] as? [String], ["app", "element_index", "text"])
+        XCTAssertEqual(selectTextSchema?["additionalProperties"] as? Bool, false)
+        XCTAssertEqual(
+            selectTextProperties?["selection"]?["enum"] as? [String],
+            ["text", "cursor_before", "cursor_after"]
+        )
+        XCTAssertEqual(
+            selectTextProperties?["selection"]?["description"] as? String,
+            "Whether to select the text or place the cursor before or after it. Defaults to text."
+        )
+        XCTAssertEqual(selectTextProperties?["element_index"]?["description"] as? String, "Text element identifier")
+        XCTAssertEqual(
+            selectTextProperties?["prefix"]?["description"] as? String,
+            "Optional text immediately before the target, used to disambiguate repeated matches"
+        )
+        XCTAssertEqual(
+            selectTextProperties?["suffix"]?["description"] as? String,
+            "Optional text immediately after the target, used to disambiguate repeated matches"
+        )
+        XCTAssertEqual(
+            selectTextProperties?["text"]?["description"] as? String,
+            "Target text as shown in the accessibility tree"
+        )
+    }
+
+    func testSelectTextRejectsInvalidSelectionMode() {
+        let dispatcher = ComputerUseToolDispatcher()
+        let result = dispatcher.callToolAsResult(
+            name: "select_text",
+            arguments: ["app": "Sublime Text", "element_index": "14", "text": "abc", "selection": "sideways"]
+        )
+
+        XCTAssertTrue(result.isError)
+        XCTAssertEqual(result.primaryText, "selection must be one of text, cursor_before, cursor_after")
     }
 
     func testDispatcherMissingArgumentsMatchOfficialToolText() {

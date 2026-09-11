@@ -219,6 +219,34 @@ func appendingDragDeliveryNote(to result: ToolCallResult, path: DragDeliveryPath
     return ToolCallResult(content: content, isError: result.isError)
 }
 
+func selectTextErrorMessage(_ error: TextSelectionResolverError, elementIndex: String) -> String {
+    switch error {
+    case .emptyText:
+        return "select_text requires non-empty text"
+    case .notFound:
+        return "select_text could not find the requested text in element \(elementIndex); pass text exactly as it appears in the accessibility tree"
+    case .ambiguous(let occurrenceCount):
+        return "select_text found \(occurrenceCount) matches in element \(elementIndex); provide prefix or suffix to disambiguate the target"
+    }
+}
+
+func selectTextUnreadableValueErrorMessage(elementIndex: String) -> String {
+    return "element \(elementIndex) has no readable accessibility text value, so select_text cannot locate the requested text"
+}
+
+func selectTextVerificationNote(target: TextSelectionTarget, applied: CFRange) -> String {
+    return "select_text requested range (\(target.location), \(target.length)) but the element reported (\(applied.location), \(applied.length)); the app may not support accessibility range selection."
+}
+
+/// Inserts a verification note after the snapshot text and before any screenshot, matching
+/// `appendingDragDeliveryNote` so `primaryText` stays the snapshot for existing consumers.
+func appendingSelectionNote(_ note: String, to result: ToolCallResult) -> ToolCallResult {
+    var content = result.content
+    let insertIndex = content.firstIndex { $0.dictionary["type"] as? String == "image" } ?? content.endIndex
+    content.insert(.text(note), at: insertIndex)
+    return ToolCallResult(content: content, isError: result.isError)
+}
+
 func screenshotPixelScale(
     screenshotPixelSize: CGSize?,
     windowBounds: CGRect?
@@ -823,6 +851,107 @@ public final class ComputerUseService {
 
         settleVisualCursor(at: cursorTarget)
         return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+    }
+
+    public func selectText(
+        app query: String,
+        elementIndex: String,
+        text: String,
+        prefix: String?,
+        suffix: String?,
+        selection: TextSelectionMode
+    ) throws -> ToolCallResult {
+        let snapshot = try currentSnapshot(for: query)
+        let record = try lookupElement(snapshot: snapshot, index: elementIndex)
+
+        if snapshot.mode == .fixture {
+            guard let identifier = record.identifier else {
+                throw ComputerUseError.invalidArguments("fixture select_text requires a known element identifier")
+            }
+
+            let cursorTarget = visualCursorTarget(for: record, snapshot: snapshot)
+            moveVisualCursor(to: cursorTarget)
+            try FixtureBridge.post(
+                FixtureCommand(
+                    kind: "select_text",
+                    identifier: identifier,
+                    value: text,
+                    selection: selection.rawValue,
+                    prefix: prefix,
+                    suffix: suffix
+                )
+            )
+            Thread.sleep(forTimeInterval: 0.15)
+            settleVisualCursor(at: cursorTarget)
+            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+        }
+
+        guard let element = record.element else {
+            throw ComputerUseError.stateUnavailable("element \(elementIndex) has no backing accessibility object")
+        }
+
+        guard let value = stringValue(of: element, attribute: kAXValueAttribute) else {
+            throw ComputerUseError.message(selectTextUnreadableValueErrorMessage(elementIndex: elementIndex))
+        }
+
+        let target: TextSelectionTarget
+        do {
+            target = try TextSelectionResolver.resolve(
+                value: value,
+                text: text,
+                prefix: prefix,
+                suffix: suffix,
+                selection: selection
+            )
+        } catch let error as TextSelectionResolverError {
+            throw ComputerUseError.message(selectTextErrorMessage(error, elementIndex: elementIndex))
+        }
+
+        var range = CFRange(location: target.location, length: target.length)
+        guard let rangeValue = AXValueCreate(.cfRange, &range) else {
+            throw ComputerUseError.message("failed to build an accessibility range value for select_text")
+        }
+
+        let cursorTarget = visualCursorTarget(for: record, snapshot: snapshot)
+        moveVisualCursor(to: cursorTarget)
+
+        do {
+            let result = AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, rangeValue)
+            guard result == .success else {
+                throw ComputerUseError.message("AXUIElementSetAttributeValue failed with \(result.rawValue)")
+            }
+
+            Thread.sleep(forTimeInterval: 0.1)
+        } catch {
+            settleVisualCursor(at: cursorTarget)
+            throw error
+        }
+
+        settleVisualCursor(at: cursorTarget)
+
+        let actionResult = snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+        guard let applied = selectedTextRange(of: element),
+              applied.location != target.location || applied.length != target.length
+        else {
+            return actionResult
+        }
+
+        return appendingSelectionNote(selectTextVerificationNote(target: target, applied: applied), to: actionResult)
+    }
+
+    private func selectedTextRange(of element: AXUIElement) -> CFRange? {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &value)
+        guard result == .success, let value, CFGetTypeID(value) == AXValueGetTypeID() else {
+            return nil
+        }
+
+        var range = CFRange()
+        guard AXValueGetValue(value as! AXValue, .cfRange, &range) else {
+            return nil
+        }
+
+        return range
     }
 
     private func currentSnapshot(for query: String) throws -> AppSnapshot {

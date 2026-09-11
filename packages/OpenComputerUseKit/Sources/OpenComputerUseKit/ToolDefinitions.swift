@@ -141,6 +141,25 @@ public enum ToolDefinitions {
             )
         ),
         ToolDefinition(
+            name: "select_text",
+            description: "Select text inside a text element, or place the text cursor before or after it. Provide text exactly as it appears in the accessibility tree, including any Markdown formatting. If the text is not unique, provide surrounding prefix or suffix text to disambiguate it. This tool is part of plugin `Computer Use`.",
+            annotations: defaultAnnotations(),
+            inputSchema: objectSchema(
+                properties: [
+                    "app": stringProperty(description: "App name or bundle identifier"),
+                    "element_index": stringProperty(description: "Text element identifier"),
+                    "text": stringProperty(description: "Target text as shown in the accessibility tree"),
+                    "prefix": stringProperty(description: "Optional text immediately before the target, used to disambiguate repeated matches"),
+                    "suffix": stringProperty(description: "Optional text immediately after the target, used to disambiguate repeated matches"),
+                    "selection": stringProperty(
+                        description: "Whether to select the text or place the cursor before or after it. Defaults to text.",
+                        enumValues: TextSelectionMode.allCases.map(\.rawValue)
+                    ),
+                ],
+                required: ["app", "element_index", "text"]
+            )
+        ),
+        ToolDefinition(
             name: "type_text",
             description: "Type literal text using keyboard input. This tool is part of plugin `Computer Use`.",
             annotations: defaultAnnotations(),
