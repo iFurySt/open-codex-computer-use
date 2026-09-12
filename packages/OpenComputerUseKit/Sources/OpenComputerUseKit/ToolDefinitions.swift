@@ -46,9 +46,10 @@ public enum ToolDefinitions {
                         enumValues: ["left", "right", "middle"]
                     ),
                     "click_method": stringProperty(
-                        description: "Click implementation: auto (default), accessibility, app_post, sky_click, or global. Accessibility requires element_index. app_post sends a public event directly to the target app. sky_click uses the macOS SkyLight background window path. Global may move the system pointer and requires OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1.",
+                        description: "Click implementation: auto (default), accessibility, app_post, sky_click, or global. Accessibility requires element_index. app_post sends a public event directly to the target app. sky_click uses the macOS SkyLight background window path. Global may move the system pointer and requires OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1. auto tries accessibility first and then app_post, attempting sky_click in between only when OPEN_COMPUTER_USE_AUTO_SKY_CLICK=1.",
                         enumValues: ClickMethod.allCases.map(\.rawValue)
                     ),
+                    "allow_window_recovery": windowRecoveryProperty(),
                 ],
                 required: ["app"]
             )
@@ -64,6 +65,7 @@ public enum ToolDefinitions {
                     "from_y": numberProperty(description: "Start Y coordinate"),
                     "to_x": numberProperty(description: "End X coordinate"),
                     "to_y": numberProperty(description: "End Y coordinate"),
+                    "allow_window_recovery": windowRecoveryProperty(),
                 ],
                 required: ["app", "from_x", "from_y", "to_x", "to_y"]
             )
@@ -78,6 +80,7 @@ public enum ToolDefinitions {
                     "text_limit": textLimitProperty(description: "Maximum text characters to return. Use \"max\" for full text. Defaults to 500."),
                     "max_tree_nodes": positiveIntegerProperty(description: "Maximum accessibility tree nodes to render. Defaults to 1200."),
                     "max_tree_depth": positiveIntegerProperty(description: "Maximum accessibility tree depth to render. Defaults to 64."),
+                    "allow_window_recovery": windowRecoveryProperty(),
                 ],
                 required: ["app"]
             )
@@ -97,6 +100,7 @@ public enum ToolDefinitions {
                     "app": stringProperty(description: "App name or bundle identifier"),
                     "element_index": stringProperty(description: "Element identifier"),
                     "action": stringProperty(description: "Secondary accessibility action name"),
+                    "allow_window_recovery": windowRecoveryProperty(),
                 ],
                 required: ["app", "element_index", "action"]
             )
@@ -109,6 +113,7 @@ public enum ToolDefinitions {
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier"),
                     "key": stringProperty(description: "Key or key combination to press"),
+                    "allow_window_recovery": windowRecoveryProperty(),
                 ],
                 required: ["app", "key"]
             )
@@ -123,6 +128,7 @@ public enum ToolDefinitions {
                     "direction": stringProperty(description: "Scroll direction: up, down, left, or right"),
                     "element_index": stringProperty(description: "Element identifier"),
                     "pages": numberProperty(description: "Number of pages to scroll. Fractional values are supported. Defaults to 1"),
+                    "allow_window_recovery": windowRecoveryProperty(),
                 ],
                 required: ["app", "element_index", "direction"]
             )
@@ -136,6 +142,7 @@ public enum ToolDefinitions {
                     "app": stringProperty(description: "App name or bundle identifier"),
                     "element_index": stringProperty(description: "Element identifier"),
                     "value": stringProperty(description: "Value to assign"),
+                    "allow_window_recovery": windowRecoveryProperty(),
                 ],
                 required: ["app", "element_index", "value"]
             )
@@ -155,6 +162,7 @@ public enum ToolDefinitions {
                         description: "Whether to select the text or place the cursor before or after it. Defaults to text.",
                         enumValues: TextSelectionMode.allCases.map(\.rawValue)
                     ),
+                    "allow_window_recovery": windowRecoveryProperty(),
                 ],
                 required: ["app", "element_index", "text"]
             )
@@ -167,6 +175,7 @@ public enum ToolDefinitions {
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier"),
                     "text": stringProperty(description: "Literal text to type"),
+                    "allow_window_recovery": windowRecoveryProperty(),
                 ],
                 required: ["app", "text"]
             )
@@ -252,5 +261,14 @@ private func numberProperty(description: String) -> [String: Any] {
     [
         "type": "number",
         "description": description,
+    ]
+}
+
+/// Window recovery changes the user's foreground focus, so every tool that can
+/// build a snapshot exposes an explicit per-call opt-in.
+private func windowRecoveryProperty() -> [String: Any] {
+    [
+        "type": "boolean",
+        "description": "Whether this call may unhide or activate the target app and raise its window when no on-screen window is found on the current Space. Defaults to false; set OPEN_COMPUTER_USE_ALLOW_WINDOW_RECOVERY=1 to enable it for the whole process.",
     ]
 }

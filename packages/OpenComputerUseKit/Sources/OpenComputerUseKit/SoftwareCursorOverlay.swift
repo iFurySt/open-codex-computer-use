@@ -280,6 +280,7 @@ enum SoftwareCursorOverlay {
         observationPhase = "hidden"
         writeObservationSnapshot(tipPosition: nil, rotation: nil)
         panel?.orderOut(nil)
+        TargetHighlightOverlay.hide()
     }
 
     private static var canPresentOverlay: Bool {
@@ -521,7 +522,9 @@ enum SoftwareCursorOverlay {
         return CGWindowID(windowNumber)
     }
 
-    private static func isWindowPresent(_ windowID: CGWindowID) -> Bool {
+    /// Shared with `TargetHighlightOverlay` so both overlays agree on whether the
+    /// window they want to float above still exists.
+    static func isWindowPresent(_ windowID: CGWindowID) -> Bool {
         guard windowID != 0,
               let windowInfo = CGWindowListCopyWindowInfo([.optionIncludingWindow], windowID) as? [[String: Any]]
         else {

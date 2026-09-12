@@ -48,12 +48,12 @@
 
 ## 进度记录
 
-- [ ] P2：recoveryPolicy 默认值翻转 + opt-in 开关 + `-10005` 提示
-- [ ] P1：`ensureElementVisible` + 三个动作调用点
-- [ ] P4：`TargetHighlightOverlay` + reset 联动
-- [ ] P3：`.auto` sky_click 灰度路径
-- [ ] 单测与 `swift build` / `swift test` 证据
-- [ ] `docs/ARCHITECTURE.md` 与 history 同步
+- [x] P2：recoveryPolicy 默认值翻转 + opt-in 开关 + `-10005` 提示
+- [x] P1：`ensureElementVisible` + 三个动作调用点
+- [x] P4：`TargetHighlightOverlay` + reset 联动
+- [x] P3：`.auto` sky_click 灰度路径
+- [x] 单测与 `swift build` / `swift test` 证据（189 tests / 0 failures）
+- [x] `docs/ARCHITECTURE.md` 与 history 同步
 
 ## 决策记录
 

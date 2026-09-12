@@ -1598,13 +1598,26 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(try parseClickMethod("GLOBAL"), .global)
     }
 
-    func testOnlySkyClickUsesReadOnlyActionSnapshotRefresh() {
-        XCTAssertEqual(clickActionSnapshotRecoveryPolicy(for: .skyClick), .readOnly)
+    func testActionSnapshotRefreshStaysReadOnlyUnlessWindowRecoveryIsOptedIn() {
+        for method in ClickMethod.allCases {
+            XCTAssertEqual(
+                clickActionSnapshotRecoveryPolicy(for: method, environment: [:]),
+                .readOnly,
+                method.rawValue
+            )
+        }
+
+        // sky_click must never activate the target, even when window recovery is on.
+        XCTAssertEqual(
+            clickActionSnapshotRecoveryPolicy(for: .skyClick, allowWindowRecovery: true),
+            .readOnly
+        )
 
         for method in ClickMethod.allCases where method != .skyClick {
             XCTAssertEqual(
-                clickActionSnapshotRecoveryPolicy(for: method),
-                .allowActivation
+                clickActionSnapshotRecoveryPolicy(for: method, allowWindowRecovery: true),
+                .allowActivation,
+                method.rawValue
             )
         }
     }
@@ -2362,6 +2375,241 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertLessThan(negativePose.angleOffset, 0)
         XCTAssertLessThanOrEqual(abs(negativePose.angleOffset), visualCursorIdleRotationAmplitude() + 0.0001)
         XCTAssertGreaterThan(abs(negativePose.angleOffset), 0.08)
+    }
+
+    // MARK: - Quiet window recovery (P2)
+
+    func testWindowRecoveryIsOptInByDefault() {
+        XCTAssertEqual(defaultSnapshotRecoveryPolicy, .readOnly)
+        XCTAssertEqual(snapshotRecoveryPolicy(allowWindowRecovery: nil, environment: [:]), .readOnly)
+        XCTAssertEqual(
+            snapshotRecoveryPolicy(
+                allowWindowRecovery: nil,
+                environment: ["OPEN_COMPUTER_USE_ALLOW_WINDOW_RECOVERY": "1"]
+            ),
+            .allowActivation
+        )
+        XCTAssertEqual(snapshotRecoveryPolicy(allowWindowRecovery: true, environment: [:]), .allowActivation)
+        // An explicit per-call false must win over the process-level opt-in.
+        XCTAssertEqual(
+            snapshotRecoveryPolicy(
+                allowWindowRecovery: false,
+                environment: ["OPEN_COMPUTER_USE_ALLOW_WINDOW_RECOVERY": "1"]
+            ),
+            .readOnly
+        )
+
+        for disabled in ["0", "false", "no", "off", "  NO  "] {
+            XCTAssertFalse(
+                windowRecoveryEnabled(environment: ["OPEN_COMPUTER_USE_ALLOW_WINDOW_RECOVERY": disabled]),
+                disabled
+            )
+        }
+    }
+
+    func testWindowNotFoundMessageKeepsOfficialShapeAndExplainsTheFix() {
+        let readOnlyMessage = computerUseWindowNotFoundMessage(recoveryPolicy: .readOnly)
+        XCTAssertTrue(readOnlyMessage.hasPrefix(computerUseNoWindowFoundMessage))
+        XCTAssertTrue(readOnlyMessage.contains("current Space"))
+        XCTAssertTrue(readOnlyMessage.contains("allow_window_recovery=true"))
+        XCTAssertTrue(readOnlyMessage.contains("OPEN_COMPUTER_USE_ALLOW_WINDOW_RECOVERY=1"))
+
+        let recoveryMessage = computerUseWindowNotFoundMessage(recoveryPolicy: .allowActivation)
+        XCTAssertTrue(recoveryMessage.hasPrefix(computerUseNoWindowFoundMessage))
+        XCTAssertFalse(recoveryMessage.contains("Window recovery is opt-in"))
+    }
+
+    func testWindowRecoveryToolArgumentIsAnOptionalBoolean() {
+        let tools = Dictionary(uniqueKeysWithValues: ToolDefinitions.all.map { ($0.name, $0) })
+
+        for name in ["get_app_state", "click", "perform_secondary_action", "scroll", "drag", "type_text", "press_key", "set_value", "select_text"] {
+            let properties = tools[name]?.inputSchema["properties"] as? [String: [String: Any]]
+            XCTAssertEqual(properties?["allow_window_recovery"]?["type"] as? String, "boolean", name)
+        }
+
+        XCTAssertNil(
+            (tools["list_apps"]?.inputSchema["properties"] as? [String: [String: Any]])?["allow_window_recovery"]
+        )
+        XCTAssertEqual(tools["get_app_state"]?.inputSchema["required"] as? [String], ["app"])
+    }
+
+    // MARK: - Scroll into view (P1)
+
+    func testWindowLocalVisibleRectUsesWindowRelativeSpace() {
+        XCTAssertEqual(
+            windowLocalVisibleRect(windowBounds: CGRect(x: 100, y: 200, width: 800, height: 600)),
+            CGRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        XCTAssertNil(windowLocalVisibleRect(windowBounds: nil))
+        XCTAssertNil(windowLocalVisibleRect(windowBounds: CGRect(x: 0, y: 0, width: 0, height: 10)))
+    }
+
+    func testElementNeedsScrollIntoViewOnlyForProvenOutOfWindowFrames() {
+        let windowBounds = CGRect(x: 100, y: 200, width: 800, height: 600)
+        let visible = CGRect(x: 20, y: 30, width: 120, height: 24)
+
+        XCTAssertFalse(elementNeedsScrollIntoView(localFrame: visible, windowBounds: windowBounds))
+        XCTAssertFalse(elementNeedsScrollIntoView(localFrame: nil, windowBounds: windowBounds))
+        XCTAssertFalse(elementNeedsScrollIntoView(localFrame: visible, windowBounds: nil))
+        XCTAssertFalse(elementNeedsScrollIntoView(localFrame: .zero, windowBounds: windowBounds))
+        XCTAssertFalse(
+            elementNeedsScrollIntoView(
+                localFrame: visible,
+                windowBounds: CGRect(x: 0, y: 0, width: 0, height: 0)
+            )
+        )
+
+        // Below the fold.
+        XCTAssertTrue(
+            elementNeedsScrollIntoView(
+                localFrame: CGRect(x: 20, y: 700, width: 120, height: 24),
+                windowBounds: windowBounds
+            )
+        )
+        // Above the viewport (the page is scrolled past it).
+        XCTAssertTrue(
+            elementNeedsScrollIntoView(
+                localFrame: CGRect(x: 20, y: -40, width: 120, height: 24),
+                windowBounds: windowBounds
+            )
+        )
+        // Horizontally outside the viewport.
+        XCTAssertTrue(
+            elementNeedsScrollIntoView(
+                localFrame: CGRect(x: 900, y: 30, width: 120, height: 24),
+                windowBounds: windowBounds
+            )
+        )
+    }
+
+    func testScrollTargetIntoViewIsOnByDefaultAndCanBeDisabled() {
+        XCTAssertTrue(scrollTargetIntoViewEnabled(environment: [:]))
+        XCTAssertTrue(
+            scrollTargetIntoViewEnabled(environment: ["OPEN_COMPUTER_USE_SCROLL_TARGET_INTO_VIEW": "1"])
+        )
+
+        for disabled in ["0", "false", "no", "off", "  OFF  "] {
+            XCTAssertFalse(
+                scrollTargetIntoViewEnabled(environment: ["OPEN_COMPUTER_USE_SCROLL_TARGET_INTO_VIEW": disabled]),
+                disabled
+            )
+        }
+    }
+
+    // MARK: - Target highlight overlay (P4)
+
+    @MainActor
+    func testTargetHighlightPanelNeverBecomesKeyOrSwallowsMouseEvents() {
+        _ = NSApplication.shared
+
+        let panel = TargetHighlightOverlay.makeTargetHighlightPanel()
+
+        XCTAssertFalse(panel.canBecomeKey)
+        XCTAssertFalse(panel.canBecomeMain)
+        XCTAssertTrue(panel.ignoresMouseEvents)
+        XCTAssertFalse(panel.isOpaque)
+        XCTAssertTrue(panel.styleMask.contains(.borderless))
+        XCTAssertTrue(panel.styleMask.contains(.nonactivatingPanel))
+    }
+
+    @MainActor
+    func testTargetHighlightRequiresAFramedOnWindowElement() {
+        let windowBounds = CGRect(x: 100, y: 200, width: 800, height: 600)
+
+        XCTAssertTrue(
+            TargetHighlightOverlay.showsTargetHighlight(
+                localFrame: CGRect(x: 20, y: 30, width: 120, height: 24),
+                windowBounds: windowBounds
+            )
+        )
+        XCTAssertFalse(TargetHighlightOverlay.showsTargetHighlight(localFrame: nil, windowBounds: windowBounds))
+        XCTAssertFalse(
+            TargetHighlightOverlay.showsTargetHighlight(
+                localFrame: CGRect(x: 20, y: 30, width: 120, height: 24),
+                windowBounds: nil
+            )
+        )
+        // Below the visible window: the ring would land on another app.
+        XCTAssertFalse(
+            TargetHighlightOverlay.showsTargetHighlight(
+                localFrame: CGRect(x: 20, y: 900, width: 120, height: 24),
+                windowBounds: windowBounds
+            )
+        )
+        // Degenerate frames are not worth drawing.
+        XCTAssertFalse(
+            TargetHighlightOverlay.showsTargetHighlight(
+                localFrame: CGRect(x: 20, y: 30, width: 0, height: 24),
+                windowBounds: windowBounds
+            )
+        )
+    }
+
+    @MainActor
+    func testTargetHighlightConvertsWindowLocalRectToAppKitGlobalRect() {
+        let mapping = VisualCursorScreenMapping(
+            screenStateFrame: CGRect(x: 0, y: 0, width: 1000, height: 800),
+            appKitFrame: CGRect(x: 0, y: 0, width: 1000, height: 800)
+        )
+
+        let rect = TargetHighlightOverlay.appKitHighlightRect(
+            localFrame: CGRect(x: 100, y: 50, width: 200, height: 40),
+            windowBounds: CGRect(x: 10, y: 20, width: 800, height: 600),
+            screenMappings: [mapping]
+        )
+
+        XCTAssertEqual(rect, CGRect(x: 110, y: 690, width: 200, height: 40))
+    }
+
+    // MARK: - Automatic sky_click (P3)
+
+    func testAutomaticSkyClickIsOptInAndRequiresADispatchableTarget() {
+        let windowBounds = CGRect(x: 10, y: 20, width: 800, height: 600)
+        let optIn = ["OPEN_COMPUTER_USE_AUTO_SKY_CLICK": "1"]
+
+        XCTAssertFalse(
+            automaticSkyClickEligible(
+                environment: [:],
+                button: .left,
+                clickCount: 1,
+                windowBounds: windowBounds,
+                windowID: 42,
+                spiAvailable: true
+            )
+        )
+        XCTAssertTrue(
+            automaticSkyClickEligible(
+                environment: optIn,
+                button: .left,
+                clickCount: 1,
+                windowBounds: windowBounds,
+                windowID: 42,
+                spiAvailable: true
+            )
+        )
+
+        // Every gate that would make SkyLight dispatch invalid must fail closed.
+        let ineligible: [(String, MouseButtonKind, Int, CGRect?, CGWindowID?, Bool)] = [
+            ("right button", .right, 1, windowBounds, 42, true),
+            ("triple click", .left, 3, windowBounds, 42, true),
+            ("missing bounds", .left, 1, nil, 42, true),
+            ("zero bounds", .left, 1, CGRect(x: 0, y: 0, width: 0, height: 10), 42, true),
+            ("missing window id", .left, 1, windowBounds, nil, true),
+            ("spi unavailable", .left, 1, windowBounds, 42, false),
+        ]
+        for (name, button, clickCount, bounds, windowID, spiAvailable) in ineligible {
+            XCTAssertFalse(
+                automaticSkyClickEligible(
+                    environment: optIn,
+                    button: button,
+                    clickCount: clickCount,
+                    windowBounds: bounds,
+                    windowID: windowID,
+                    spiAvailable: spiAvailable
+                ),
+                name
+            )
+        }
     }
 
     private func makeSnapshot(treeLines: [String], focusedSummary: String?, selectedText: String? = nil) -> AppSnapshot {

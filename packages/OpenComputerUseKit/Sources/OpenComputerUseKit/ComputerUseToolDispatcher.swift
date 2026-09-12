@@ -54,7 +54,8 @@ public final class ComputerUseToolDispatcher {
                 treeLimits: AccessibilityTreeLimits.defaults.replacing(
                     maxNodeCount: try optionalPositiveInt("max_tree_nodes", in: arguments),
                     maxDepth: try optionalPositiveInt("max_tree_depth", in: arguments)
-                )
+                ),
+                allowWindowRecovery: optionalBool("allow_window_recovery", in: arguments)
             )
         case "click":
             return try service.click(
@@ -64,20 +65,23 @@ public final class ComputerUseToolDispatcher {
                 y: optionalDouble("y", in: arguments),
                 clickCount: Int(optionalDouble("click_count", in: arguments) ?? 1),
                 mouseButton: optionalString("mouse_button", in: arguments) ?? "left",
-                clickMethod: try parseClickMethod(optionalString("click_method", in: arguments))
+                clickMethod: try parseClickMethod(optionalString("click_method", in: arguments)),
+                allowWindowRecovery: optionalBool("allow_window_recovery", in: arguments)
             )
         case "perform_secondary_action":
             return try service.performSecondaryAction(
                 app: requireString("app", in: arguments),
                 elementIndex: requireElementIndex(in: arguments),
-                action: requireString("action", in: arguments)
+                action: requireString("action", in: arguments),
+                allowWindowRecovery: optionalBool("allow_window_recovery", in: arguments)
             )
         case "scroll":
             return try service.scroll(
                 app: requireString("app", in: arguments),
                 direction: requireString("direction", in: arguments),
                 elementIndex: requireElementIndex(in: arguments),
-                pages: optionalDouble("pages", in: arguments) ?? 1
+                pages: optionalDouble("pages", in: arguments) ?? 1,
+                allowWindowRecovery: optionalBool("allow_window_recovery", in: arguments)
             )
         case "drag":
             return try service.drag(
@@ -85,23 +89,27 @@ public final class ComputerUseToolDispatcher {
                 fromX: requireDouble("from_x", in: arguments),
                 fromY: requireDouble("from_y", in: arguments),
                 toX: requireDouble("to_x", in: arguments),
-                toY: requireDouble("to_y", in: arguments)
+                toY: requireDouble("to_y", in: arguments),
+                allowWindowRecovery: optionalBool("allow_window_recovery", in: arguments)
             )
         case "type_text":
             return try service.typeText(
                 app: requireString("app", in: arguments),
-                text: requireString("text", in: arguments)
+                text: requireString("text", in: arguments),
+                allowWindowRecovery: optionalBool("allow_window_recovery", in: arguments)
             )
         case "press_key":
             return try service.pressKey(
                 app: requireString("app", in: arguments),
-                key: requireString("key", in: arguments)
+                key: requireString("key", in: arguments),
+                allowWindowRecovery: optionalBool("allow_window_recovery", in: arguments)
             )
         case "set_value":
             return try service.setValue(
                 app: requireString("app", in: arguments),
                 elementIndex: requireElementIndex(in: arguments),
-                value: requireString("value", in: arguments)
+                value: requireString("value", in: arguments),
+                allowWindowRecovery: optionalBool("allow_window_recovery", in: arguments)
             )
         case "select_text":
             return try service.selectText(
@@ -110,7 +118,8 @@ public final class ComputerUseToolDispatcher {
                 text: requireString("text", in: arguments),
                 prefix: optionalString("prefix", in: arguments),
                 suffix: optionalString("suffix", in: arguments),
-                selection: try parseSelectionMode(optionalString("selection", in: arguments))
+                selection: try parseSelectionMode(optionalString("selection", in: arguments)),
+                allowWindowRecovery: optionalBool("allow_window_recovery", in: arguments)
             )
         default:
             throw ComputerUseError.unsupportedTool(name)
@@ -141,6 +150,23 @@ public final class ComputerUseToolDispatcher {
 
     private func optionalString(_ key: String, in arguments: [String: Any]) -> String? {
         arguments[key] as? String
+    }
+
+    /// `allow_window_recovery` may arrive as a JSON boolean or (via some hosts)
+    /// as a boolean NSNumber. Anything else is treated as "not specified" so the
+    /// process-level `OPEN_COMPUTER_USE_ALLOW_WINDOW_RECOVERY` gate applies.
+    private func optionalBool(_ key: String, in arguments: [String: Any]) -> Bool? {
+        if let bool = arguments[key] as? Bool {
+            return bool
+        }
+
+        if let number = arguments[key] as? NSNumber,
+           CFGetTypeID(number as CFTypeRef) == CFBooleanGetTypeID()
+        {
+            return number.boolValue
+        }
+
+        return nil
     }
 
     private func parseSelectionMode(_ raw: String?) throws -> TextSelectionMode {

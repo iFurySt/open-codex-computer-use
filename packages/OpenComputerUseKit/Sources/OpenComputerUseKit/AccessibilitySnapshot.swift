@@ -41,9 +41,45 @@ enum SnapshotMode {
 }
 
 enum SnapshotRecoveryPolicy: Equatable {
+    /// Legacy behaviour: may unhide / activate / `open -b` / `AXRaise` /
+    /// `AXMain` / `AXFocused` the target app. This changes the user's
+    /// foreground focus, so it is never the default.
     case allowActivation
+    /// Default: read the app as-is and fail closed when no on-screen window
+    /// exists. Never changes foreground focus.
     case readOnly
 }
+
+/// Window recovery changes the user's foreground focus, so it is opt-in.
+///
+/// An explicit `allow_window_recovery` tool argument wins; otherwise the
+/// process-level `OPEN_COMPUTER_USE_ALLOW_WINDOW_RECOVERY=1` gate applies.
+func snapshotRecoveryPolicy(
+    allowWindowRecovery: Bool?,
+    environment: [String: String] = ProcessInfo.processInfo.environment
+) -> SnapshotRecoveryPolicy {
+    if let allowWindowRecovery {
+        return allowWindowRecovery ? .allowActivation : .readOnly
+    }
+
+    return windowRecoveryEnabled(environment: environment) ? .allowActivation : .readOnly
+}
+
+func windowRecoveryEnabled(environment: [String: String]) -> Bool {
+    guard let rawValue = environment["OPEN_COMPUTER_USE_ALLOW_WINDOW_RECOVERY"]?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+    else {
+        return false
+    }
+
+    return ["1", "true", "yes", "on"].contains(rawValue)
+}
+
+/// Default policy for every snapshot build that does not resolve an explicit
+/// `allow_window_recovery` argument. Kept as a named constant so tests can pin
+/// the default instead of re-encoding it.
+let defaultSnapshotRecoveryPolicy: SnapshotRecoveryPolicy = .readOnly
 
 public struct AccessibilityTreeLimits: Equatable, Sendable {
     public static let defaultMaxNodeCount = 1200
@@ -152,7 +188,7 @@ enum SnapshotBuilder {
         for app: RunningAppDescriptor,
         textLimit: SnapshotTextLimit = .defaults,
         treeLimits: AccessibilityTreeLimits = .defaults,
-        recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation
+        recoveryPolicy: SnapshotRecoveryPolicy = defaultSnapshotRecoveryPolicy
     ) throws -> AppSnapshot {
         if app.name == FixtureBridge.appName, let fixtureState = try FixtureBridge.readState() {
             return buildFixtureSnapshot(app: app, state: fixtureState)
@@ -177,7 +213,9 @@ enum SnapshotBuilder {
 
         var rootWindow: AXUIElement
         guard let resolvedFocusedWindow = focusedWindow else {
-            throw ComputerUseError.stateUnavailable(computerUseNoWindowFoundMessage)
+            throw ComputerUseError.stateUnavailable(
+                computerUseWindowNotFoundMessage(recoveryPolicy: recoveryPolicy)
+            )
         }
         rootWindow = resolvedFocusedWindow
 
@@ -195,7 +233,9 @@ enum SnapshotBuilder {
         }
 
         guard let windowCapture else {
-            throw ComputerUseError.stateUnavailable(computerUseNoWindowFoundMessage)
+            throw ComputerUseError.stateUnavailable(
+                computerUseWindowNotFoundMessage(recoveryPolicy: recoveryPolicy)
+            )
         }
 
         return buildAccessibilitySnapshot(
