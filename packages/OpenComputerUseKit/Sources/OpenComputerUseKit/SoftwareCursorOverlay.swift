@@ -233,12 +233,21 @@ enum SoftwareCursorOverlay {
     private static var cursorView: SoftwareCursorView?
     private static var restingTipPosition: CGPoint?
     private static var displayedTipPosition: CGPoint?
-    private static var activeTargetWindow: CursorTargetWindow?
     private static var visualDynamicsState: CursorVisualDynamicsState?
-    private static var idleTimer: Timer?
     private static var hideTimer: Timer?
     private static var idlePhase: CGFloat = 0
     private static var observationPhase = "hidden"
+    /// Last render state actually handed to the view. An idle tick keeps
+    /// producing the same state once the spring has converged, and redrawing
+    /// that is pure churn.
+    private static var lastAppliedRenderState: CursorVisualRenderState?
+    private static var lastAppliedClickProgress: CGFloat?
+    /// Every frame / level / ordering write goes through this gate: equal values
+    /// never reach the window server.
+    private static let panelWriteGate = CursorPanelWriteGate()
+    /// Sole owner of the idle 60 Hz timer. It invalidates the previous timer
+    /// before starting a new one, so an action can never leak a second writer.
+    private static let idleDriver = CursorIdleDriver()
 
     static func moveCursor(to targetPoint: CGPoint, in targetWindow: CursorTargetWindow?) {
         guard VisualCursorSupport.isEnabled, canPresentOverlay else {
@@ -254,6 +263,7 @@ enum SoftwareCursorOverlay {
         let isFreshStart = displayedTipPosition == nil
         let startPoint = displayedTipPosition ?? defaultInitialTipPosition()
         let now = CACurrentMediaTime()
+        idleDriver.markInteraction(at: now)
 
         observationPhase = "moving"
         panel?.alphaValue = 1
@@ -295,6 +305,7 @@ enum SoftwareCursorOverlay {
 
         let constrainedTarget = clampTipPosition(targetPoint)
         let now = CACurrentMediaTime()
+        idleDriver.markInteraction(at: now)
         visualDynamicsState = CursorVisualDynamicsAnimator.state(at: constrainedTarget, time: CGFloat(now))
         restingTipPosition = constrainedTarget
         observationPhase = "repositioned"
@@ -312,6 +323,7 @@ enum SoftwareCursorOverlay {
         configureOrdering(relativeTo: targetWindow)
         let constrainedTarget = clampTipPosition(targetPoint)
         let now = CACurrentMediaTime()
+        idleDriver.markInteraction(at: now)
         seedVisualDynamicsIfNeeded(at: constrainedTarget, time: now)
         restingTipPosition = constrainedTarget
         observationPhase = "pulse"
@@ -327,6 +339,7 @@ enum SoftwareCursorOverlay {
 
         configureOrdering(relativeTo: targetWindow)
         let constrainedTarget = clampTipPosition(targetPoint)
+        idleDriver.markInteraction(at: CACurrentMediaTime())
         restingTipPosition = constrainedTarget
         observationPhase = "settling"
         placeCursor(
@@ -360,14 +373,43 @@ enum SoftwareCursorOverlay {
         // The gate remembers where the cursor last travelled; a reset hides the
         // cursor, so the next action must animate again.
         VisualCursorMoveCoalescer.shared.reset()
-        displayedTipPosition = nil
-        restingTipPosition = nil
-        activeTargetWindow = nil
-        visualDynamicsState = nil
-        observationPhase = "hidden"
+        forgetPresentationState()
         writeObservationSnapshot(tipPosition: nil, rotation: nil)
+        dumpDebugStatsIfEnabled()
         panel?.orderOut(nil)
         TargetHighlightOverlay.hide()
+    }
+
+    /// A hidden cursor owns no presentation state: the next show must write the
+    /// frame, the level and the ordering again instead of trusting stale values.
+    private static func forgetPresentationState() {
+        displayedTipPosition = nil
+        restingTipPosition = nil
+        visualDynamicsState = nil
+        lastAppliedRenderState = nil
+        lastAppliedClickProgress = nil
+        panelWriteGate.reset()
+        observationPhase = "hidden"
+    }
+
+    /// Optional field diagnosis: the counters are the only outside proof that an
+    /// idle overlay stopped touching the panel.
+    private static func dumpDebugStatsIfEnabled() {
+        guard visualCursorDebugStatsEnabled() else {
+            return
+        }
+
+        let stats = CursorOverlayDebugStats(
+            frameWrites: panelWriteGate.frameWriteCount,
+            skippedFrameWrites: panelWriteGate.skippedFrameWriteCount,
+            levelWrites: panelWriteGate.levelWriteCount,
+            reorders: panelWriteGate.reorderCount,
+            skippedReorders: panelWriteGate.skippedReorderCount,
+            idleTicks: idleDriver.idleTickCount,
+            suppressedIdleTicks: idleDriver.suppressedIdleTickCount,
+            invalidatedIdleTimers: idleDriver.invalidatedTimerCount
+        )
+        fputs("\(cursorOverlayDebugStatsLine(stats))\n", stderr)
     }
 
     private static var canPresentOverlay: Bool {
@@ -400,11 +442,13 @@ enum SoftwareCursorOverlay {
         self.cursorView = view
     }
 
+    /// Levels and restacks the panel for an explicit show or target-window
+    /// change.
+    ///
+    /// None of this may happen on an idle tick: the write gate turns both the
+    /// level write and the restack into no-ops while the target window is
+    /// unchanged, and `refreshActiveOrderingIfNeeded` no longer forces one.
     private static func configureOrdering(relativeTo targetWindow: CursorTargetWindow?) {
-        configureOrdering(relativeTo: targetWindow, forceReorder: false)
-    }
-
-    private static func configureOrdering(relativeTo targetWindow: CursorTargetWindow?, forceReorder: Bool) {
         guard let panel else {
             return
         }
@@ -414,22 +458,21 @@ enum SoftwareCursorOverlay {
         }
 
         let desiredLevel = NSWindow.Level(rawValue: effectiveTargetWindow?.layer ?? 0)
-        if panel.level != desiredLevel {
+        if panelWriteGate.levelWrite(for: desiredLevel) {
             panel.level = desiredLevel
         }
 
-        if shouldReorderCursorPanel(
-            activeTargetWindow: activeTargetWindow,
-            effectiveTargetWindow: effectiveTargetWindow,
-            panelIsVisible: panel.isVisible,
-            forceReorder: forceReorder
-        ) {
-            if let effectiveTargetWindow {
-                panel.order(.above, relativeTo: Int(effectiveTargetWindow.windowID))
-            } else {
-                panel.orderFront(nil)
-            }
-            activeTargetWindow = effectiveTargetWindow
+        guard panelWriteGate.markOrdering(
+            activeTargetWindow: effectiveTargetWindow,
+            panelIsVisible: panel.isVisible
+        ) else {
+            return
+        }
+
+        if let effectiveTargetWindow {
+            panel.order(.above, relativeTo: Int(effectiveTargetWindow.windowID))
+        } else {
+            panel.orderFront(nil)
         }
     }
 
@@ -621,13 +664,16 @@ enum SoftwareCursorOverlay {
         return !windowInfo.isEmpty
     }
 
+    /// Only reacts to the target window going away. It deliberately does not
+    /// restack the panel above a live target window: doing that once per frame
+    /// is what reads as the arrow twitching, and it would re-order the overlay
+    /// on every idle tick.
     private static func refreshActiveOrderingIfNeeded() {
-        guard let activeTargetWindow else {
+        guard let activeTargetWindow = panelWriteGate.activeTargetWindow else {
             return
         }
 
-        if isWindowPresent(activeTargetWindow.windowID) {
-            configureOrdering(relativeTo: activeTargetWindow, forceReorder: true)
+        guard !isWindowPresent(activeTargetWindow.windowID) else {
             return
         }
 
@@ -675,54 +721,62 @@ enum SoftwareCursorOverlay {
         )
     }
 
+    /// Starts the bounded post-action idle beat.
+    ///
+    /// The tick is a no-op outside the beat: no ordering refresh, no level
+    /// change, and the frame write disappears as soon as the resting origin stops
+    /// changing. `CursorIdleDriver` invalidates the timer the moment the beat
+    /// ends and guarantees only one timer can ever be alive.
     private static func startIdleAnimation() {
+        // Stop first: the guard below can bail out, and a driver left running
+        // after that would keep writing the panel forever.
+        stopIdleAnimation()
+
         guard canPresentOverlay, let restingTipPosition else {
             return
         }
 
         observationPhase = "idle"
         idlePhase = 0
-        let timer = Timer(timeInterval: 1 / 60, repeats: true) { _ in
-            MainActor.assumeIsolated {
-                guard panel != nil, cursorView != nil else {
-                    return
-                }
 
-                refreshActiveOrderingIfNeeded()
-
-                observationPhase = "idle"
-                idlePhase += 0.05
-                let idlePose = visualCursorIdlePose(
-                    restingTipPosition: restingTipPosition,
-                    phase: idlePhase
-                )
-
-                placeCursor(
-                    using: advanceVisualDynamics(
-                        toward: idlePose.tipPosition,
-                        idleAngleOffset: idlePose.angleOffset,
-                        at: CACurrentMediaTime()
-                    ),
-                    clickProgress: 0
-                )
+        let now = CACurrentMediaTime()
+        idleDriver.startIdleAnimation(now: now, window: visualCursorIdleSwayWindow()) {
+            guard panel != nil, cursorView != nil else {
+                return
             }
-        }
 
-        RunLoop.main.add(timer, forMode: .common)
-        idleTimer = timer
+            guard let restingTipPosition = SoftwareCursorOverlay.restingTipPosition else {
+                return
+            }
+
+            observationPhase = "idle"
+            idlePhase += 0.05
+            let idlePose = visualCursorIdlePose(
+                restingTipPosition: restingTipPosition,
+                phase: idlePhase
+            )
+
+            placeCursor(
+                using: advanceVisualDynamics(
+                    toward: idlePose.tipPosition,
+                    idleAngleOffset: idlePose.angleOffset,
+                    at: CACurrentMediaTime()
+                ),
+                clickProgress: 0
+            )
+        }
 
         placeCursor(
             using: advanceVisualDynamics(
                 toward: restingTipPosition,
-                at: CACurrentMediaTime()
+                at: now
             ),
             clickProgress: 0
         )
     }
 
     private static func stopIdleAnimation() {
-        idleTimer?.invalidate()
-        idleTimer = nil
+        idleDriver.stopIdleAnimation()
     }
 
     private static func scheduleHide(after delay: TimeInterval) {
@@ -760,12 +814,9 @@ enum SoftwareCursorOverlay {
                 // A hidden cursor is no longer on the remembered target, so the
                 // next action must animate instead of being treated as "held".
                 VisualCursorMoveCoalescer.shared.reset()
-                displayedTipPosition = nil
-                restingTipPosition = nil
-                activeTargetWindow = nil
-                visualDynamicsState = nil
-                observationPhase = "hidden"
+                forgetPresentationState()
                 writeObservationSnapshot(tipPosition: nil, rotation: nil)
+                dumpDebugStatsIfEnabled()
             }
         }
     }
@@ -819,19 +870,38 @@ enum SoftwareCursorOverlay {
         return result.renderState
     }
 
+    /// The only place the overlay writes a frame.
+    ///
+    /// The origin is aligned to whole points and skipped when it did not change,
+    /// and the view is only re-rasterised when the render state itself changed —
+    /// moving the panel is enough to move the glyph, because the drawing is
+    /// bounds-relative. Together those make a converged idle cursor perform zero
+    /// window-server work per tick.
     private static func placeCursor(using renderState: CursorVisualRenderState, clickProgress: CGFloat) {
         guard let panel, let cursorView else {
             return
         }
 
-        panel.setFrameOrigin(artwork.geometry.origin(forTipPosition: renderState.tipPosition))
-        cursorView.rotation = renderState.rotation
-        cursorView.cursorBodyOffset = renderState.cursorBodyOffset
-        cursorView.fogOffset = renderState.fogOffset
-        cursorView.fogOpacity = renderState.fogOpacity
-        cursorView.fogScale = renderState.fogScale
-        cursorView.clickProgress = clickProgress
-        cursorView.needsDisplay = true
+        let frameWrite = panelWriteGate.frameWrite(
+            forTipPosition: renderState.tipPosition,
+            tipAnchor: artwork.geometry.tipAnchor
+        )
+        if frameWrite.didChange {
+            panel.setFrameOrigin(frameWrite.origin)
+        }
+
+        if renderState != lastAppliedRenderState || clickProgress != lastAppliedClickProgress {
+            cursorView.rotation = renderState.rotation
+            cursorView.cursorBodyOffset = renderState.cursorBodyOffset
+            cursorView.fogOffset = renderState.fogOffset
+            cursorView.fogOpacity = renderState.fogOpacity
+            cursorView.fogScale = renderState.fogScale
+            cursorView.clickProgress = clickProgress
+            cursorView.needsDisplay = true
+            lastAppliedRenderState = renderState
+            lastAppliedClickProgress = clickProgress
+        }
+
         displayedTipPosition = renderState.tipPosition
         writeObservationSnapshot(
             tipPosition: renderState.tipPosition,
@@ -899,15 +969,6 @@ enum SoftwareCursorOverlay {
     private static func distanceBetween(_ lhs: CGPoint, _ rhs: CGPoint) -> CGFloat {
         hypot(rhs.x - lhs.x, rhs.y - lhs.y)
     }
-}
-
-func shouldReorderCursorPanel(
-    activeTargetWindow: CursorTargetWindow?,
-    effectiveTargetWindow: CursorTargetWindow?,
-    panelIsVisible: Bool,
-    forceReorder: Bool
-) -> Bool {
-    forceReorder || activeTargetWindow != effectiveTargetWindow || panelIsVisible == false
 }
 
 private final class CursorPanel: NSPanel {

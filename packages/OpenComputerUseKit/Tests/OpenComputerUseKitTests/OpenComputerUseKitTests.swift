@@ -2108,19 +2108,6 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(visualCursorPostInteractionIdleTimeout(), 30)
     }
 
-    func testCursorPanelReordersWhenForcedEvenIfTargetWindowDidNotChange() {
-        let targetWindow = CursorTargetWindow(windowID: 42, layer: 0)
-
-        XCTAssertTrue(
-            shouldReorderCursorPanel(
-                activeTargetWindow: targetWindow,
-                effectiveTargetWindow: targetWindow,
-                panelIsVisible: true,
-                forceReorder: true
-            )
-        )
-    }
-
     func testCursorPanelDoesNotReorderWhenVisibleAndTargetWindowIsStable() {
         let targetWindow = CursorTargetWindow(windowID: 42, layer: 0)
 
@@ -2128,10 +2115,266 @@ final class OpenComputerUseKitTests: XCTestCase {
             shouldReorderCursorPanel(
                 activeTargetWindow: targetWindow,
                 effectiveTargetWindow: targetWindow,
-                panelIsVisible: true,
-                forceReorder: false
+                panelIsVisible: true
             )
         )
+    }
+
+    func testCursorPanelReordersOnlyWhenTheTargetWindowChangesOrThePanelMustShow() {
+        let targetWindow = CursorTargetWindow(windowID: 42, layer: 0)
+        let otherWindow = CursorTargetWindow(windowID: 7, layer: 3)
+
+        XCTAssertTrue(
+            shouldReorderCursorPanel(
+                activeTargetWindow: nil,
+                effectiveTargetWindow: targetWindow,
+                panelIsVisible: true
+            )
+        )
+        XCTAssertTrue(
+            shouldReorderCursorPanel(
+                activeTargetWindow: targetWindow,
+                effectiveTargetWindow: otherWindow,
+                panelIsVisible: true
+            )
+        )
+        XCTAssertTrue(
+            shouldReorderCursorPanel(
+                activeTargetWindow: targetWindow,
+                effectiveTargetWindow: targetWindow,
+                panelIsVisible: false
+            )
+        )
+    }
+
+    // MARK: - Software cursor stillness contract
+
+    func testCursorFrameOriginIsAlignedToWholePoints() {
+        let tipAnchor = CGPoint(x: 60.35, y: 70.3)
+
+        XCTAssertEqual(
+            integralCursorFrameOrigin(
+                forTipPosition: CGPoint(x: 184.4, y: 92.6),
+                tipAnchor: tipAnchor
+            ),
+            CGPoint(x: 124, y: 22)
+        )
+
+        // The spring keeps moving the tip by fractions of a point after the
+        // animation looks finished. Those must map to the same written origin,
+        // otherwise every tick hands the window server a new frame.
+        XCTAssertEqual(
+            integralCursorFrameOrigin(
+                forTipPosition: CGPoint(x: 184.02, y: 92.4),
+                tipAnchor: tipAnchor
+            ),
+            integralCursorFrameOrigin(
+                forTipPosition: CGPoint(x: 184.0, y: 92.49),
+                tipAnchor: tipAnchor
+            )
+        )
+    }
+
+    @MainActor
+    func testCursorPanelWriteGateSkipsRepeatedFrameAndLevelWrites() {
+        let gate = CursorPanelWriteGate()
+        let tipAnchor = CGPoint(x: 60.35, y: 70.3)
+
+        let first = gate.frameWrite(forTipPosition: CGPoint(x: 820, y: 540), tipAnchor: tipAnchor)
+        XCTAssertTrue(first.didChange)
+        XCTAssertEqual(first.origin, CGPoint(x: 760, y: 470))
+        XCTAssertEqual(gate.frameWriteCount, 1)
+
+        let repeated = gate.frameWrite(forTipPosition: CGPoint(x: 820.002, y: 539.998), tipAnchor: tipAnchor)
+        XCTAssertFalse(repeated.didChange)
+        XCTAssertEqual(repeated.origin, first.origin)
+        XCTAssertEqual(gate.frameWriteCount, 1)
+        XCTAssertEqual(gate.skippedFrameWriteCount, 1)
+
+        XCTAssertTrue(gate.levelWrite(for: NSWindow.Level(rawValue: 3)))
+        XCTAssertFalse(gate.levelWrite(for: NSWindow.Level(rawValue: 3)))
+        XCTAssertEqual(gate.levelWriteCount, 1)
+
+        let targetWindow = CursorTargetWindow(windowID: 42, layer: 3)
+        XCTAssertTrue(gate.markOrdering(activeTargetWindow: targetWindow, panelIsVisible: true))
+        XCTAssertFalse(gate.markOrdering(activeTargetWindow: targetWindow, panelIsVisible: true))
+        XCTAssertFalse(gate.markOrdering(activeTargetWindow: targetWindow, panelIsVisible: true))
+        XCTAssertTrue(gate.markOrdering(activeTargetWindow: targetWindow, panelIsVisible: false))
+        XCTAssertEqual(gate.reorderCount, 2)
+        XCTAssertEqual(gate.skippedReorderCount, 2)
+
+        // A hidden cursor forgets everything: showing it again must write.
+        gate.reset()
+        XCTAssertNil(gate.activeTargetWindow)
+        XCTAssertTrue(gate.frameWrite(forTipPosition: CGPoint(x: 820, y: 540), tipAnchor: tipAnchor).didChange)
+        XCTAssertTrue(gate.levelWrite(for: NSWindow.Level(rawValue: 3)))
+        XCTAssertTrue(gate.markOrdering(activeTargetWindow: targetWindow, panelIsVisible: true))
+    }
+
+    @MainActor
+    func testCursorIdleTicksStopTouchingThePanelOnceTheIdleWindowElapses() {
+        let start: CFTimeInterval = 5_000
+        var now = start
+        var timers: [FakeCursorIdleTimer] = []
+        let gate = CursorPanelWriteGate()
+        let driver = CursorIdleDriver(
+            now: { now },
+            makeTimer: { _, tick in
+                let timer = FakeCursorIdleTimer(tick: tick)
+                timers.append(timer)
+                return timer
+            }
+        )
+
+        let tipAnchor = CGPoint(x: 60.35, y: 70.3)
+        let targetWindow = CursorTargetWindow(windowID: 42, layer: 0)
+        var frameWrites = 0
+        var orderWrites = 0
+
+        // The explicit action writes the frame / level / ordering exactly once.
+        _ = gate.levelWrite(for: NSWindow.Level(rawValue: 0))
+        if gate.markOrdering(activeTargetWindow: targetWindow, panelIsVisible: true) { orderWrites += 1 }
+        if gate.frameWrite(forTipPosition: CGPoint(x: 820, y: 540), tipAnchor: tipAnchor).didChange { frameWrites += 1 }
+        XCTAssertEqual(frameWrites, 1)
+        XCTAssertEqual(orderWrites, 1)
+
+        // The production idle tick over the resting pose: same integral origin,
+        // same target window.
+        driver.markInteraction(at: now)
+        driver.startIdleAnimation(now: now, window: 1) {
+            if gate.markOrdering(activeTargetWindow: targetWindow, panelIsVisible: true) { orderWrites += 1 }
+            if gate.frameWrite(forTipPosition: CGPoint(x: 820.002, y: 539.998), tipAnchor: tipAnchor).didChange {
+                frameWrites += 1
+            }
+        }
+
+        // Five seconds of 60 Hz ticks while nothing is happening.
+        for step in 1...300 {
+            now = start + (Double(step) / 60.0)
+            timers.last?.fire()
+        }
+
+        XCTAssertEqual(frameWrites, 1)
+        XCTAssertEqual(orderWrites, 1)
+        XCTAssertEqual(driver.idleTickCount, 60)
+        XCTAssertEqual(driver.suppressedIdleTickCount, 1)
+        XCTAssertFalse(driver.isIdleAnimationRunning)
+        XCTAssertEqual(timers.last?.invalidateCount, 1)
+        XCTAssertEqual(timers.count, 1)
+    }
+
+    @MainActor
+    func testCursorIdleDriverInvalidatesThePreviousTimerWhenStartedAgain() {
+        var timers: [FakeCursorIdleTimer] = []
+        let driver = CursorIdleDriver(
+            now: { 100 },
+            makeTimer: { _, tick in
+                let timer = FakeCursorIdleTimer(tick: tick)
+                timers.append(timer)
+                return timer
+            }
+        )
+
+        driver.markInteraction(at: 100)
+        driver.startIdleAnimation(now: 100, window: 10) {}
+        driver.startIdleAnimation(now: 100, window: 10) {}
+
+        XCTAssertEqual(timers.count, 2)
+        XCTAssertEqual(timers[0].invalidateCount, 1)
+        XCTAssertFalse(timers[0].isRunning)
+        XCTAssertTrue(timers[1].isRunning)
+        XCTAssertTrue(driver.isIdleAnimationRunning)
+
+        // An invalidated timer never fires again, so the shared idle phase can
+        // only ever be advanced by one writer per frame.
+        timers[0].fire()
+        XCTAssertEqual(driver.idleTickCount, 0)
+        timers[1].fire()
+        XCTAssertEqual(driver.idleTickCount, 1)
+
+        driver.stopIdleAnimation()
+        XCTAssertFalse(driver.isIdleAnimationRunning)
+        XCTAssertEqual(timers[1].invalidateCount, 1)
+    }
+
+    @MainActor
+    func testCursorIdleDriverNeverPumpsWithoutAnInteractionAnchor() {
+        let driver = CursorIdleDriver()
+
+        XCTAssertFalse(driver.shouldPumpIdleAnimation(at: 100, window: 10))
+
+        driver.markInteraction(at: 100)
+        XCTAssertTrue(driver.shouldPumpIdleAnimation(at: 100, window: 10))
+        XCTAssertTrue(driver.shouldPumpIdleAnimation(at: 110, window: 10))
+        XCTAssertFalse(driver.shouldPumpIdleAnimation(at: 110.001, window: 10))
+        XCTAssertFalse(driver.shouldPumpIdleAnimation(at: 100, window: 0))
+    }
+
+    func testVisualCursorIdleSwayWindowDefaultsToOneSecondAndStaysTunable() {
+        XCTAssertEqual(visualCursorIdleSwayWindowMilliseconds(environment: [:]), 1_000)
+        XCTAssertEqual(
+            visualCursorIdleSwayWindowMilliseconds(
+                environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR_IDLE_SWAY_MS": "250"]
+            ),
+            250
+        )
+        XCTAssertEqual(
+            visualCursorIdleSwayWindowMilliseconds(
+                environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR_IDLE_SWAY_MS": "0"]
+            ),
+            0
+        )
+        XCTAssertEqual(
+            visualCursorIdleSwayWindowMilliseconds(
+                environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR_IDLE_SWAY_MS": "abc"]
+            ),
+            1_000
+        )
+        XCTAssertEqual(
+            visualCursorIdleSwayWindowMilliseconds(
+                environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR_IDLE_SWAY_MS": "-5"]
+            ),
+            1_000
+        )
+        XCTAssertEqual(
+            visualCursorIdleSwayWindow(environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR_IDLE_SWAY_MS": "500"]),
+            0.5,
+            accuracy: 0.0001
+        )
+    }
+
+    func testCursorOverlayDebugStatsStayOffUnlessRequested() {
+        XCTAssertFalse(visualCursorDebugStatsEnabled(environment: [:]))
+        XCTAssertFalse(
+            visualCursorDebugStatsEnabled(environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR_DEBUG_STATS": "0"])
+        )
+        XCTAssertTrue(
+            visualCursorDebugStatsEnabled(environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR_DEBUG_STATS": " 1 "])
+        )
+        XCTAssertTrue(
+            visualCursorDebugStatsEnabled(environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR_DEBUG_STATS": "YES"])
+        )
+
+        let line = cursorOverlayDebugStatsLine(
+            CursorOverlayDebugStats(
+                frameWrites: 3,
+                skippedFrameWrites: 180,
+                levelWrites: 1,
+                reorders: 1,
+                skippedReorders: 180,
+                idleTicks: 60,
+                suppressedIdleTicks: 1,
+                invalidatedIdleTimers: 2
+            )
+        )
+
+        XCTAssertTrue(line.hasPrefix("[open-computer-use] cursor overlay stats"))
+        XCTAssertTrue(line.contains("frameWrites=3"))
+        XCTAssertTrue(line.contains("skippedFrameWrites=180"))
+        XCTAssertTrue(line.contains("reorders=1"))
+        XCTAssertTrue(line.contains("skippedReorders=180"))
+        XCTAssertTrue(line.contains("suppressedIdleTicks=1"))
+        XCTAssertTrue(line.contains("invalidatedIdleTimers=2"))
     }
 
     func testVisualCursorRuntimeMapsAppKitUpwardMotionToCursorMotionScreenState() {
@@ -3276,6 +3519,32 @@ private final class ElapsedTimeRecorder: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return elapsedValue
+    }
+}
+
+/// Mirrors `Timer`: an invalidated timer never fires again, which is what makes
+/// the "no leaked 60 Hz writers" contract testable.
+@MainActor
+private final class FakeCursorIdleTimer: CursorIdleTimerHandling {
+    private let tick: @MainActor () -> Void
+    private(set) var isRunning = true
+    private(set) var invalidateCount = 0
+
+    init(tick: @escaping @MainActor () -> Void) {
+        self.tick = tick
+    }
+
+    func invalidate() {
+        invalidateCount += 1
+        isRunning = false
+    }
+
+    func fire() {
+        guard isRunning else {
+            return
+        }
+
+        tick()
     }
 }
 
