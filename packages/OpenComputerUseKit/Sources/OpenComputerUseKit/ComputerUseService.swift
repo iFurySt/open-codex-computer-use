@@ -2,6 +2,7 @@ import AppKit
 import ApplicationServices
 import Foundation
 import ImageIO
+import QuartzCore
 
 struct VisualCursorTarget: Equatable {
     let point: CGPoint
@@ -642,25 +643,31 @@ public final class ComputerUseService {
             }
 
             let cursorTarget: VisualCursorTarget?
+            var moveApproach: VisualCursorApproach = .skipped
             if let elementIndex {
                 let record = try lookupElement(snapshot: snapshot, index: elementIndex)
                 guard let identifier = record.identifier else {
                     throw ComputerUseError.invalidArguments("fixture click requires an identifier-backed element")
                 }
                 cursorTarget = visualCursorTarget(for: record, snapshot: snapshot)
-                moveVisualCursor(to: cursorTarget)
+                moveApproach = moveVisualCursor(to: cursorTarget)
                 try FixtureBridge.post(FixtureCommand(kind: "click", identifier: identifier))
             } else if let x, let y {
                 let identifier = try fixtureIdentifier(at: CGPoint(x: x, y: y), snapshot: snapshot)
                 cursorTarget = fixtureVisualCursorTarget(identifier: identifier, snapshot: snapshot)
-                moveVisualCursor(to: cursorTarget)
+                moveApproach = moveVisualCursor(to: cursorTarget)
                 try FixtureBridge.post(FixtureCommand(kind: "click", identifier: identifier, x: x, y: y))
             } else {
                 throw ComputerUseError.invalidArguments("click requires either element_index or x/y")
             }
 
             Thread.sleep(forTimeInterval: 0.15)
-            pulseVisualCursor(at: cursorTarget, clickCount: clickCount, mouseButton: button)
+            pulseVisualCursor(
+                at: cursorTarget,
+                approach: moveApproach,
+                clickCount: clickCount,
+                mouseButton: button
+            )
             return snapshotResult(for: try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery), style: .actionResult)
         }
 
@@ -680,7 +687,7 @@ public final class ComputerUseService {
                 targetWindowLayer: snapshot.targetWindowLayer
             )
 
-            approachVisualTarget(cursorTarget, record: record, snapshot: snapshot)
+            let approach = approachVisualTarget(cursorTarget, record: record, snapshot: snapshot)
 
             do {
                 switch clickMethod {
@@ -731,7 +738,12 @@ public final class ComputerUseService {
                 throw error
             }
 
-            pulseVisualCursor(at: cursorTarget, clickCount: clickCount, mouseButton: button)
+            pulseVisualCursor(
+                at: cursorTarget,
+                approach: approach,
+                clickCount: clickCount,
+                mouseButton: button
+            )
         } else if let x, let y {
             let screenshotPoint = CGPoint(x: x, y: y)
             let point = screenshotPixelToWindowPointInSnapshot(snapshot: snapshot, point: screenshotPoint)
@@ -742,7 +754,7 @@ public final class ComputerUseService {
                 targetWindowLayer: snapshot.targetWindowLayer
             )
 
-            moveVisualCursor(to: cursorTarget)
+            let approach = moveVisualCursor(to: cursorTarget)
 
             do {
                 switch clickMethod {
@@ -791,7 +803,12 @@ public final class ComputerUseService {
                 throw error
             }
 
-            pulseVisualCursor(at: cursorTarget, clickCount: clickCount, mouseButton: button)
+            pulseVisualCursor(
+                at: cursorTarget,
+                approach: approach,
+                clickCount: clickCount,
+                mouseButton: button
+            )
         } else {
             throw ComputerUseError.invalidArguments("click requires either element_index or x/y")
         }
@@ -2217,18 +2234,51 @@ public final class ComputerUseService {
     /// order: the software cursor flies to the target and settles before the
     /// highlight ring marks it. Advisory only, so the choreographer's overlay
     /// steps are silent no-ops whenever the visual cursor is disabled.
-    private func approachVisualTarget(_ target: VisualCursorTarget?, record: ElementRecord, snapshot: AppSnapshot) {
+    ///
+    /// Returns what the coalescer decided so the caller can keep the click
+    /// pulse in step with the debounced cursor.
+    @discardableResult
+    private func approachVisualTarget(
+        _ target: VisualCursorTarget?,
+        record: ElementRecord,
+        snapshot: AppSnapshot
+    ) -> VisualCursorApproach {
         visualChoreographer.approach(target, record: record, snapshot: snapshot)
     }
 
-    private func moveVisualCursor(to target: VisualCursorTarget?) {
+    /// Direct cursor moves (coordinate clicks, fixture paths) share the
+    /// choreographer's coalescer, so a burst of actions cannot animate the
+    /// cursor twice inside one `OPEN_COMPUTER_USE_VISUAL_CURSOR_COALESCE_MS`
+    /// window.
+    @discardableResult
+    private func moveVisualCursor(to target: VisualCursorTarget?) -> VisualCursorApproach {
         guard let target else {
-            return
+            return .skipped
         }
 
-        VisualCursorSupport.performOnMain {
-            SoftwareCursorOverlay.moveCursor(to: target.point, in: target.window)
+        guard visualCursorEnabled(environment: ProcessInfo.processInfo.environment) else {
+            return .skipped
         }
+
+        let decision = VisualCursorMoveCoalescer.shared.decide(
+            target: target.point,
+            now: CACurrentMediaTime()
+        )
+
+        switch decision {
+        case .animated:
+            VisualCursorSupport.performOnMain {
+                SoftwareCursorOverlay.moveCursor(to: target.point, in: target.window)
+            }
+        case .repositioned:
+            VisualCursorSupport.performOnMain {
+                SoftwareCursorOverlay.repositionCursor(to: target.point, in: target.window)
+            }
+        case .held, .skipped:
+            break
+        }
+
+        return decision
     }
 
     private func settleVisualCursor(at target: VisualCursorTarget?) {
@@ -2239,6 +2289,21 @@ public final class ComputerUseService {
         VisualCursorSupport.performOnMain {
             SoftwareCursorOverlay.settle(at: target.point, in: target.window)
         }
+    }
+
+    /// Coalesced bursts stay animation-free, pulse included; a `held` cursor
+    /// still pulses because the pulse marks the click itself.
+    private func pulseVisualCursor(
+        at target: VisualCursorTarget?,
+        approach: VisualCursorApproach,
+        clickCount: Int,
+        mouseButton: MouseButtonKind
+    ) {
+        guard approach.playsClickPulse else {
+            return
+        }
+
+        pulseVisualCursor(at: target, clickCount: clickCount, mouseButton: mouseButton)
     }
 
     private func pulseVisualCursor(at target: VisualCursorTarget?, clickCount: Int, mouseButton: MouseButtonKind) {

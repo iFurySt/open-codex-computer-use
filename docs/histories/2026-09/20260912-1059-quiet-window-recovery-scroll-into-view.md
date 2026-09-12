@@ -51,3 +51,9 @@
 - 改动：新增 `VisualInteractionChoreographer`（`move → settle(120ms) → highlight → action`），元素级 5 个调用点统一走它；`perform_secondary_action` / `scroll` 补上移动阶段；`SoftwareCursorOverlay.waitForArrivalSettle` + `visualCursorArrivalSettleDuration()` 提供到达节拍。
 - 验证：`swift build` Build complete；`swift test` 193 tests / 1 skipped / 0 failures（新增 4 个顺序与开关单测）；`./scripts/check-docs.sh` 通过。
 - 未做：未重建 / 未替换 `~/Applications/Open Computer Use (Dev).app`，未 push；等用户确认后再装机。
+
+### 🔁 2026-09-12 补记（第二轮）| 光标去抖合并与高亮环硬生命周期
+- 用户诉求（压缩）：新版每次动作都 `move → settle(120ms) → highlight`，填 33 字段大表单时“光标到处飘”；且目标元素消失后（尤其原生下拉菜单/弹层关闭）高亮环仍挂在屏幕上。
+- 改动：新增 `VisualCursorMoveCoalescer` 与 `OPEN_COMPUTER_USE_VISUAL_CURSOR_COALESCE_MS`（默认 400ms，0 关闭）：目标与上次落点相差 ≤2pt 只重画高亮、目标变化但在窗口内时由新的 `SoftwareCursorOverlay.repositionCursor` 直接落位（不播 Bezier、不播 pulse、不等待到达节拍），合并窗口锚定上一次真正播动画的时刻；`ComputerUseService` 的坐标点击与 fixture 路径也共用同一个 coalescer，并在 `.repositioned` 时跳过 click pulse。新增 `TargetHighlightLifetime.swift`：后台 `DispatchSourceTimer` 硬 TTL（常规 450ms / 弹层 300ms，`TTL + 350ms fade + 50ms` 处无条件 `orderOut`）、220ms 存活看门狗（AX 元素失效 / frame 变化超 8pt / 目标窗口消失即隐藏）、新 approach 先清旧环；`TargetHighlightOverlay` 拆成 facade + 注入式 lifetime controller + AppKit presenter，便于无窗口服务器单测。
+- 验证：`swift build` Build complete；`swift test` 207 tests / 1 skipped / 0 failures（新增 14 个单测，覆盖同目标只移动一次、窗口内至多一次动画、窗口外再次动画、`COALESCE_MS=0` 恢复逐次、`VISUAL_CURSOR=0` 全跳过、硬 TTL 不依赖主 RunLoop、看门狗失效隐藏、弹层短 TTL、新动作替换旧环）；`./scripts/check-docs.sh` 通过。
+- 未做：本轮仍不做 GUI 自动化验证（桌面正在跑验收轮）。

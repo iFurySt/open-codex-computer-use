@@ -32,6 +32,39 @@ func visualCursorEnabled(environment: [String: String]) -> Bool {
     return !["0", "false", "no", "off"].contains(rawValue)
 }
 
+/// Default window in which a burst of actions is merged into at most one
+/// cursor travel animation. `OPEN_COMPUTER_USE_VISUAL_CURSOR_COALESCE_MS=0`
+/// restores one animation per action.
+func visualCursorCoalesceWindowMilliseconds(environment: [String: String]) -> Double {
+    let defaultMilliseconds = 400.0
+
+    guard
+        let rawValue = environment["OPEN_COMPUTER_USE_VISUAL_CURSOR_COALESCE_MS"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+        !rawValue.isEmpty
+    else {
+        return defaultMilliseconds
+    }
+
+    guard let milliseconds = Double(rawValue), milliseconds.isFinite, milliseconds >= 0 else {
+        return defaultMilliseconds
+    }
+
+    return milliseconds
+}
+
+func visualCursorCoalesceWindow(
+    environment: [String: String] = ProcessInfo.processInfo.environment
+) -> TimeInterval {
+    visualCursorCoalesceWindowMilliseconds(environment: environment) / 1000
+}
+
+/// Two points is inside the glyph's own tip noise, so a target that lands that
+/// close to the previous one counts as "the cursor is already there".
+func visualCursorMoveEpsilonPoints() -> CGFloat {
+    2
+}
+
 func defaultVisualCursorInitialTipPosition(
     windowOrigin: CGPoint = .zero,
     tipAnchor: CGPoint = SoftwareCursorGlyphMetrics.tipAnchor
@@ -243,6 +276,34 @@ enum SoftwareCursorOverlay {
         }
     }
 
+    /// Places the cursor on `targetPoint` without the Bezier travel.
+    ///
+    /// Used when consecutive actions are coalesced: the cursor has to be on the
+    /// new target before the highlight ring appears, but replaying the travel
+    /// animation for every step is what makes a long form look like the cursor
+    /// is drifting everywhere. The visual-dynamics state is re-seeded on the
+    /// target so the glyph cannot spring-glide in from its previous position.
+    static func repositionCursor(to targetPoint: CGPoint, in targetWindow: CursorTargetWindow?) {
+        guard VisualCursorSupport.isEnabled, canPresentOverlay else {
+            return
+        }
+
+        prepareWindowIfNeeded()
+        stopIdleAnimation()
+        cancelPendingHide()
+        configureOrdering(relativeTo: targetWindow)
+
+        let constrainedTarget = clampTipPosition(targetPoint)
+        let now = CACurrentMediaTime()
+        visualDynamicsState = CursorVisualDynamicsAnimator.state(at: constrainedTarget, time: CGFloat(now))
+        restingTipPosition = constrainedTarget
+        observationPhase = "repositioned"
+        panel?.alphaValue = 1
+        placeCursor(using: initialRenderState(at: constrainedTarget), clickProgress: 0)
+        startIdleAnimation()
+        scheduleHide(after: visualCursorPostInteractionIdleTimeout())
+    }
+
     static func pulseClick(at targetPoint: CGPoint, clickCount: Int, mouseButton: MouseButtonKind, in targetWindow: CursorTargetWindow?) {
         guard VisualCursorSupport.isEnabled, canPresentOverlay else {
             return
@@ -296,6 +357,9 @@ enum SoftwareCursorOverlay {
     static func reset() {
         stopIdleAnimation()
         cancelPendingHide()
+        // The gate remembers where the cursor last travelled; a reset hides the
+        // cursor, so the next action must animate again.
+        VisualCursorMoveCoalescer.shared.reset()
         displayedTipPosition = nil
         restingTipPosition = nil
         activeTargetWindow = nil
@@ -693,6 +757,9 @@ enum SoftwareCursorOverlay {
             MainActor.assumeIsolated {
                 panel.orderOut(nil)
                 panel.alphaValue = 1
+                // A hidden cursor is no longer on the remembered target, so the
+                // next action must animate instead of being treated as "held".
+                VisualCursorMoveCoalescer.shared.reset()
                 displayedTipPosition = nil
                 restingTipPosition = nil
                 activeTargetWindow = nil

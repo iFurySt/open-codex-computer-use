@@ -55,6 +55,9 @@
 - [x] 单测与 `swift build` / `swift test` 证据（189 tests / 0 failures）
 - [x] `docs/ARCHITECTURE.md` 与 history 同步
 - [x] P4 顺序修正：advisory overlay 统一走 `move → settle → highlight`，`scroll` / `perform_secondary_action` 补移动阶段，新增顺序单测
+- [x] P5 光标去抖：`VisualCursorMoveCoalescer` + `OPEN_COMPUTER_USE_VISUAL_CURSOR_COALESCE_MS`（默认 400ms），同目标只重画高亮、窗口内直接落位不播 Bezier / pulse
+- [x] P5 高亮环生命周期：后台 `DispatchSourceTimer` 硬 TTL + 220ms 存活看门狗 + 弹层短 TTL（300ms）+ 新动作前先清旧环
+- [x] P5 单测与证据：新增 14 个单测；`swift build` Build complete、`swift test` 207 tests / 1 skipped / 0 failures、`./scripts/check-docs.sh` 通过
 
 ## 决策记录
 
@@ -62,4 +65,8 @@
 - 2026-09-12：P3 的 `.auto` sky_click 灰度默认 **关闭**。理由：SkyLight 是私有 SPI，`SkyClickDispatcher` 在部分步骤失败时可能已经投递了事件，随后再落 `postToPid` 会重复点击；在无法用 GUI 验证的前提下，默认保持现状、只提供显式开关。
 - 2026-09-12：显式 `click_method=global` 与既有 `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS` 语义不变；P3 只保证“sky 失败不会动态升级到 global”。
 - 2026-09-12：分支日志按本仓库自身约定落在 `docs/exec-plans/active/`（仓库无 `docs/branches/` 约定），history 在收尾时补 `docs/histories/2026-09/`。
+- 2026-09-12：P5 合并窗口内采用“立即落位但不播 Bezier / pulse”，而不是跳过移动。理由：P4 已确立“高亮环必须跟在光标到位之后”的顺序约束，跳过移动会让环落在光标不在的元素上；直接落位同时保持该约束，并让一轮 burst 最多只播一次移动动画。
+- 2026-09-12：P5 合并窗口锚定“上一次真正播动画”的时刻；同目标（≤2pt）时不移动也不重新锚定，避免亚像素漂移把光标慢慢带走。
+- 2026-09-12：P5 高亮环 TTL 改用后台 `DispatchSourceTimer`。理由：主 RunLoop default-mode `Timer` 在原生菜单 event-tracking 模式下会停摆，是“弹层关闭后高亮仍挂着”的诱因之一；`orderOut` 另设无条件的硬截止，不再依赖 CA 淡出动画的 completion handler。
+- 2026-09-12：P5 菜单/弹层（`AXMenuItem` / `AXMenu` / `AXMenuBar` / `AXMenuBarItem`，或目标窗口 layer > 0）TTL 缩短到 300ms，并在窗口消失时由看门狗立即隐藏。
 - 2026-09-12：P4 高亮环顺序修正为“光标先到位、再高亮、最后动作”。依据官方同线程日志顺序 `Move cursor to ...` / `Start Bezier cursor animation ...` / `Signal cursor movement completion ...` 先于 `Moving mouse to ...` / `Clicking at ...`（`docs/references/codex-computer-use-reverse-engineering/software-cursor-overlay.md:192-196,243`），且 `scroll` / `perform_secondary_action` 在官方 tool 矩阵里同样命中 `Move cursor to ...`；到达后只加 `120ms` settle，不改变工具调用语义。

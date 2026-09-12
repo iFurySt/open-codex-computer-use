@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import CoreGraphics
 import Foundation
 import QuartzCore
@@ -9,18 +10,27 @@ import QuartzCore
 /// `SoftwareCursorOverlay`, so showing it can never move foreground focus or
 /// swallow clicks. The marker is purely advisory: every failure path is a no-op
 /// and no tool call ever depends on it.
+///
+/// Lifetime is deliberate rather than best-effort-at-exit: the ring is cleared
+/// before every new action, it fades out on a deadline that does not depend on
+/// the main run loop, and a watchdog withdraws it the moment its element or
+/// window stops being real (a closed menu is the common case). That is why a
+/// menu/popup target also gets a shorter deadline than a regular element.
 @MainActor
 enum TargetHighlightOverlay {
     /// Time the ring stays fully visible before it fades out. The task contract
     /// is "show before the action, fade 300-600ms later".
     static let defaultDisplayDuration: TimeInterval = 0.45
-    private static let fadeInDuration: TimeInterval = 0.12
-    private static let fadeOutDuration: TimeInterval = 0.35
     private static let minimumVisibleSide: CGFloat = 2
 
-    private static var panel: NSPanel?
-    private static var highlightView: TargetHighlightView?
-    private static var hideTimer: Timer?
+    private static let presenter = TargetHighlightPanelPresenter()
+    private static let controller = TargetHighlightLifetimeController(
+        presentRing: { target in presenter.present(target) },
+        fadeRing: { presenter.fadeOut() },
+        withdrawPanel: { presenter.withdraw() },
+        sample: { target in livenessSample(for: target) },
+        makeTimer: { TargetHighlightDispatchTimer() }
+    )
 
     private static var canPresentOverlay: Bool {
         !NSScreen.screens.isEmpty
@@ -81,13 +91,18 @@ enum TargetHighlightOverlay {
         return rect
     }
 
+    /// Shows the ring for one approach. A new approach always replaces the
+    /// previous ring, and anything that cannot be shown clears it as well, so a
+    /// stale ring is never left behind.
     static func show(
         localFrame: CGRect?,
         windowBounds: CGRect?,
         targetWindow: CursorTargetWindow?,
-        duration: TimeInterval = defaultDisplayDuration
+        element: AXElementReference? = nil,
+        role: String? = nil
     ) {
         guard VisualCursorSupport.isEnabled, canPresentOverlay else {
+            hide()
             return
         }
 
@@ -101,41 +116,24 @@ enum TargetHighlightOverlay {
                 windowBounds: windowBounds
             )
         else {
+            hide()
             return
         }
 
-        prepareWindowIfNeeded()
-        guard let panel, let highlightView else {
-            return
-        }
+        let ringTarget = TargetHighlightLifetimeController.RingTarget(
+            globalRect: globalRect,
+            level: targetWindow?.layer ?? 0,
+            windowID: targetWindow?.windowID,
+            element: element,
+            isPopup: targetHighlightIsPopupRole(role) || targetHighlightIsPopupWindow(layer: targetWindow?.layer),
+            expectedScreenFrame: element.flatMap { accessibilityScreenFrame(of: $0.element) }
+        )
 
-        hideTimer?.invalidate()
-        panel.level = NSWindow.Level(rawValue: targetWindow?.layer ?? 0)
-        panel.setFrame(globalRect.insetBy(dx: -4, dy: -4), display: false)
-        highlightView.frame = CGRect(origin: .zero, size: panel.frame.size)
-        highlightView.needsDisplay = true
-
-        if let targetWindow, SoftwareCursorOverlay.isWindowPresent(targetWindow.windowID) {
-            panel.order(.above, relativeTo: Int(targetWindow.windowID))
-        } else {
-            panel.orderFront(nil)
-        }
-
-        panel.alphaValue = 0
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = fadeInDuration
-            panel.animator().alphaValue = 1
-        }
-
-        hideTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { _ in
-            fadeOut()
-        }
+        controller.show(ringTarget)
     }
 
     static func hide() {
-        hideTimer?.invalidate()
-        hideTimer = nil
-        panel?.orderOut(nil)
+        controller.hide()
     }
 
     /// Exposed for tests: the panel must never become key/main and must never
@@ -157,33 +155,128 @@ enum TargetHighlightOverlay {
         panel.animationBehavior = .none
         return panel
     }
+}
 
-    private static func prepareWindowIfNeeded() {
-        guard panel == nil else {
+/// Live probe for the watchdog. It only reads: an element whose role no longer
+/// resolves is gone, and everything else falls back to "still valid".
+@MainActor
+private func livenessSample(
+    for target: TargetHighlightLifetimeController.RingTarget
+) -> TargetHighlightLivenessSample {
+    let windowPresent = target.windowID.map { SoftwareCursorOverlay.isWindowPresent($0) } ?? true
+
+    guard let element = target.element?.element else {
+        return TargetHighlightLivenessSample(isWindowPresent: windowPresent)
+    }
+
+    guard let role = accessibilityString(of: element, attribute: kAXRoleAttribute), !role.isEmpty else {
+        return TargetHighlightLivenessSample(isWindowPresent: windowPresent, isElementValid: false)
+    }
+
+    return TargetHighlightLivenessSample(
+        isWindowPresent: windowPresent,
+        isElementValid: true,
+        currentScreenFrame: accessibilityScreenFrame(of: element)
+    )
+}
+
+private func accessibilityString(of element: AXUIElement, attribute: String) -> String? {
+    accessibilityValue(of: element, attribute: attribute) as? String
+}
+
+/// Element frame in Accessibility (top-left origin) screen space.
+func accessibilityScreenFrame(of element: AXUIElement) -> CGRect? {
+    guard
+        let positionValue = accessibilityValue(of: element, attribute: kAXPositionAttribute),
+        let sizeValue = accessibilityValue(of: element, attribute: kAXSizeAttribute),
+        CFGetTypeID(positionValue) == AXValueGetTypeID(),
+        CFGetTypeID(sizeValue) == AXValueGetTypeID()
+    else {
+        return nil
+    }
+
+    var origin = CGPoint.zero
+    var size = CGSize.zero
+    guard
+        AXValueGetValue(positionValue as! AXValue, .cgPoint, &origin),
+        AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
+    else {
+        return nil
+    }
+
+    return CGRect(origin: origin, size: size)
+}
+
+private func accessibilityValue(of element: AXUIElement, attribute: String) -> CFTypeRef? {
+    var value: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else {
+        return nil
+    }
+
+    return value
+}
+
+@MainActor
+private final class TargetHighlightPanelPresenter {
+    private static let fadeInDuration: TimeInterval = 0.12
+
+    private var panel: NSPanel?
+    private var highlightView: TargetHighlightView?
+
+    func present(_ target: TargetHighlightLifetimeController.RingTarget) {
+        prepareWindowIfNeeded()
+
+        guard let panel, let highlightView else {
             return
         }
 
-        let panel = makeTargetHighlightPanel()
-        let view = TargetHighlightView(frame: .zero)
-        panel.contentView = view
+        panel.level = NSWindow.Level(rawValue: target.level)
+        panel.setFrame(target.globalRect.insetBy(dx: -4, dy: -4), display: false)
+        highlightView.frame = CGRect(origin: .zero, size: panel.frame.size)
+        highlightView.needsDisplay = true
 
-        self.panel = panel
-        self.highlightView = view
+        if let windowID = target.windowID, SoftwareCursorOverlay.isWindowPresent(windowID) {
+            panel.order(.above, relativeTo: Int(windowID))
+        } else {
+            panel.orderFront(nil)
+        }
+
+        panel.alphaValue = 0
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.fadeInDuration
+            panel.animator().alphaValue = 1
+        }
     }
 
-    private static func fadeOut() {
+    /// Starts the fade only. Ordering the panel out is the lifetime
+    /// controller's hard deadline, so a starved animation can never leave the
+    /// panel visible.
+    func fadeOut() {
         guard let panel else {
             return
         }
 
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = fadeOutDuration
+            context.duration = TargetHighlightLifetimeController.defaultFadeOutDuration
             panel.animator().alphaValue = 0
-        } completionHandler: {
-            MainActor.assumeIsolated {
-                panel.orderOut(nil)
-            }
         }
+    }
+
+    func withdraw() {
+        panel?.orderOut(nil)
+    }
+
+    private func prepareWindowIfNeeded() {
+        guard panel == nil else {
+            return
+        }
+
+        let panel = TargetHighlightOverlay.makeTargetHighlightPanel()
+        let view = TargetHighlightView(frame: .zero)
+        panel.contentView = view
+
+        self.panel = panel
+        self.highlightView = view
     }
 }
 
