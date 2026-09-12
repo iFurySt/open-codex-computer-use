@@ -579,6 +579,10 @@ func shouldPreferContainingWebRowAXClickCandidate(
 
 public final class ComputerUseService {
     private var snapshotsByApp: [String: AppSnapshot] = [:]
+    /// Advisory overlay order for element-scoped actions: the software cursor
+    /// flies to the element and settles before the highlight ring appears.
+    /// See `VisualInteractionChoreographer` for the Codex evidence.
+    private let visualChoreographer = VisualInteractionChoreographer.live()
 
     public init() {}
 
@@ -676,8 +680,7 @@ public final class ComputerUseService {
                 targetWindowLayer: snapshot.targetWindowLayer
             )
 
-            showTargetHighlight(for: record, snapshot: snapshot)
-            moveVisualCursor(to: cursorTarget)
+            approachVisualTarget(cursorTarget, record: record, snapshot: snapshot)
 
             do {
                 switch clickMethod {
@@ -830,7 +833,11 @@ public final class ComputerUseService {
             throw ComputerUseError.stateUnavailable("element \(elementIndex) has no backing accessibility object")
         }
 
-        showTargetHighlight(for: record, snapshot: snapshot)
+        approachVisualTarget(
+            visualCursorTarget(for: record, snapshot: snapshot),
+            record: record,
+            snapshot: snapshot
+        )
 
         let result = AXUIElementPerformAction(element, rawAction as CFString)
         guard result == .success else {
@@ -868,7 +875,11 @@ public final class ComputerUseService {
             return snapshotResult(for: try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery), style: .actionResult)
         }
 
-        showTargetHighlight(for: record, snapshot: snapshot)
+        approachVisualTarget(
+            visualCursorTarget(for: record, snapshot: snapshot),
+            record: record,
+            snapshot: snapshot
+        )
 
         if let repeatCount = integralScrollPageCount(pages),
            let rawAction = record.rawActions.first(where: { $0.caseInsensitiveCompare("AXScroll\(normalized.capitalized)ByPage") == .orderedSame }),
@@ -988,9 +999,8 @@ public final class ComputerUseService {
             throw ComputerUseError.message(nonSettableSetValueErrorMessage)
         }
 
-        showTargetHighlight(for: record, snapshot: snapshot)
         let cursorTarget = visualCursorTarget(for: record, snapshot: snapshot)
-        moveVisualCursor(to: cursorTarget)
+        approachVisualTarget(cursorTarget, record: record, snapshot: snapshot)
 
         do {
             let result = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, value as CFString)
@@ -1072,9 +1082,8 @@ public final class ComputerUseService {
             throw ComputerUseError.message("failed to build an accessibility range value for select_text")
         }
 
-        showTargetHighlight(for: record, snapshot: snapshot)
         let cursorTarget = visualCursorTarget(for: record, snapshot: snapshot)
-        moveVisualCursor(to: cursorTarget)
+        approachVisualTarget(cursorTarget, record: record, snapshot: snapshot)
 
         do {
             let result = AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, rangeValue)
@@ -2186,9 +2195,10 @@ public final class ComputerUseService {
         return identifier
     }
 
-    /// Callers must pass a record that has already gone through
-    /// `ensureElementVisible`, otherwise the cursor can point at a frame that is
-    /// outside the window.
+    /// Element actions that can scroll pass a record that already went through
+    /// `ensureElementVisible`; `scroll` / `perform_secondary_action` do not.
+    /// For those the overlay clamps the tip to the screen and the ring silently
+    /// stays hidden when the frame misses the visible rect.
     private func visualCursorTarget(for record: ElementRecord, snapshot: AppSnapshot) -> VisualCursorTarget? {
         makeVisualCursorTarget(
             localFrame: record.localFrame,
@@ -2203,25 +2213,12 @@ public final class ComputerUseService {
         return record.flatMap { visualCursorTarget(for: $0, snapshot: snapshot) }
     }
 
-    /// Advisory only: shows the "this is the element I am about to touch" ring.
-    /// It must never fail a tool call, so every guard is a silent return.
-    private func showTargetHighlight(for record: ElementRecord, snapshot: AppSnapshot) {
-        guard let windowBounds = snapshot.windowBounds else {
-            return
-        }
-
-        let localFrame = record.localFrame
-        let targetWindow = snapshot.targetWindowID.map {
-            CursorTargetWindow(windowID: $0, layer: snapshot.targetWindowLayer ?? 0)
-        }
-
-        VisualCursorSupport.performOnMain {
-            TargetHighlightOverlay.show(
-                localFrame: localFrame,
-                windowBounds: windowBounds,
-                targetWindow: targetWindow
-            )
-        }
+    /// Element-scoped actions drive both advisory overlays through one shared
+    /// order: the software cursor flies to the target and settles before the
+    /// highlight ring marks it. Advisory only, so the choreographer's overlay
+    /// steps are silent no-ops whenever the visual cursor is disabled.
+    private func approachVisualTarget(_ target: VisualCursorTarget?, record: ElementRecord, snapshot: AppSnapshot) {
+        visualChoreographer.approach(target, record: record, snapshot: snapshot)
     }
 
     private func moveVisualCursor(to target: VisualCursorTarget?) {

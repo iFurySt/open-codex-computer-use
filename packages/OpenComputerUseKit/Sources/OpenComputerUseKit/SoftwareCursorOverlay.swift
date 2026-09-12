@@ -76,6 +76,15 @@ func visualCursorIdleRotationAmplitude() -> CGFloat {
     0.09
 }
 
+/// Short beat between the software cursor reaching its target and the next
+/// advisory overlay (the target highlight ring) appearing. Codex Computer Use
+/// signals cursor movement completion before the real interaction, so the ring
+/// must only light up after the pointer visibly lands; the beat stays small
+/// enough not to read as tool latency.
+func visualCursorArrivalSettleDuration() -> TimeInterval {
+    0.12
+}
+
 public struct VisualCursorObservationPoint: Codable, Sendable {
     public let x: Double
     public let y: Double
@@ -268,6 +277,20 @@ enum SoftwareCursorOverlay {
         )
         startIdleAnimation()
         scheduleHide(after: visualCursorPostInteractionIdleTimeout())
+    }
+
+    /// Pumps the main run loop for a short beat after `moveCursor` so the
+    /// arrival frame renders before the next overlay appears. Callers must
+    /// already be on the main thread, matching `moveCursor` / `settle`.
+    static func waitForArrivalSettle(duration: TimeInterval = visualCursorArrivalSettleDuration()) {
+        guard VisualCursorSupport.isEnabled, canPresentOverlay else {
+            return
+        }
+
+        let deadline = CACurrentMediaTime() + max(duration, 0)
+        while CACurrentMediaTime() < deadline {
+            pumpFrame()
+        }
     }
 
     static func reset() {

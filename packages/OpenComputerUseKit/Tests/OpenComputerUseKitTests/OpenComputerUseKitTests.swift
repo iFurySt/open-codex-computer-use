@@ -2561,6 +2561,76 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(rect, CGRect(x: 110, y: 690, width: 200, height: 40))
     }
 
+    // MARK: - Advisory overlay ordering (P4 follow-up)
+
+    func testVisualInteractionChoreographerMovesTheCursorBeforeShowingTheRing() {
+        let recorder = VisualStepRecorder()
+        let choreographer = VisualInteractionChoreographer(
+            environment: [:],
+            moveCursor: { _ in recorder.record("move-cursor") },
+            settleCursorArrival: { _ in recorder.record("settle-arrival") },
+            showTargetHighlight: { _, _ in recorder.record("show-highlight") }
+        )
+
+        choreographer.approach(
+            VisualCursorTarget(point: CGPoint(x: 120, y: 240), window: nil),
+            record: makeTargetHighlightRecord(),
+            snapshot: makeSnapshot(treeLines: [], focusedSummary: nil)
+        )
+
+        XCTAssertEqual(recorder.steps, ["move-cursor", "settle-arrival", "show-highlight"])
+    }
+
+    func testVisualInteractionChoreographerNeverShowsTheRingWithoutACursorTarget() {
+        let recorder = VisualStepRecorder()
+        let choreographer = VisualInteractionChoreographer(
+            environment: [:],
+            moveCursor: { _ in recorder.record("move-cursor") },
+            settleCursorArrival: { _ in recorder.record("settle-arrival") },
+            showTargetHighlight: { _, _ in recorder.record("show-highlight") }
+        )
+
+        choreographer.approach(
+            nil,
+            record: makeTargetHighlightRecord(),
+            snapshot: makeSnapshot(treeLines: [], focusedSummary: nil)
+        )
+
+        XCTAssertTrue(recorder.steps.isEmpty)
+    }
+
+    func testVisualInteractionChoreographerHidesCursorAndRingWhenVisualCursorIsDisabled() {
+        for disabled in ["0", "false", "no", "off"] {
+            XCTAssertFalse(
+                visualCursorEnabled(environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR": disabled]),
+                disabled
+            )
+
+            let recorder = VisualStepRecorder()
+            let choreographer = VisualInteractionChoreographer(
+                environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR": disabled],
+                moveCursor: { _ in recorder.record("move-cursor") },
+                settleCursorArrival: { _ in recorder.record("settle-arrival") },
+                showTargetHighlight: { _, _ in recorder.record("show-highlight") }
+            )
+
+            choreographer.approach(
+                VisualCursorTarget(point: CGPoint(x: 120, y: 240), window: nil),
+                record: makeTargetHighlightRecord(),
+                snapshot: makeSnapshot(treeLines: [], focusedSummary: nil)
+            )
+
+            XCTAssertTrue(recorder.steps.isEmpty, disabled)
+        }
+    }
+
+    func testVisualCursorArrivalSettleStaysShortButVisible() {
+        let duration = visualCursorArrivalSettleDuration()
+
+        XCTAssertGreaterThanOrEqual(duration, 0.1)
+        XCTAssertLessThanOrEqual(duration, 0.3)
+    }
+
     // MARK: - Automatic sky_click (P3)
 
     func testAutomaticSkyClickIsOptInAndRequiresADispatchableTarget() {
@@ -2610,6 +2680,19 @@ final class OpenComputerUseKitTests: XCTestCase {
                 name
             )
         }
+    }
+
+    private func makeTargetHighlightRecord(
+        localFrame: CGRect? = CGRect(x: 10, y: 20, width: 60, height: 24)
+    ) -> ElementRecord {
+        ElementRecord(
+            index: 7,
+            identifier: nil,
+            element: nil,
+            localFrame: localFrame,
+            rawActions: [],
+            prettyActions: []
+        )
     }
 
     private func makeSnapshot(treeLines: [String], focusedSummary: String?, selectedText: String? = nil) -> AppSnapshot {
@@ -2736,5 +2819,15 @@ final class OpenComputerUseKitTests: XCTestCase {
         let width = try XCTUnwrap(properties[kCGImagePropertyPixelWidth] as? Int)
         let height = try XCTUnwrap(properties[kCGImagePropertyPixelHeight] as? Int)
         return (width, height)
+    }
+}
+
+/// Ordered recorder used by the advisory overlay tests instead of the live
+/// AppKit overlays.
+private final class VisualStepRecorder {
+    private(set) var steps: [String] = []
+
+    func record(_ step: String) {
+        steps.append(step)
     }
 }

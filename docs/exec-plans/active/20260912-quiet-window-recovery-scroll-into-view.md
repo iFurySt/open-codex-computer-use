@@ -54,6 +54,7 @@
 - [x] P3：`.auto` sky_click 灰度路径
 - [x] 单测与 `swift build` / `swift test` 证据（189 tests / 0 failures）
 - [x] `docs/ARCHITECTURE.md` 与 history 同步
+- [x] P4 顺序修正：advisory overlay 统一走 `move → settle → highlight`，`scroll` / `perform_secondary_action` 补移动阶段，新增顺序单测
 
 ## 决策记录
 
@@ -61,3 +62,4 @@
 - 2026-09-12：P3 的 `.auto` sky_click 灰度默认 **关闭**。理由：SkyLight 是私有 SPI，`SkyClickDispatcher` 在部分步骤失败时可能已经投递了事件，随后再落 `postToPid` 会重复点击；在无法用 GUI 验证的前提下，默认保持现状、只提供显式开关。
 - 2026-09-12：显式 `click_method=global` 与既有 `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS` 语义不变；P3 只保证“sky 失败不会动态升级到 global”。
 - 2026-09-12：分支日志按本仓库自身约定落在 `docs/exec-plans/active/`（仓库无 `docs/branches/` 约定），history 在收尾时补 `docs/histories/2026-09/`。
+- 2026-09-12：P4 高亮环顺序修正为“光标先到位、再高亮、最后动作”。依据官方同线程日志顺序 `Move cursor to ...` / `Start Bezier cursor animation ...` / `Signal cursor movement completion ...` 先于 `Moving mouse to ...` / `Clicking at ...`（`docs/references/codex-computer-use-reverse-engineering/software-cursor-overlay.md:192-196,243`），且 `scroll` / `perform_secondary_action` 在官方 tool 矩阵里同样命中 `Move cursor to ...`；到达后只加 `120ms` settle，不改变工具调用语义。

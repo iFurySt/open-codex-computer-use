@@ -44,3 +44,10 @@
 - 已安装产物 `~/Applications/Open Computer Use (Dev).app` 未被重建；运行中的验收轮不受影响。
 - P3 未在真实 Chromium 上验证。
 - `ensureElementVisible` 的 AX 滚动路径未在真实 App 上验证，只验证了越界判定与开关语义。
+
+### 🔁 2026-09-12 补记 | P4 高亮环顺序修正
+- 用户诉求（压缩）：新版“目标元素高亮环”先高亮、后移动虚拟光标，观感别扭；对照 Codex 改成正确先后顺序。本轮只改代码 + 测试 + 本地提交，不重建 `.app`、不 push。
+- 文档依据：`docs/references/codex-computer-use-reverse-engineering/software-cursor-overlay.md:192-196,243`——官方先 `Move cursor to ...` / `Start Bezier cursor animation ...` / `Signal cursor movement completion ...`，之后才 `Moving mouse to ...` / `Clicking at ...`；`scroll` / `perform_secondary_action` 在官方 tool 矩阵里同样命中移动阶段。
+- 改动：新增 `VisualInteractionChoreographer`（`move → settle(120ms) → highlight → action`），元素级 5 个调用点统一走它；`perform_secondary_action` / `scroll` 补上移动阶段；`SoftwareCursorOverlay.waitForArrivalSettle` + `visualCursorArrivalSettleDuration()` 提供到达节拍。
+- 验证：`swift build` Build complete；`swift test` 193 tests / 1 skipped / 0 failures（新增 4 个顺序与开关单测）；`./scripts/check-docs.sh` 通过。
+- 未做：未重建 / 未替换 `~/Applications/Open Computer Use (Dev).app`，未 push；等用户确认后再装机。
