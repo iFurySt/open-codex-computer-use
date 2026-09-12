@@ -513,6 +513,23 @@ func canUseActivationOnlyClickFallback(role: String?) -> Bool {
     return role == kAXWindowRole as String
 }
 
+/// The AX activation-only fallback (`AXRaise` / `AXMain` / `AXFocused`) is the
+/// only click path that can move the user's foreground focus, so it is opt-in
+/// through the same switch as window recovery: an explicit
+/// `allow_window_recovery=true` tool argument, or the process-level
+/// `OPEN_COMPUTER_USE_ALLOW_WINDOW_RECOVERY=1`.
+///
+/// Everything else stays available by default and never raises, mains or
+/// focuses the target window: `AXPress` / `AXConfirm` / `AXOpen` /
+/// `AXShowMenu`, the descendant and hit-test click candidates, the automatic
+/// scroll-into-view, and the pid-targeted / sky_click mouse paths.
+func activationOnlyClickFallbackAllowed(
+    allowWindowRecovery: Bool?,
+    environment: [String: String] = ProcessInfo.processInfo.environment
+) -> Bool {
+    snapshotRecoveryPolicy(allowWindowRecovery: allowWindowRecovery, environment: environment) == .allowActivation
+}
+
 func canUseKeyboardTextFallback(role: String?, roleDescription: String?, isValueSettable: Bool) -> Bool {
     if isValueSettable {
         return true
@@ -698,7 +715,9 @@ public final class ComputerUseService {
                         button: button,
                         clickCount: clickCount,
                         includeNearbyHitTesting: true,
-                        allowActivationFallback: true
+                        allowActivationFallback: activationOnlyClickFallbackAllowed(
+                            allowWindowRecovery: allowWindowRecovery
+                        )
                     )) {
                         try performNonAXClickFallback(
                             at: targetPoint,
@@ -716,7 +735,9 @@ public final class ComputerUseService {
                         button: button,
                         clickCount: clickCount,
                         includeNearbyHitTesting: true,
-                        allowActivationFallback: true
+                        allowActivationFallback: activationOnlyClickFallbackAllowed(
+                            allowWindowRecovery: allowWindowRecovery
+                        )
                     ) else {
                         throw ComputerUseError.message(
                             "click_method 'accessibility' could not click element_index=\(elementIndex)"
@@ -762,6 +783,8 @@ public final class ComputerUseService {
                     let candidates = try clickCandidates(at: point, in: snapshot)
                     var handled = false
                     for record in candidates {
+                        // A coordinate click never activates: the hit-tested
+                        // element is only used for its primary AX action.
                         if try performAXClickSequence(
                             on: record,
                             snapshot: snapshot,

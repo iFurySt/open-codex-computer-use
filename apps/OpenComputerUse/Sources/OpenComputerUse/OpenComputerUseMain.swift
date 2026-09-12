@@ -72,6 +72,8 @@ enum OpenComputerUseMain {
         case .turnEnded:
             postOpenComputerUseTurnEndedNotification()
             print("turn-ended acknowledged")
+        case let .debugHighlight(seconds, display):
+            _ = try VisualCursorDebugShowcase.run(seconds: seconds, display: display)
         case let .help(command):
             print(openComputerUseHelpText(command: command))
         case .version:

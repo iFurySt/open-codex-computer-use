@@ -2103,9 +2103,13 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(start.y, geometry.tipAnchor.y, accuracy: 0.0001)
     }
 
-    func testVisualCursorKeepsPostInteractionIdleStateLongEnoughForFollowupTools() {
-        XCTAssertEqual(visualCursorPostInteractionIdleTimeout(), 30)
-        XCTAssertGreaterThanOrEqual(visualCursorPostInteractionIdleTimeout(), 30)
+    /// The cursor has no inactivity deadline any more: it stays on screen for
+    /// the whole turn and only `turn-ended` / `reset` /
+    /// `OPEN_COMPUTER_USE_VISUAL_CURSOR=0` take it away. The behavioural half of
+    /// that contract lives in `CursorOverlayVisibilityTests`.
+    func testCursorPanelStaysAboveNormalWindowsForTheWholeTurn() {
+        XCTAssertEqual(cursorOverlayBaseLevel, .floating)
+        XCTAssertGreaterThan(cursorOverlayBaseLevel.rawValue, NSWindow.Level.normal.rawValue)
     }
 
     func testCursorPanelDoesNotReorderWhenVisibleAndTargetWindowIsStable() {

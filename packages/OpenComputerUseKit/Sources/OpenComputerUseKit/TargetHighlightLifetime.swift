@@ -154,9 +154,12 @@ final class TargetHighlightLifetimeController {
         let isPopup: Bool
         /// Element frame at show time, in Accessibility screen space.
         let expectedScreenFrame: CGRect?
+        /// Debug-only hold. Production leaves this nil so the audited
+        /// 450ms / popup 300ms beat is the only policy.
+        var displayDurationOverride: TimeInterval?
 
         var displayDuration: TimeInterval {
-            targetHighlightDisplayDuration(isPopup: isPopup)
+            displayDurationOverride ?? targetHighlightDisplayDuration(isPopup: isPopup)
         }
     }
 

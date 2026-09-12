@@ -61,6 +61,11 @@
 - [x] P5 单测与证据：新增 14 个单测；`swift build` Build complete、`swift test` 207 tests / 1 skipped / 0 failures、`./scripts/check-docs.sh` 通过
 - [x] P6 空闲静止：`CursorIdleDriver`（单一 owner + `lastInteractionAt` 空闲守卫 + 1 秒有界节拍后自 `invalidate`）修掉 `settle`/`pulseClick` 的 idle 定时器泄漏；`CursorPanelWriteGate` 统一整点取整 / 相等 no-op / 只在显示或目标窗口变化时 `order`；idle tick 去掉 `refreshActiveOrderingIfNeeded`
 - [x] P6 单测与证据：新增 7 个单测（空闲 5 秒内 frame 与 order 写入不增、同坐标不触发 setFrame / level 写入、重复 start 会 invalidate 上一个定时器、无锚点与 `window=0` 不 pump、整点取整、env 开关与计数行）；`swift build` Build complete、`swift test` 214 tests / 1 skipped / 0 failures、`./scripts/check-docs.sh` 通过
+- [x] P7 光标持久可见（用户实测“系统级事件 / 切换焦点后整支光标消失”）：panel 基级改 `.floating`，普通窗口不再 `order(.above, relativeTo:)`，删除 30 秒 idle 隐藏定时器，新增前台切换重排与 `CursorOverlayPanelHosting` / `CursorOverlayEnvironment` 注入缝
+- [x] P8 默认零激活：`activateClickTarget`（AXRaise / AXMain / AXFocused）收进 `allow_window_recovery` opt-in（`activationOnlyClickFallbackAllowed`），element_index 的 `.auto` / `.accessibility` 两条路径默认不再激活
+- [x] P7/P8 单测与证据：新增 `CursorOverlayVisibilityTests`（7）+ `ClickActivationPolicyTests`（4）；`swift build` Build complete、`swift test` 全绿、`./scripts/check-docs.sh` 通过
+- [x] P9 高亮环重做 + 渲染自证：`TargetHighlightStyle`（`codex` 默认 / `plain` 回退，env `OPEN_COMPUTER_USE_TARGET_HIGHLIGHT_STYLE`）、环 panel level 与光标同策略、`OPEN_COMPUTER_USE_DEBUG_HIGHLIGHT=1` 诊断行、`debug-highlight [--seconds N] [--display N]` 单屏自证入口
+- [x] P9 单测与证据：新增 `TargetHighlightStyleTests`（11）+ `DebugHighlightTests`（9）；`swift build` Build complete、`swift test` 245 tests / 1 skipped / 0 failures、截图证据 `tmp/ocu-highlight-21daf46/{codex-ring,plain-ring,codex-ring-v2}.png`
 
 ## 决策记录
 
@@ -75,4 +80,13 @@
 - 2026-09-12：P6 空闲静止采用“有界 idle 节拍”而不是彻底删掉 idle 摆动。理由：(a) `runCursorIdleSmoke` 明确断言 idle 期 tip 锚定但 rotation 仍在变（`main.swift:348-352`），删掉摆动会直接破坏既有 smoke 契约；(b) 用户主诉是“抖/跳”而不是“微摆”，而抖的机制是每帧重排 + 亚像素写入 + 多个泄漏定时器互相抢写，不是摆动本身。默认窗口 1 秒（`OPEN_COMPUTER_USE_VISUAL_CURSOR_IDLE_SWAY_MS`，`0` 同分钟级冻结），节拍结束后定时器自毁、tick 直接 return。
 - 2026-09-12：P6 不缓存元素 frame。证据：cursor 侧目标点只在每次动作时由 `visualCursorTarget` / `makeVisualCursorTarget` 从 snapshot 的 `ElementRecord.localFrame` 算一次（`ComputerUseService.swift:2219-2226`），idle tick 只复用 `restingTipPosition` 这个缓存值，不存在“每 tick 重读 frame 导致 1pt 漂移”的路径；需要缓存的其实是**写入值**，由 `CursorPanelWriteGate` 承担。
 - 2026-09-12：P6 保留 `order(.above, relativeTo:)` 的展示语义（显示 / 目标窗口变化时重排），只去掉 idle 期每帧强制重排。代价：idle 期间若用户把别的窗口抬到目标窗口之上，cursor 可能被盖住直到下一次动作；这是消除“每 16.7ms 重排一次”的直接权衡。
+- 2026-09-12：P7 光标 panel 基级从“目标窗口 layer（普通窗口 = 0）”改为固定 `.floating`(3)。理由：OCU 是永不 active 的 accessory app，`.normal` 层级属于非活跃窗口组，任何一次前台切换都会让活跃 app 的窗口盖住光标；而 `order(.above, relativeTo:)` 绑定的外部窗口一旦被系统 orderOut（原生菜单 tracking、app 被隐藏、目标窗口关闭），光标会跟着一起从屏幕上消失——这正是用户看到的“整支消失”而不是“被盖住”。只有目标窗口自身在 `.floating` 及以上（原生菜单 / popover / panel）时才保留相对排序，否则只 `orderFront`。
+- 2026-09-12：P7 删除 `visualCursorPostInteractionIdleTimeout`（30 秒无动作隐藏）与整套 hide timer。理由：需求是“整轮 turn 内始终可见”，而 30 秒短于一轮常见的模型思考间隔，会导致回合中途消失；隐藏只保留 turn-ended / reset / `OPEN_COMPUTER_USE_VISUAL_CURSOR=0` 三条路径。
+- 2026-09-12：P7 增加 `NSWorkspace.didActivateApplicationNotification` 触发的无条件“重新置前”。理由：把“前台切换后光标仍在屏幕上”变成显式处理而不是依赖层级副作用；该路径只重排、不写 frame、不改 level，因此不会重新引入 P6 修掉的 idle 抖动。
+- 2026-09-12：P7 把窗口交互面抽成 `CursorOverlayPanelHosting` / `CursorOverlayEnvironment` 注入缝。理由：用户要求“模拟目标窗口失活 / 目标窗口不再 on-screen → 光标仍 visible 且 frame 不变”的回归测试，而原来的静态 `NSPanel` 无法在无 window server 的单测里驱动。
+- 2026-09-12：P9 高亮环“看不见”的结论是**触发了也画了，但视觉上等于没有**，不是没触发。(a) 旧样式 stroke/fill 都用 `NSColor.controlAccentColor`，与浏览器原生 focus ring 同色同形，现场被判定成“只有浏览器原生焦点环”；（b）新 codex 样式第一版把光标的白色描边（white 0.90@0.92）直接当环描边，在浅色页面上实测几乎不可见（截图 `codex-ring.png` 只剩一圈雾影）。修法：把光标的“深色主体 + 浅色边缘”翻译成“深色描边 + 1pt 浅色外缘 + 33pt 雾状光晕”（截图 `codex-ring-v2.png` 清晰可见）。证据：Assets/scripts 无 macOS GUI 依赖的 `debug-highlight` 单屏自证入口 + `screencapture -R`。
+- 2026-09-12：P9 环 panel level 与光标统一为 `.floating` 下限。理由与 P7 相同；环是 450ms 级 overlay，若前台 app 窗口盖住它，观感就是“环没出现”。
+- 2026-09-12：P9 官方确认没有“目标高亮”概念（只有 `Software Cursor` 运行时 overlay，见 `docs/references/codex-computer-use-reverse-engineering/software-cursor-overlay.md:105-140,277-284`），因此环不冒充官方行为，只对齐光标视觉语言；参数取自 `SoftwareCursorGlyphRenderer` 而不是臆造。
+- 2026-09-12：P9 调试入口只允许**单屏**并强制确定性收尾。理由：现场曾出现“光标同时出现在两块屏幕上”；核查结论是**单进程只有一个 panel**（`SoftwareCursorOverlay.swift:430/434/995`、`TargetHighlightOverlay.swift:326`），双光标来自两个进程（调试进程 + 验收轮正在跑的 installed OCU）各画一个，而不是遍历屏幕建 panel（`NSScreen.screens` 的用法只有坐标映射、可用性判断与 `screen(containing:)` 夹取）。为杜绝歧义，入口新增 `--display N`（1-based，默认主屏）且永不遍历建 panel，`--seconds` 上限 60s，`run()` 用 `defer` 收尾。
+- 2026-09-12：P8 activation-only fallback 与 window recovery 共用同一个开关，而不是新增独立开关。理由：两者都会移动用户前台焦点，语义完全一致；共用开关可以避免出现“允许恢复窗口但不允许激活”的额外状态组合。默认路径只保留 `AXPress` / `AXConfirm` / `AXOpen` / `AXShowMenu`、候选扫描、自动滚入视口、`postToPid` / `sky_click`。
 - 2026-09-12：P4 高亮环顺序修正为“光标先到位、再高亮、最后动作”。依据官方同线程日志顺序 `Move cursor to ...` / `Start Bezier cursor animation ...` / `Signal cursor movement completion ...` 先于 `Moving mouse to ...` / `Clicking at ...`（`docs/references/codex-computer-use-reverse-engineering/software-cursor-overlay.md:192-196,243`），且 `scroll` / `perform_secondary_action` 在官方 tool 矩阵里同样命中 `Move cursor to ...`；到达后只加 `120ms` settle，不改变工具调用语义。

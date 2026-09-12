@@ -101,10 +101,6 @@ func visualCursorScreenStateVelocity(
     CGVector(dx: velocity.dx, dy: velocity.dy * yAxisMultiplier)
 }
 
-func visualCursorPostInteractionIdleTimeout() -> TimeInterval {
-    30
-}
-
 func visualCursorIdleRotationAmplitude() -> CGFloat {
     0.09
 }
@@ -227,14 +223,21 @@ private struct CursorArtwork {
 @MainActor
 enum SoftwareCursorOverlay {
     private static let artwork = CursorArtwork.active
+
+    /// Window size and glyph tip anchor; the real panel host sizes its panel
+    /// from this, and the injected host in tests never needs it.
+    static var artworkGeometry: CursorWindowGeometry { artwork.geometry }
     private static let renderBaseHeading = visualCursorRenderBaseHeading()
     private static let renderYAxisMultiplier = visualCursorRuntimeRenderYAxisMultiplier()
-    private static var panel: CursorPanel?
-    private static var cursorView: SoftwareCursorView?
+    /// Injected window-server seam. Production talks to a real `NSPanel`;
+    /// tests inject a fake so the "visible for the whole turn" contract runs
+    /// without a window server.
+    private static var environment = CursorOverlayEnvironment.live
+    private static var panelHost: CursorOverlayPanelHosting?
+    private static var activationObserver: NSObjectProtocol?
     private static var restingTipPosition: CGPoint?
     private static var displayedTipPosition: CGPoint?
     private static var visualDynamicsState: CursorVisualDynamicsState?
-    private static var hideTimer: Timer?
     private static var idlePhase: CGFloat = 0
     private static var observationPhase = "hidden"
     /// Last render state actually handed to the view. An idle tick keeps
@@ -250,13 +253,12 @@ enum SoftwareCursorOverlay {
     private static let idleDriver = CursorIdleDriver()
 
     static func moveCursor(to targetPoint: CGPoint, in targetWindow: CursorTargetWindow?) {
-        guard VisualCursorSupport.isEnabled, canPresentOverlay else {
+        guard environment.isVisualCursorEnabled, canPresentOverlay else {
             return
         }
 
         prepareWindowIfNeeded()
         stopIdleAnimation()
-        cancelPendingHide()
         configureOrdering(relativeTo: targetWindow)
 
         let constrainedTarget = clampTipPosition(targetPoint)
@@ -266,7 +268,7 @@ enum SoftwareCursorOverlay {
         idleDriver.markInteraction(at: now)
 
         observationPhase = "moving"
-        panel?.alphaValue = 1
+        panelHost?.alphaValue = 1
         if isFreshStart {
             visualDynamicsState = CursorVisualDynamicsAnimator.state(at: startPoint, time: CGFloat(now))
             placeCursor(using: initialRenderState(at: startPoint), clickProgress: 0)
@@ -294,13 +296,12 @@ enum SoftwareCursorOverlay {
     /// is drifting everywhere. The visual-dynamics state is re-seeded on the
     /// target so the glyph cannot spring-glide in from its previous position.
     static func repositionCursor(to targetPoint: CGPoint, in targetWindow: CursorTargetWindow?) {
-        guard VisualCursorSupport.isEnabled, canPresentOverlay else {
+        guard environment.isVisualCursorEnabled, canPresentOverlay else {
             return
         }
 
         prepareWindowIfNeeded()
         stopIdleAnimation()
-        cancelPendingHide()
         configureOrdering(relativeTo: targetWindow)
 
         let constrainedTarget = clampTipPosition(targetPoint)
@@ -309,14 +310,13 @@ enum SoftwareCursorOverlay {
         visualDynamicsState = CursorVisualDynamicsAnimator.state(at: constrainedTarget, time: CGFloat(now))
         restingTipPosition = constrainedTarget
         observationPhase = "repositioned"
-        panel?.alphaValue = 1
+        panelHost?.alphaValue = 1
         placeCursor(using: initialRenderState(at: constrainedTarget), clickProgress: 0)
         startIdleAnimation()
-        scheduleHide(after: visualCursorPostInteractionIdleTimeout())
     }
 
     static func pulseClick(at targetPoint: CGPoint, clickCount: Int, mouseButton: MouseButtonKind, in targetWindow: CursorTargetWindow?) {
-        guard VisualCursorSupport.isEnabled, canPresentOverlay else {
+        guard environment.isVisualCursorEnabled, canPresentOverlay else {
             return
         }
 
@@ -329,11 +329,10 @@ enum SoftwareCursorOverlay {
         observationPhase = "pulse"
         animateClickPulse(at: constrainedTarget, clickCount: max(clickCount, 1), mouseButton: mouseButton)
         startIdleAnimation()
-        scheduleHide(after: visualCursorPostInteractionIdleTimeout())
     }
 
     static func settle(at targetPoint: CGPoint, in targetWindow: CursorTargetWindow?) {
-        guard VisualCursorSupport.isEnabled, canPresentOverlay else {
+        guard environment.isVisualCursorEnabled, canPresentOverlay else {
             return
         }
 
@@ -350,14 +349,13 @@ enum SoftwareCursorOverlay {
             clickProgress: 0
         )
         startIdleAnimation()
-        scheduleHide(after: visualCursorPostInteractionIdleTimeout())
     }
 
     /// Pumps the main run loop for a short beat after `moveCursor` so the
     /// arrival frame renders before the next overlay appears. Callers must
     /// already be on the main thread, matching `moveCursor` / `settle`.
     static func waitForArrivalSettle(duration: TimeInterval = visualCursorArrivalSettleDuration()) {
-        guard VisualCursorSupport.isEnabled, canPresentOverlay else {
+        guard environment.isVisualCursorEnabled, canPresentOverlay else {
             return
         }
 
@@ -367,17 +365,29 @@ enum SoftwareCursorOverlay {
         }
     }
 
+    /// The only place the cursor leaves the screen besides
+    /// `OPEN_COMPUTER_USE_VISUAL_CURSOR=0`: the turn boundary (`turn-ended`) or
+    /// an explicit reset. There is deliberately no inactivity timer — a turn
+    /// routinely idles for minutes between tool calls, and a cursor that fades
+    /// out mid-turn reads as a lost cursor.
     static func reset() {
         stopIdleAnimation()
-        cancelPendingHide()
         // The gate remembers where the cursor last travelled; a reset hides the
         // cursor, so the next action must animate again.
         VisualCursorMoveCoalescer.shared.reset()
         forgetPresentationState()
         writeObservationSnapshot(tipPosition: nil, rotation: nil)
         dumpDebugStatsIfEnabled()
-        panel?.orderOut(nil)
+        panelHost?.orderOut()
         TargetHighlightOverlay.hide()
+    }
+
+    /// Test seam: installs `environment` and drops any previously installed
+    /// panel host, so a fake can never leak into the live window-server path.
+    static func installEnvironmentForTesting(_ environment: CursorOverlayEnvironment) {
+        reset()
+        panelHost = nil
+        Self.environment = environment
     }
 
     /// A hidden cursor owns no presentation state: the next show must write the
@@ -413,33 +423,60 @@ enum SoftwareCursorOverlay {
     }
 
     private static var canPresentOverlay: Bool {
-        !NSScreen.screens.isEmpty
+        environment.canPresentOverlay
     }
 
     private static func prepareWindowIfNeeded() {
-        guard panel == nil else {
+        guard panelHost == nil else {
             return
         }
 
-        let panel = CursorPanel(
-            contentRect: CGRect(origin: .zero, size: artwork.geometry.windowSize),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        panel.level = .normal
-        panel.backgroundColor = .clear
-        panel.isOpaque = false
-        panel.hasShadow = false
-        panel.ignoresMouseEvents = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        panel.animationBehavior = .none
+        panelHost = environment.makePanelHost()
+        installActivationObserverIfNeeded()
+    }
 
-        let view = SoftwareCursorView(frame: CGRect(origin: .zero, size: artwork.geometry.windowSize))
-        panel.contentView = view
+    /// Another app becoming active is the moment the window server re-stacks
+    /// every window at the cursor's level. The cursor must survive it, so the
+    /// panel is re-asserted front — without touching its frame and without
+    /// waiting for the next tool call.
+    private static func installActivationObserverIfNeeded() {
+        guard environment.installsActivationObserver, activationObserver == nil else {
+            return
+        }
 
-        self.panel = panel
-        self.cursorView = view
+        activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                workspaceDidActivateApplication()
+            }
+        }
+    }
+
+    /// Internal rather than private so the contract is unit-testable without
+    /// posting a real workspace notification.
+    static func workspaceDidActivateApplication() {
+        reassertCursorVisibility()
+    }
+
+    /// Unconditional re-assert of "the cursor is on screen right now". It never
+    /// writes a frame and never changes the level; it only re-orders the panel
+    /// so a system-level restack cannot leave it behind another app's windows.
+    private static func reassertCursorVisibility() {
+        guard let panelHost, panelHost.isVisible, displayedTipPosition != nil else {
+            return
+        }
+
+        if let anchor = panelWriteGate.activeTargetWindow,
+           environment.isWindowPresent(anchor.windowID)
+        {
+            panelHost.orderAbove(windowID: anchor.windowID)
+            return
+        }
+
+        panelHost.orderFront()
     }
 
     /// Levels and restacks the panel for an explicit show or target-window
@@ -449,30 +486,33 @@ enum SoftwareCursorOverlay {
     /// level write and the restack into no-ops while the target window is
     /// unchanged, and `refreshActiveOrderingIfNeeded` no longer forces one.
     private static func configureOrdering(relativeTo targetWindow: CursorTargetWindow?) {
-        guard let panel else {
+        guard let panelHost else {
             return
         }
 
         let effectiveTargetWindow = targetWindow.flatMap { targetWindow in
-            isWindowPresent(targetWindow.windowID) ? targetWindow : nil
+            environment.isWindowPresent(targetWindow.windowID) ? targetWindow : nil
         }
+        let ordering = cursorPanelOrdering(
+            targetWindow: effectiveTargetWindow,
+            baseLevel: cursorOverlayBaseLevel
+        )
 
-        let desiredLevel = NSWindow.Level(rawValue: effectiveTargetWindow?.layer ?? 0)
-        if panelWriteGate.levelWrite(for: desiredLevel) {
-            panel.level = desiredLevel
+        if panelWriteGate.levelWrite(for: ordering.level) {
+            panelHost.setLevel(ordering.level)
         }
 
         guard panelWriteGate.markOrdering(
-            activeTargetWindow: effectiveTargetWindow,
-            panelIsVisible: panel.isVisible
+            activeTargetWindow: ordering.anchorWindow,
+            panelIsVisible: panelHost.isVisible
         ) else {
             return
         }
 
-        if let effectiveTargetWindow {
-            panel.order(.above, relativeTo: Int(effectiveTargetWindow.windowID))
+        if let anchorWindow = ordering.anchorWindow {
+            panelHost.orderAbove(windowID: anchorWindow.windowID)
         } else {
-            panel.orderFront(nil)
+            panelHost.orderFront()
         }
     }
 
@@ -553,7 +593,7 @@ enum SoftwareCursorOverlay {
             return defaultCandidate
         }
 
-        let excludingWindowNumber = max(panel?.windowNumber ?? 0, 0)
+        let excludingWindowNumber = max(panelHost?.windowNumber ?? 0, 0)
         let evaluations = candidates.map { candidate in
             (
                 candidate: candidate,
@@ -588,7 +628,7 @@ enum SoftwareCursorOverlay {
     }
 
     private static func currentForwardVector() -> CGVector {
-        let renderRotation = cursorView?.rotation ?? 0
+        let renderRotation = panelHost?.cursorRotation ?? 0
         return forwardVector(renderRotation: renderRotation)
     }
 
@@ -741,7 +781,7 @@ enum SoftwareCursorOverlay {
 
         let now = CACurrentMediaTime()
         idleDriver.startIdleAnimation(now: now, window: visualCursorIdleSwayWindow()) {
-            guard panel != nil, cursorView != nil else {
+            guard panelHost != nil else {
                 return
             }
 
@@ -777,48 +817,6 @@ enum SoftwareCursorOverlay {
 
     private static func stopIdleAnimation() {
         idleDriver.stopIdleAnimation()
-    }
-
-    private static func scheduleHide(after delay: TimeInterval) {
-        cancelPendingHide()
-        let timer = Timer(timeInterval: delay, repeats: false) { _ in
-            MainActor.assumeIsolated {
-                hideOverlay()
-            }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        hideTimer = timer
-    }
-
-    private static func cancelPendingHide() {
-        hideTimer?.invalidate()
-        hideTimer = nil
-    }
-
-    private static func hideOverlay() {
-        guard let panel else {
-            return
-        }
-
-        stopIdleAnimation()
-        cancelPendingHide()
-
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.12
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            panel.animator().alphaValue = 0
-        } completionHandler: {
-            MainActor.assumeIsolated {
-                panel.orderOut(nil)
-                panel.alphaValue = 1
-                // A hidden cursor is no longer on the remembered target, so the
-                // next action must animate instead of being treated as "held".
-                VisualCursorMoveCoalescer.shared.reset()
-                forgetPresentationState()
-                writeObservationSnapshot(tipPosition: nil, rotation: nil)
-                dumpDebugStatsIfEnabled()
-            }
-        }
     }
 
     private static func defaultInitialTipPosition() -> CGPoint {
@@ -878,7 +876,7 @@ enum SoftwareCursorOverlay {
     /// bounds-relative. Together those make a converged idle cursor perform zero
     /// window-server work per tick.
     private static func placeCursor(using renderState: CursorVisualRenderState, clickProgress: CGFloat) {
-        guard let panel, let cursorView else {
+        guard let panelHost else {
             return
         }
 
@@ -887,17 +885,11 @@ enum SoftwareCursorOverlay {
             tipAnchor: artwork.geometry.tipAnchor
         )
         if frameWrite.didChange {
-            panel.setFrameOrigin(frameWrite.origin)
+            panelHost.setFrameOrigin(frameWrite.origin)
         }
 
         if renderState != lastAppliedRenderState || clickProgress != lastAppliedClickProgress {
-            cursorView.rotation = renderState.rotation
-            cursorView.cursorBodyOffset = renderState.cursorBodyOffset
-            cursorView.fogOffset = renderState.fogOffset
-            cursorView.fogOpacity = renderState.fogOpacity
-            cursorView.fogScale = renderState.fogScale
-            cursorView.clickProgress = clickProgress
-            cursorView.needsDisplay = true
+            panelHost.apply(renderState: renderState, clickProgress: clickProgress)
             lastAppliedRenderState = renderState
             lastAppliedClickProgress = clickProgress
         }
@@ -969,6 +961,140 @@ enum SoftwareCursorOverlay {
     private static func distanceBetween(_ lhs: CGPoint, _ rhs: CGPoint) -> CGFloat {
         hypot(rhs.x - lhs.x, rhs.y - lhs.y)
     }
+}
+
+// MARK: - Window-server seam
+
+/// Everything SoftwareCursorOverlay needs from the window server.
+///
+/// The overlay owns *when* the cursor is on screen; the host only performs the
+/// AppKit call. Keeping that boundary explicit is what lets the "visible for the
+/// whole turn" contract run in unit tests without a real panel.
+@MainActor
+protocol CursorOverlayPanelHosting: AnyObject {
+    var isVisible: Bool { get }
+    var alphaValue: CGFloat { get set }
+    var windowNumber: Int { get }
+    var cursorRotation: CGFloat { get }
+
+    func setLevel(_ level: NSWindow.Level)
+    func setFrameOrigin(_ origin: CGPoint)
+    func orderFront()
+    func orderAbove(windowID: CGWindowID)
+    func orderOut()
+    func apply(renderState: CursorVisualRenderState, clickProgress: CGFloat)
+}
+
+/// The real host: one borderless, click-through, never-key panel.
+@MainActor
+final class CursorPanelHost: CursorOverlayPanelHosting {
+    private let panel: CursorPanel
+    private let cursorView: SoftwareCursorView
+
+    init(windowSize: CGSize) {
+        let panel = CursorPanel(
+            contentRect: CGRect(origin: .zero, size: windowSize),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.level = .normal
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = false
+        panel.ignoresMouseEvents = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        panel.animationBehavior = .none
+
+        let view = SoftwareCursorView(frame: CGRect(origin: .zero, size: windowSize))
+        panel.contentView = view
+
+        self.panel = panel
+        self.cursorView = view
+    }
+
+    var isVisible: Bool { panel.isVisible }
+    var windowNumber: Int { panel.windowNumber }
+    var cursorRotation: CGFloat { cursorView.rotation }
+
+    var alphaValue: CGFloat {
+        get { panel.alphaValue }
+        set { panel.alphaValue = newValue }
+    }
+
+    func setLevel(_ level: NSWindow.Level) { panel.level = level }
+    func setFrameOrigin(_ origin: CGPoint) { panel.setFrameOrigin(origin) }
+    func orderFront() { panel.orderFront(nil) }
+    func orderAbove(windowID: CGWindowID) { panel.order(.above, relativeTo: Int(windowID)) }
+    func orderOut() { panel.orderOut(nil) }
+
+    func apply(renderState: CursorVisualRenderState, clickProgress: CGFloat) {
+        cursorView.rotation = renderState.rotation
+        cursorView.cursorBodyOffset = renderState.cursorBodyOffset
+        cursorView.fogOffset = renderState.fogOffset
+        cursorView.fogOpacity = renderState.fogOpacity
+        cursorView.fogScale = renderState.fogScale
+        cursorView.clickProgress = clickProgress
+        cursorView.needsDisplay = true
+    }
+}
+
+/// Injected inputs of the overlay. Production uses the live environment; tests
+/// replace the panel host and the window-presence probe to drive activation /
+/// target-window loss without a window server.
+@MainActor
+struct CursorOverlayEnvironment {
+    var isVisualCursorEnabled: Bool
+    var canPresentOverlay: Bool
+    var installsActivationObserver: Bool
+    var isWindowPresent: (CGWindowID) -> Bool
+    var makePanelHost: () -> CursorOverlayPanelHosting
+
+    static var live: CursorOverlayEnvironment {
+        CursorOverlayEnvironment(
+            isVisualCursorEnabled: VisualCursorSupport.isEnabled,
+            canPresentOverlay: !NSScreen.screens.isEmpty,
+            installsActivationObserver: true,
+            isWindowPresent: { SoftwareCursorOverlay.isWindowPresent($0) },
+            makePanelHost: { CursorPanelHost(windowSize: SoftwareCursorOverlay.artworkGeometry.windowSize) }
+        )
+    }
+}
+
+// MARK: - Panel level / ordering policy
+
+/// Base level of the cursor panel.
+///
+/// The overlay must never sit at .normal: this process is an accessory app that
+/// is never active, so a normal-level panel belongs to the inactive window group
+/// — the window server puts the frontmost app's windows above it on the first
+/// activation change — and it also inherits the fate of any foreign window it was
+/// ordered above. .floating keeps the cursor above every normal window of every
+/// app while staying below the system menu levels (mainMenu 24 / popUpMenu 101),
+/// which still draw in front.
+let cursorOverlayBaseLevel = NSWindow.Level.floating
+
+/// Where the cursor panel has to sit for one show / target-window change.
+struct CursorPanelOrdering: Equatable {
+    let level: NSWindow.Level
+    /// Non-nil only when the target window itself floats at or above the base
+    /// level (menus, popovers, panels). Ordering relative to a window in a
+    /// *lower* level would make the cursor's visibility depend on that window.
+    let anchorWindow: CursorTargetWindow?
+}
+
+func cursorPanelOrdering(
+    targetWindow: CursorTargetWindow?,
+    baseLevel: NSWindow.Level = cursorOverlayBaseLevel
+) -> CursorPanelOrdering {
+    guard let targetWindow, targetWindow.layer >= baseLevel.rawValue else {
+        return CursorPanelOrdering(level: baseLevel, anchorWindow: nil)
+    }
+
+    return CursorPanelOrdering(
+        level: NSWindow.Level(rawValue: targetWindow.layer),
+        anchorWindow: targetWindow
+    )
 }
 
 private final class CursorPanel: NSPanel {

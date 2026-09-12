@@ -99,9 +99,13 @@ enum TargetHighlightOverlay {
         windowBounds: CGRect?,
         targetWindow: CursorTargetWindow?,
         element: AXElementReference? = nil,
-        role: String? = nil
+        role: String? = nil,
+        displayDurationOverride: TimeInterval? = nil
     ) {
         guard VisualCursorSupport.isEnabled, canPresentOverlay else {
+            targetHighlightDebugLog(
+                "skip disabled visualCursorEnabled=\(VisualCursorSupport.isEnabled) screens=\(canPresentOverlay)"
+            )
             hide()
             return
         }
@@ -116,6 +120,9 @@ enum TargetHighlightOverlay {
                 windowBounds: windowBounds
             )
         else {
+            targetHighlightDebugLog(
+                "skip no-rect localFrame=\(describe(localFrame)) windowBounds=\(describe(windowBounds))"
+            )
             hide()
             return
         }
@@ -126,9 +133,13 @@ enum TargetHighlightOverlay {
             windowID: targetWindow?.windowID,
             element: element,
             isPopup: targetHighlightIsPopupRole(role) || targetHighlightIsPopupWindow(layer: targetWindow?.layer),
-            expectedScreenFrame: element.flatMap { accessibilityScreenFrame(of: $0.element) }
+            expectedScreenFrame: element.flatMap { accessibilityScreenFrame(of: $0.element) },
+            displayDurationOverride: displayDurationOverride
         )
 
+        targetHighlightDebugLog(
+            "present rect=\(describe(globalRect)) level=\(max(NSWindow.Level(rawValue: ringTarget.level), cursorOverlayBaseLevel).rawValue) window=\(ringTarget.windowID.map(String.init) ?? "none") popup=\(ringTarget.isPopup)"
+        )
         controller.show(ringTarget)
     }
 
@@ -155,6 +166,38 @@ enum TargetHighlightOverlay {
         panel.animationBehavior = .none
         return panel
     }
+}
+
+/// Field diagnosis for "the highlight ring never showed up".
+///
+/// Set `OPEN_COMPUTER_USE_DEBUG_HIGHLIGHT=1` to get one stderr line per
+/// approach telling apart "the ring was never requested / skipped for geometry
+/// reasons" from "the ring was presented, here is its rect and level".
+func targetHighlightDebugEnabled(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+    guard let rawValue = environment["OPEN_COMPUTER_USE_DEBUG_HIGHLIGHT"]?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+    else {
+        return false
+    }
+
+    return ["1", "true", "yes", "on"].contains(rawValue)
+}
+
+func targetHighlightDebugLog(_ message: String) {
+    guard targetHighlightDebugEnabled() else {
+        return
+    }
+
+    fputs("[open-computer-use] highlight \(message)\n", stderr)
+}
+
+private func describe(_ rect: CGRect?) -> String {
+    guard let rect else {
+        return "nil"
+    }
+
+    return "(\(Int(rect.minX.rounded())),\(Int(rect.minY.rounded())),\(Int(rect.width.rounded())),\(Int(rect.height.rounded())))"
 }
 
 /// Live probe for the watchdog. It only reads: an element whose role no longer
@@ -224,15 +267,28 @@ private final class TargetHighlightPanelPresenter {
     private var highlightView: TargetHighlightView?
 
     func present(_ target: TargetHighlightLifetimeController.RingTarget) {
-        prepareWindowIfNeeded()
+        // Resolved per presentation, like the other visual knobs. The ring
+        // itself stays at the same distance from the target rect for every
+        // style; only the padding that holds the fog halo changes.
+        let style = targetHighlightStyle()
+        prepareWindowIfNeeded(style: style)
 
         guard let panel, let highlightView else {
             return
         }
 
-        panel.level = NSWindow.Level(rawValue: target.level)
-        panel.setFrame(target.globalRect.insetBy(dx: -4, dy: -4), display: false)
+        // Same level policy as the cursor panel. At `.normal` this process (a
+        // never-active accessory app) belongs to the inactive window group, so
+        // the frontmost app's window is stacked above the ring, and the panel can
+        // also be ordered out together with the foreign window it was ordered
+        // above. Both read as "the highlight never rendered".
+        panel.level = max(NSWindow.Level(rawValue: target.level), cursorOverlayBaseLevel)
+        panel.setFrame(
+            target.globalRect.insetBy(dx: -style.panelPadding, dy: -style.panelPadding),
+            display: false
+        )
         highlightView.frame = CGRect(origin: .zero, size: panel.frame.size)
+        highlightView.style = style
         highlightView.needsDisplay = true
 
         if let windowID = target.windowID, SoftwareCursorOverlay.isWindowPresent(windowID) {
@@ -266,13 +322,14 @@ private final class TargetHighlightPanelPresenter {
         panel?.orderOut(nil)
     }
 
-    private func prepareWindowIfNeeded() {
+    private func prepareWindowIfNeeded(style: TargetHighlightStyle) {
         guard panel == nil else {
             return
         }
 
         let panel = TargetHighlightOverlay.makeTargetHighlightPanel()
         let view = TargetHighlightView(frame: .zero)
+        view.style = style
         panel.contentView = view
 
         self.panel = panel
@@ -286,6 +343,10 @@ private final class TargetHighlightPanel: NSPanel {
 }
 
 private final class TargetHighlightView: NSView {
+    /// Ring style to draw. The presenter writes it before the panel is ordered
+    /// in, and again on every presentation.
+    var style: TargetHighlightStyle = .codex
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
@@ -310,17 +371,55 @@ private final class TargetHighlightView: NSView {
             return
         }
 
-        let rect = bounds.insetBy(dx: 1, dy: 1)
+        let rect = bounds.insetBy(dx: style.pathInset, dy: style.pathInset)
         guard rect.width > 0, rect.height > 0 else {
             return
         }
 
-        context.setStrokeColor(NSColor.controlAccentColor.cgColor)
-        context.setLineWidth(2)
-        context.setFillColor(NSColor.controlAccentColor.withAlphaComponent(0.10).cgColor)
+        let path = CGPath(
+            roundedRect: rect,
+            cornerWidth: style.cornerRadius,
+            cornerHeight: style.cornerRadius,
+            transform: nil
+        )
 
-        let path = CGPath(roundedRect: rect, cornerWidth: 6, cornerHeight: 6, transform: nil)
+        context.saveGState()
+        if style.glowRadius > 0, style.glowOpacity > 0 {
+            // Shadow-backed fog halo: the same soft, wide, low-alpha falloff the
+            // software cursor uses. The panel is padded by the style's
+            // panelPadding, so the halo fades out instead of being clipped at
+            // the panel edge.
+            context.setShadow(
+                offset: .zero,
+                blur: style.glowRadius,
+                color: style.glowColor.withAlphaComponent(style.glowOpacity).cgColor
+            )
+        }
+        context.setStrokeColor(style.strokeColor.cgColor)
+        context.setLineWidth(style.strokeWidth)
+        context.setFillColor(style.fillColor.cgColor)
+
         context.addPath(path)
         context.drawPath(using: .fillStroke)
+
+        if style.rimWidth > 0 {
+            // Light outer rim: the cursor's light edge, so the ring keeps
+            // contrast on dark backgrounds. Shadow is disabled here or the rim
+            // would double the fog.
+            let rimRect = rect.insetBy(dx: -style.rimOutset, dy: -style.rimOutset)
+            let rimPath = CGPath(
+                roundedRect: rimRect,
+                cornerWidth: style.cornerRadius + style.rimOutset,
+                cornerHeight: style.cornerRadius + style.rimOutset,
+                transform: nil
+            )
+            context.setShadow(offset: .zero, blur: 0, color: nil)
+            context.setStrokeColor(style.rimColor.cgColor)
+            context.setLineWidth(style.rimWidth)
+            context.addPath(rimPath)
+            context.strokePath()
+        }
+
+        context.restoreGState()
     }
 }
