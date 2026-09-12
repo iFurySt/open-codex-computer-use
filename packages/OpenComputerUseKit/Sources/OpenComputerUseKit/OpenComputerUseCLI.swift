@@ -8,7 +8,7 @@ public enum OpenComputerUseCLICommand: Equatable {
     case snapshot(app: String, textLimit: SnapshotTextLimit = .defaults, treeLimits: AccessibilityTreeLimits = .defaults)
     case call(OpenComputerUseCallInvocation)
     case turnEnded(payload: String?)
-    case debugHighlight(seconds: TimeInterval, display: Int?)
+    case debugCursor(seconds: TimeInterval, display: Int?)
     case help(command: String?)
     case version
 }
@@ -35,7 +35,7 @@ public func shouldUseMacOSAppAgentProxy(
         return !runningFromLaunchServicesAppInstance
     case .mcp, .doctor, .listApps, .snapshot, .call:
         return true
-    case .turnEnded, .debugHighlight, .help, .version:
+    case .turnEnded, .debugCursor, .help, .version:
         return false
     }
 }
@@ -87,8 +87,8 @@ public func parseOpenComputerUseCLI(arguments: [String]) throws -> OpenComputerU
         return try parseTurnEnded(arguments: Array(arguments.dropFirst()))
     case "snapshot":
         return try parseSnapshot(arguments: Array(arguments.dropFirst()))
-    case "debug-highlight", "--debug-highlight":
-        return try parseDebugHighlight(arguments: Array(arguments.dropFirst()))
+    case "debug-cursor", "--debug-cursor":
+        return try parseDebugCursor(arguments: Array(arguments.dropFirst()))
     default:
         if first.hasPrefix("-") {
             throw OpenComputerUseCLIError(message: "Unknown option: \(first)", helpCommand: nil)
@@ -110,7 +110,7 @@ public func openComputerUseHelpText(command: String? = nil) -> String {
 
         Commands:
           mcp                  Start the stdio MCP server.
-          debug-highlight      Draw the cursor + highlight ring locally for N seconds.
+          debug-cursor         Draw the software cursor locally for N seconds.
           doctor               Print permission status and launch onboarding if needed.
           list-apps            Print running or recently used apps.
           snapshot <app>       Print the current accessibility snapshot for an app.
@@ -134,21 +134,23 @@ public func openComputerUseHelpText(command: String? = nil) -> String {
 
         Start the stdio MCP server.
         """
-    case "debug-highlight":
+    case "debug-cursor":
         return """
         Usage:
-          open-computer-use debug-highlight [--seconds N] [--display N]
+          open-computer-use debug-cursor [--seconds N] [--display N]
 
-        Draw the software cursor and the target highlight ring at a fixed point on
-        one screen for N seconds (default \(Int(VisualCursorDebugShowcase.defaultSeconds))), then exit.
+        Draw the software cursor at a fixed point on one screen for N seconds
+        (default \(Int(VisualCursorDebugShowcase.defaultSeconds))), then exit. This is the whole macOS
+        visual contract, matching the official Codex Computer Use binary: cursor
+        plus click pulse, no target highlight.
         --display N picks that screen (1-based, like `screencapture -D`; default main
         screen). Exactly one screen is used: no panel is created per display.
-        It only paints local overlays: no accessibility call, no event posting and
-        no application activation. Use it to screenshot and check the overlay look,
-        or to tell "the ring is not rendering" apart from "the ring was skipped".
+        It only paints the local overlay: no accessibility call, no event posting
+        and no application activation. Use it to screenshot and check the cursor
+        look, or to tell "the cursor is not rendering" apart from "the cursor was
+        skipped".
         The printed summary line carries the screen-state capture rectangle for
-        `screencapture -R`. `OPEN_COMPUTER_USE_TARGET_HIGHLIGHT_STYLE=plain`
-        renders the legacy ring instead of the default codex-style fog ring.
+        `screencapture -R`.
         """
     case "doctor":
         return """
@@ -285,7 +287,7 @@ private func parseTurnEnded(arguments: [String]) throws -> OpenComputerUseCLICom
     return .turnEnded(payload: payload)
 }
 
-private func parseDebugHighlight(arguments: [String]) throws -> OpenComputerUseCLICommand {
+private func parseDebugCursor(arguments: [String]) throws -> OpenComputerUseCLICommand {
     var seconds = VisualCursorDebugShowcase.defaultSeconds
     var display: Int?
     var index = 0
@@ -297,11 +299,11 @@ private func parseDebugHighlight(arguments: [String]) throws -> OpenComputerUseC
         case "--seconds":
             let valueIndex = index + 1
             guard valueIndex < arguments.count else {
-                throw OpenComputerUseCLIError(message: "--seconds requires a positive value", helpCommand: "debug-highlight")
+                throw OpenComputerUseCLIError(message: "--seconds requires a positive value", helpCommand: "debug-cursor")
             }
 
             guard let value = TimeInterval(arguments[valueIndex]), value.isFinite, value > 0 else {
-                throw OpenComputerUseCLIError(message: "--seconds requires a positive value", helpCommand: "debug-highlight")
+                throw OpenComputerUseCLIError(message: "--seconds requires a positive value", helpCommand: "debug-cursor")
             }
 
             seconds = value
@@ -309,25 +311,25 @@ private func parseDebugHighlight(arguments: [String]) throws -> OpenComputerUseC
         case "--display":
             let valueIndex = index + 1
             guard valueIndex < arguments.count else {
-                throw OpenComputerUseCLIError(message: "--display requires a 1-based screen index", helpCommand: "debug-highlight")
+                throw OpenComputerUseCLIError(message: "--display requires a 1-based screen index", helpCommand: "debug-cursor")
             }
 
             guard let value = Int(arguments[valueIndex]), value >= 1 else {
-                throw OpenComputerUseCLIError(message: "--display requires a 1-based screen index", helpCommand: "debug-highlight")
+                throw OpenComputerUseCLIError(message: "--display requires a 1-based screen index", helpCommand: "debug-cursor")
             }
 
             display = value
             index = valueIndex
         case "-h", "--help":
-            return .help(command: "debug-highlight")
+            return .help(command: "debug-cursor")
         default:
-            throw OpenComputerUseCLIError(message: "Unknown debug-highlight option: \(argument)", helpCommand: "debug-highlight")
+            throw OpenComputerUseCLIError(message: "Unknown debug-cursor option: \(argument)", helpCommand: "debug-cursor")
         }
 
         index += 1
     }
 
-    return .debugHighlight(seconds: seconds, display: display)
+    return .debugCursor(seconds: seconds, display: display)
 }
 
 private func parseSnapshot(arguments: [String]) throws -> OpenComputerUseCLICommand {

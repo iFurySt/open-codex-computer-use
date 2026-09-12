@@ -6,7 +6,7 @@
 
 1. 快照恢复默认不再 `activate` / `unhide` / `open -b` / `AXRaise`；目标窗口最小化或不在当前 Space 时，默认 fail closed 返回官方风格 `Apple event error -10005: cgWindowNotFound` 并给出可操作提示，恢复能力改为显式 opt-in。
 2. 元素级动作（click / set_value / select_text）在目标控件位于可视区之外时，先用 AX 把控件滚入视口再动作，滚动后重新解析 AX 句柄并读回 frame 校验。
-3. 动作前给目标元素画一个不抢焦点的透明高亮环，300–600ms 后淡出，让审计者看得见“正在操作哪一栏”。
+3. ~~动作前给目标元素画一个不抢焦点的透明高亮环，300–600ms 后淡出~~（**P10 已撤销**：官方 Codex 没有“目标高亮”概念，用户裁定彻底删除该特性，视觉只保留软件光标 + click pulse）。
 4. `click.method=auto` 的 AX 失败路径优先尝试 `sky_click`，失败再落 `postToPid`，且绝不因 sky 失败而回退到 global 物理指针（P3，默认关闭，见决策记录）。
 5. 虚拟光标在空闲期必须绝对静止：没有显式动作时不得有任何 position / order / level 更新，所有动画定时器在节拍结束后 `invalidate()`，并在写入前取整、相等即 no-op（P6，用户实测“光标小箭头原地小幅抖动，且 AI 空闲时也在抖”）。
 
@@ -39,6 +39,7 @@
 3. P4：`TargetHighlightOverlay`。
 4. P3：`.auto` 的 sky_click 优先路径（env 灰度）。
 5. 单元测试、`swift build` / `swift test`、文档与 history。
+6. P10：整体删除目标高亮特性，视觉对齐官方（只有软件光标 + click pulse），`debug-highlight` 改名 `debug-cursor`。
 
 ## 验证方式
 
@@ -66,6 +67,8 @@
 - [x] P7/P8 单测与证据：新增 `CursorOverlayVisibilityTests`（7）+ `ClickActivationPolicyTests`（4）；`swift build` Build complete、`swift test` 全绿、`./scripts/check-docs.sh` 通过
 - [x] P9 高亮环重做 + 渲染自证：`TargetHighlightStyle`（`codex` 默认 / `plain` 回退，env `OPEN_COMPUTER_USE_TARGET_HIGHLIGHT_STYLE`）、环 panel level 与光标同策略、`OPEN_COMPUTER_USE_DEBUG_HIGHLIGHT=1` 诊断行、`debug-highlight [--seconds N] [--display N]` 单屏自证入口
 - [x] P9 单测与证据：新增 `TargetHighlightStyleTests`（11）+ `DebugHighlightTests`（9）；`swift build` Build complete、`swift test` 245 tests / 1 skipped / 0 failures、截图证据 `tmp/ocu-highlight-21daf46/{codex-ring,plain-ring,codex-ring-v2}.png`
+- [x] P10 删除目标高亮特性：物理删除 `TargetHighlightOverlay.swift` / `TargetHighlightLifetime.swift` / `TargetHighlightStyle.swift`，`VisualInteractionChoreographer` 去掉 highlight 步骤与 `record` / `snapshot` 形参，`SoftwareCursorOverlay.reset()` 去掉环清理调用，`debug-highlight` → `debug-cursor`（只画光标与脉冲）
+- [x] P10 单测与证据：删除 `TargetHighlightStyleTests`（11）+ `DebugHighlightTests`（9）与环相关断言，新增 `DebugCursorTests`（7）；`swift build` Build complete、`swift test` 222 tests / 1 skipped / 0 failures（245 → 222）、`./scripts/check-docs.sh` 通过、截图 `tmp/ocu-cursor-only-<sha>/cursor-only.png`
 
 ## 决策记录
 
@@ -90,3 +93,4 @@
 - 2026-09-12：P9 调试入口只允许**单屏**并强制确定性收尾。理由：现场曾出现“光标同时出现在两块屏幕上”；核查结论是**单进程只有一个 panel**（`SoftwareCursorOverlay.swift:430/434/995`、`TargetHighlightOverlay.swift:326`），双光标来自两个进程（调试进程 + 验收轮正在跑的 installed OCU）各画一个，而不是遍历屏幕建 panel（`NSScreen.screens` 的用法只有坐标映射、可用性判断与 `screen(containing:)` 夹取）。为杜绝歧义，入口新增 `--display N`（1-based，默认主屏）且永不遍历建 panel，`--seconds` 上限 60s，`run()` 用 `defer` 收尾。
 - 2026-09-12：P8 activation-only fallback 与 window recovery 共用同一个开关，而不是新增独立开关。理由：两者都会移动用户前台焦点，语义完全一致；共用开关可以避免出现“允许恢复窗口但不允许激活”的额外状态组合。默认路径只保留 `AXPress` / `AXConfirm` / `AXOpen` / `AXShowMenu`、候选扫描、自动滚入视口、`postToPid` / `sky_click`。
 - 2026-09-12：P4 高亮环顺序修正为“光标先到位、再高亮、最后动作”。依据官方同线程日志顺序 `Move cursor to ...` / `Start Bezier cursor animation ...` / `Signal cursor movement completion ...` 先于 `Moving mouse to ...` / `Clicking at ...`（`docs/references/codex-computer-use-reverse-engineering/software-cursor-overlay.md:192-196,243`），且 `scroll` / `perform_secondary_action` 在官方 tool 矩阵里同样命中 `Move cursor to ...`；到达后只加 `120ms` settle，不改变工具调用语义。
+- 2026-09-12：P10 用户裁定**整体删除**“目标高亮”特性，而不是改成默认关闭。理由：(a) 官方 Codex Computer Use 的逆向文档与 binary 里**没有**目标高亮概念（全目录 `grep -in highlight` 零命中，运行时只有 `Software Cursor`），保留 `codex|plain` 开关属冗余代码；(b) 目标是“视觉忠实对齐官方”，只留软件光标（雾状光晕 + Bezier 到位 + click pulse）。删除范围：`TargetHighlightOverlay` / `TargetHighlightLifetime` / `TargetHighlightStyle` 三个文件、`VisualInteractionChoreographer` 的 highlight 步骤与 `record` / `snapshot` 形参、`OPEN_COMPUTER_USE_TARGET_HIGHLIGHT_STYLE` / `OPEN_COMPUTER_USE_DEBUG_HIGHLIGHT` 开关、`debug-highlight` 入口；入口改名 `debug-cursor`，仍保留单屏、`--seconds` 上限 60s、`defer` 确定性收尾。光标侧行为与默认参数不变。

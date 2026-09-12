@@ -97,8 +97,8 @@ final class VisualCursorMoveCoalescer: @unchecked Sendable {
     }
 }
 
-/// Drives the two advisory overlays for an element-scoped action in the order
-/// Codex Computer Use uses.
+/// Drives the software cursor for an element-scoped action in the order Codex
+/// Computer Use uses.
 ///
 /// The reverse-engineering notes record that the official service moves its
 /// software cursor to the element first, signals cursor movement completion,
@@ -106,16 +106,16 @@ final class VisualCursorMoveCoalescer: @unchecked Sendable {
 /// (`docs/references/codex-computer-use-reverse-engineering/software-cursor-overlay.md`:
 /// `Move cursor to ...` / `Start Bezier cursor animation ...` /
 /// `Signal cursor movement completion ...` before `Moving mouse to ...` /
-/// `Clicking at ...`). The highlight ring therefore must never lead the
-/// pointer: the cursor flies to the target, settles there, and only then does
-/// the ring mark the element the real action is about to touch.
+/// `Clicking at ...`). The cursor therefore always lands before the real action
+/// runs; the click pulse follows on the same beat. This is the whole visual
+/// contract, matching the official binary: software cursor plus click pulse.
 ///
 /// Travel itself is debounced, see `VisualCursorMoveCoalescer`: an action on
-/// the element the cursor already covers only re-shows the ring, and a burst
-/// inside the coalescing window places the cursor without animating it.
+/// the element the cursor already covers only pulses it, and a burst inside the
+/// coalescing window places the cursor without animating it.
 ///
 /// Every step is skipped when `OPEN_COMPUTER_USE_VISUAL_CURSOR` disables the
-/// visual cursor, so cursor and ring stay coupled.
+/// visual cursor.
 struct VisualInteractionChoreographer {
     let environment: [String: String]
     let moveCursor: (VisualCursorTarget) -> Void
@@ -123,19 +123,14 @@ struct VisualInteractionChoreographer {
     /// coalesced case, where an animation would defeat the debounce.
     var repositionCursor: (VisualCursorTarget) -> Void = { _ in }
     let settleCursorArrival: (VisualCursorTarget) -> Void
-    let showTargetHighlight: (ElementRecord, AppSnapshot) -> Void
     /// Injected so the coalescing window is testable without sleeping.
     var now: () -> TimeInterval = { CACurrentMediaTime() }
     var coalescer: VisualCursorMoveCoalescer = VisualCursorMoveCoalescer()
 
-    /// Cursor first, then the arrival beat, then the ring. The caller performs
-    /// the real action after this returns.
+    /// Cursor first, then the arrival beat. The caller performs the real action
+    /// after this returns.
     @discardableResult
-    func approach(
-        _ target: VisualCursorTarget?,
-        record: ElementRecord,
-        snapshot: AppSnapshot
-    ) -> VisualCursorApproach {
+    func approach(_ target: VisualCursorTarget?) -> VisualCursorApproach {
         guard visualCursorEnabled(environment: environment), let target else {
             return .skipped
         }
@@ -157,7 +152,6 @@ struct VisualInteractionChoreographer {
             break
         }
 
-        showTargetHighlight(record, snapshot)
         return decision
     }
 
@@ -183,38 +177,8 @@ struct VisualInteractionChoreographer {
                     SoftwareCursorOverlay.waitForArrivalSettle()
                 }
             },
-            showTargetHighlight: { record, snapshot in
-                presentTargetHighlight(for: record, snapshot: snapshot)
-            },
             now: { CACurrentMediaTime() },
             coalescer: coalescer
         )
-    }
-
-    /// Advisory only: the ring is a silent no-op whenever the element frame or
-    /// the window visible rect is missing.
-    private static func presentTargetHighlight(for record: ElementRecord, snapshot: AppSnapshot) {
-        guard let windowBounds = snapshot.windowBounds else {
-            return
-        }
-
-        // Copy everything the main-actor hop needs out of the task-isolated
-        // record instead of sending the record itself across actors.
-        let localFrame = record.localFrame
-        let element = record.element.map(AXElementReference.init)
-        let role = record.role
-        let targetWindow = snapshot.targetWindowID.map {
-            CursorTargetWindow(windowID: $0, layer: snapshot.targetWindowLayer ?? 0)
-        }
-
-        VisualCursorSupport.performOnMain {
-            TargetHighlightOverlay.show(
-                localFrame: localFrame,
-                windowBounds: windowBounds,
-                targetWindow: targetWindow,
-                element: element,
-                role: role
-            )
-        }
     }
 }

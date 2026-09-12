@@ -379,7 +379,6 @@ enum SoftwareCursorOverlay {
         writeObservationSnapshot(tipPosition: nil, rotation: nil)
         dumpDebugStatsIfEnabled()
         panelHost?.orderOut()
-        TargetHighlightOverlay.hide()
     }
 
     /// Test seam: installs `environment` and drops any previously installed
@@ -692,8 +691,7 @@ enum SoftwareCursorOverlay {
         return CGWindowID(windowNumber)
     }
 
-    /// Shared with `TargetHighlightOverlay` so both overlays agree on whether the
-    /// window they want to float above still exists.
+    /// Whether the window the cursor wants to float above still exists.
     static func isWindowPresent(_ windowID: CGWindowID) -> Bool {
         guard windowID != 0,
               let windowInfo = CGWindowListCopyWindowInfo([.optionIncludingWindow], windowID) as? [[String: Any]]

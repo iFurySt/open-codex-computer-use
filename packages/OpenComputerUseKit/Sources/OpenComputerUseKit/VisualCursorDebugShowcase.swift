@@ -1,24 +1,28 @@
 import AppKit
 import Foundation
 
-/// Local-only overlay showcase: draws the software cursor and the target
-/// highlight ring at a fixed point on **one** screen for a few seconds.
+/// Local-only overlay showcase: draws the software cursor at a fixed point on
+/// **one** screen for a few seconds.
 ///
-/// It exists because "the ring is not visible" cannot be told apart from "the
-/// ring was never requested" by reading a tool result. The showcase is the
-/// self-check for that question and for the ring's look: it performs no AX
+/// It exists because "the cursor is not visible" cannot be told apart from "the
+/// cursor was never requested" by reading a tool result. The showcase is the
+/// self-check for that question and for the cursor's look: it performs no AX
 /// call, posts no event and activates no application, so it can run while a
 /// real acceptance round is in progress.
+///
+/// The cursor (with its click pulse) is the whole macOS visual contract, the
+/// same one the official Codex Computer Use binary ships.
 ///
 /// Single-screen contract: exactly one screen is chosen (`--display N`, 1-based
 /// like `screencapture -D`, default `NSScreen.main`). This entry never loops
 /// over `NSScreen.screens` to build one panel per display - one process owns
-/// exactly one cursor panel and one ring panel, both placed on that screen.
+/// exactly one cursor panel, placed on that screen.
 ///
-/// CLI entry: `open-computer-use debug-highlight [--seconds N] [--display N]`.
+/// CLI entry: `open-computer-use debug-cursor [--seconds N] [--display N]`.
 @MainActor
 public enum VisualCursorDebugShowcase {
-    /// Size of the fake target rect drawn in the middle of the screen.
+    /// Size of the fake anchor rect the cursor points at, in the middle of the
+    /// screen.
     nonisolated(unsafe) public static let targetSize = CGSize(width: 180, height: 56)
     /// Default hold, long enough to run `screencapture` a few times.
     nonisolated(unsafe) public static let defaultSeconds: TimeInterval = 5
@@ -33,15 +37,14 @@ public enum VisualCursorDebugShowcase {
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
 
-        // Every exit path - normal, thrown or terminated - takes the overlays
+        // Every exit path - normal, thrown or terminated - takes the overlay
         // off the screen before the process goes away.
         defer {
-            TargetHighlightOverlay.hide()
             SoftwareCursorOverlay.reset()
         }
 
         let screenStateFrame = screenStateFrame(for: screen)
-        let localFrame = debugHighlightTargetLocalFrame(screenStateFrame: screenStateFrame)
+        let localFrame = debugCursorTargetLocalFrame(screenStateFrame: screenStateFrame)
 
         // Target-state point for the cursor tip: inside the fake element, on the
         // same side a real click would land.
@@ -55,26 +58,18 @@ public enum VisualCursorDebugShowcase {
             targetWindowLayer: nil
         )
 
-        TargetHighlightOverlay.show(
-            localFrame: localFrame,
-            windowBounds: screenStateFrame,
-            targetWindow: nil,
-            role: nil,
-            displayDurationOverride: hold
-        )
         SoftwareCursorOverlay.repositionCursor(to: cursorTarget.point, in: nil)
 
         // Screen-state rect is also the space `screencapture -R` uses, so the
         // printed rectangle can be pasted straight into a capture command.
-        let captureRect = debugHighlightCaptureRect(
+        let captureRect = debugCursorCaptureRect(
             screenStateFrame: screenStateFrame,
             localFrame: localFrame
         )
         let summary = [
-            "debug-highlight seconds=\(String(format: "%.1f", hold))",
-            "style=\(targetHighlightStyleName().rawValue)",
+            "debug-cursor seconds=\(String(format: "%.1f", hold))",
             "display=\(NSScreen.screens.firstIndex(of: screen).map { $0 + 1 } ?? 1)",
-            "ring=\(describeRect(localFrame.offsetBy(dx: screenStateFrame.minX, dy: screenStateFrame.minY)))",
+            "target=\(describeRect(localFrame.offsetBy(dx: screenStateFrame.minX, dy: screenStateFrame.minY)))",
             "capture=\(describeRect(captureRect))",
             "screen=\(describeRect(screenStateFrame))",
         ].joined(separator: " ")
@@ -94,7 +89,7 @@ public enum VisualCursorDebugShowcase {
     static func resolveScreen(display: Int?) throws -> NSScreen {
         guard let display else {
             guard let screen = NSScreen.main ?? NSScreen.screens.first else {
-                throw ComputerUseError.stateUnavailable("debug-highlight needs at least one attached screen")
+                throw ComputerUseError.stateUnavailable("debug-cursor needs at least one attached screen")
             }
 
             return screen
@@ -102,7 +97,7 @@ public enum VisualCursorDebugShowcase {
 
         guard display >= 1, display <= NSScreen.screens.count else {
             throw ComputerUseError.stateUnavailable(
-                "debug-highlight --display must be between 1 and \(NSScreen.screens.count)"
+                "debug-cursor --display must be between 1 and \(NSScreen.screens.count)"
             )
         }
 
@@ -127,9 +122,9 @@ public enum VisualCursorDebugShowcase {
     }
 }
 
-/// Fake target rect in window-local (top-left origin) space, centred on the
+/// Fake anchor rect in window-local (top-left origin) space, centred on the
 /// given screen-state frame. Pure so the showcase placement is testable.
-func debugHighlightTargetLocalFrame(
+func debugCursorTargetLocalFrame(
     screenStateFrame: CGRect,
     targetSize: CGSize = VisualCursorDebugShowcase.targetSize
 ) -> CGRect {
@@ -141,9 +136,10 @@ func debugHighlightTargetLocalFrame(
     )
 }
 
-/// Screen-state rectangle to hand to `screencapture -R`: the ring plus the room
-/// its fog needs. `screencapture` uses the same top-left display space.
-func debugHighlightCaptureRect(
+/// Screen-state rectangle to hand to `screencapture -R`: the anchor rect plus
+/// room for the cursor artwork and its fog. `screencapture` uses the same
+/// top-left display space.
+func debugCursorCaptureRect(
     screenStateFrame: CGRect,
     localFrame: CGRect,
     padding: CGFloat = 60

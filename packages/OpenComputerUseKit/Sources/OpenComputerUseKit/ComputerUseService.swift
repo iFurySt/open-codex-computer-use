@@ -598,8 +598,8 @@ func shouldPreferContainingWebRowAXClickCandidate(
 public final class ComputerUseService {
     private var snapshotsByApp: [String: AppSnapshot] = [:]
     /// Advisory overlay order for element-scoped actions: the software cursor
-    /// flies to the element and settles before the highlight ring appears.
-    /// See `VisualInteractionChoreographer` for the Codex evidence.
+    /// flies to the element and settles before the real action runs. See
+    /// `VisualInteractionChoreographer` for the Codex evidence.
     private let visualChoreographer = VisualInteractionChoreographer.live()
 
     public init() {}
@@ -704,7 +704,7 @@ public final class ComputerUseService {
                 targetWindowLayer: snapshot.targetWindowLayer
             )
 
-            let approach = approachVisualTarget(cursorTarget, record: record, snapshot: snapshot)
+            let approach = approachVisualTarget(cursorTarget)
 
             do {
                 switch clickMethod {
@@ -873,11 +873,7 @@ public final class ComputerUseService {
             throw ComputerUseError.stateUnavailable("element \(elementIndex) has no backing accessibility object")
         }
 
-        approachVisualTarget(
-            visualCursorTarget(for: record, snapshot: snapshot),
-            record: record,
-            snapshot: snapshot
-        )
+        approachVisualTarget(visualCursorTarget(for: record, snapshot: snapshot))
 
         let result = AXUIElementPerformAction(element, rawAction as CFString)
         guard result == .success else {
@@ -915,11 +911,7 @@ public final class ComputerUseService {
             return snapshotResult(for: try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery), style: .actionResult)
         }
 
-        approachVisualTarget(
-            visualCursorTarget(for: record, snapshot: snapshot),
-            record: record,
-            snapshot: snapshot
-        )
+        approachVisualTarget(visualCursorTarget(for: record, snapshot: snapshot))
 
         if let repeatCount = integralScrollPageCount(pages),
            let rawAction = record.rawActions.first(where: { $0.caseInsensitiveCompare("AXScroll\(normalized.capitalized)ByPage") == .orderedSame }),
@@ -1040,7 +1032,7 @@ public final class ComputerUseService {
         }
 
         let cursorTarget = visualCursorTarget(for: record, snapshot: snapshot)
-        approachVisualTarget(cursorTarget, record: record, snapshot: snapshot)
+        approachVisualTarget(cursorTarget)
 
         do {
             let result = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, value as CFString)
@@ -1123,7 +1115,7 @@ public final class ComputerUseService {
         }
 
         let cursorTarget = visualCursorTarget(for: record, snapshot: snapshot)
-        approachVisualTarget(cursorTarget, record: record, snapshot: snapshot)
+        approachVisualTarget(cursorTarget)
 
         do {
             let result = AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, rangeValue)
@@ -2253,20 +2245,16 @@ public final class ComputerUseService {
         return record.flatMap { visualCursorTarget(for: $0, snapshot: snapshot) }
     }
 
-    /// Element-scoped actions drive both advisory overlays through one shared
-    /// order: the software cursor flies to the target and settles before the
-    /// highlight ring marks it. Advisory only, so the choreographer's overlay
-    /// steps are silent no-ops whenever the visual cursor is disabled.
+    /// Element-scoped actions drive the software cursor through one shared
+    /// order: it flies to the target and settles before the real action runs.
+    /// Advisory only, so the choreographer's steps are silent no-ops whenever
+    /// the visual cursor is disabled.
     ///
     /// Returns what the coalescer decided so the caller can keep the click
     /// pulse in step with the debounced cursor.
     @discardableResult
-    private func approachVisualTarget(
-        _ target: VisualCursorTarget?,
-        record: ElementRecord,
-        snapshot: AppSnapshot
-    ) -> VisualCursorApproach {
-        visualChoreographer.approach(target, record: record, snapshot: snapshot)
+    private func approachVisualTarget(_ target: VisualCursorTarget?) -> VisualCursorApproach {
+        visualChoreographer.approach(target)
     }
 
     /// Direct cursor moves (coordinate clicks, fixture paths) share the

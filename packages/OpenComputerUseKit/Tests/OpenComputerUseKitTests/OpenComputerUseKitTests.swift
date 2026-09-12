@@ -2743,110 +2743,37 @@ final class OpenComputerUseKitTests: XCTestCase {
         }
     }
 
-    // MARK: - Target highlight overlay (P4)
+    // MARK: - Advisory cursor ordering (P4 follow-up)
 
-    @MainActor
-    func testTargetHighlightPanelNeverBecomesKeyOrSwallowsMouseEvents() {
-        _ = NSApplication.shared
-
-        let panel = TargetHighlightOverlay.makeTargetHighlightPanel()
-
-        XCTAssertFalse(panel.canBecomeKey)
-        XCTAssertFalse(panel.canBecomeMain)
-        XCTAssertTrue(panel.ignoresMouseEvents)
-        XCTAssertFalse(panel.isOpaque)
-        XCTAssertTrue(panel.styleMask.contains(.borderless))
-        XCTAssertTrue(panel.styleMask.contains(.nonactivatingPanel))
-    }
-
-    @MainActor
-    func testTargetHighlightRequiresAFramedOnWindowElement() {
-        let windowBounds = CGRect(x: 100, y: 200, width: 800, height: 600)
-
-        XCTAssertTrue(
-            TargetHighlightOverlay.showsTargetHighlight(
-                localFrame: CGRect(x: 20, y: 30, width: 120, height: 24),
-                windowBounds: windowBounds
-            )
-        )
-        XCTAssertFalse(TargetHighlightOverlay.showsTargetHighlight(localFrame: nil, windowBounds: windowBounds))
-        XCTAssertFalse(
-            TargetHighlightOverlay.showsTargetHighlight(
-                localFrame: CGRect(x: 20, y: 30, width: 120, height: 24),
-                windowBounds: nil
-            )
-        )
-        // Below the visible window: the ring would land on another app.
-        XCTAssertFalse(
-            TargetHighlightOverlay.showsTargetHighlight(
-                localFrame: CGRect(x: 20, y: 900, width: 120, height: 24),
-                windowBounds: windowBounds
-            )
-        )
-        // Degenerate frames are not worth drawing.
-        XCTAssertFalse(
-            TargetHighlightOverlay.showsTargetHighlight(
-                localFrame: CGRect(x: 20, y: 30, width: 0, height: 24),
-                windowBounds: windowBounds
-            )
-        )
-    }
-
-    @MainActor
-    func testTargetHighlightConvertsWindowLocalRectToAppKitGlobalRect() {
-        let mapping = VisualCursorScreenMapping(
-            screenStateFrame: CGRect(x: 0, y: 0, width: 1000, height: 800),
-            appKitFrame: CGRect(x: 0, y: 0, width: 1000, height: 800)
-        )
-
-        let rect = TargetHighlightOverlay.appKitHighlightRect(
-            localFrame: CGRect(x: 100, y: 50, width: 200, height: 40),
-            windowBounds: CGRect(x: 10, y: 20, width: 800, height: 600),
-            screenMappings: [mapping]
-        )
-
-        XCTAssertEqual(rect, CGRect(x: 110, y: 690, width: 200, height: 40))
-    }
-
-    // MARK: - Advisory overlay ordering (P4 follow-up)
-
-    func testVisualInteractionChoreographerMovesTheCursorBeforeShowingTheRing() {
+    func testVisualInteractionChoreographerMovesTheCursorBeforeTheAction() {
         let recorder = VisualStepRecorder()
         let choreographer = VisualInteractionChoreographer(
             environment: [:],
             moveCursor: { _ in recorder.record("move-cursor") },
-            settleCursorArrival: { _ in recorder.record("settle-arrival") },
-            showTargetHighlight: { _, _ in recorder.record("show-highlight") }
+            settleCursorArrival: { _ in recorder.record("settle-arrival") }
         )
 
-        choreographer.approach(
-            VisualCursorTarget(point: CGPoint(x: 120, y: 240), window: nil),
-            record: makeTargetHighlightRecord(),
-            snapshot: makeSnapshot(treeLines: [], focusedSummary: nil)
-        )
+        choreographer.approach(VisualCursorTarget(point: CGPoint(x: 120, y: 240), window: nil))
 
-        XCTAssertEqual(recorder.steps, ["move-cursor", "settle-arrival", "show-highlight"])
+        // Cursor first, arrival beat second: the real action runs after
+        // `approach` returns, exactly like the official `Move cursor to ...` /
+        // `Signal cursor movement completion ...` order.
+        XCTAssertEqual(recorder.steps, ["move-cursor", "settle-arrival"])
     }
 
-    func testVisualInteractionChoreographerNeverShowsTheRingWithoutACursorTarget() {
+    func testVisualInteractionChoreographerSkipsEverythingWithoutACursorTarget() {
         let recorder = VisualStepRecorder()
         let choreographer = VisualInteractionChoreographer(
             environment: [:],
             moveCursor: { _ in recorder.record("move-cursor") },
-            settleCursorArrival: { _ in recorder.record("settle-arrival") },
-            showTargetHighlight: { _, _ in recorder.record("show-highlight") }
+            settleCursorArrival: { _ in recorder.record("settle-arrival") }
         )
 
-        choreographer.approach(
-            nil,
-            record: makeTargetHighlightRecord(),
-            snapshot: makeSnapshot(treeLines: [], focusedSummary: nil)
-        )
-
+        XCTAssertEqual(choreographer.approach(nil), .skipped)
         XCTAssertTrue(recorder.steps.isEmpty)
     }
 
-    func testVisualInteractionChoreographerHidesCursorAndRingWhenVisualCursorIsDisabled() {
+    func testVisualInteractionChoreographerStaysSilentWhenVisualCursorIsDisabled() {
         for disabled in ["0", "false", "no", "off"] {
             XCTAssertFalse(
                 visualCursorEnabled(environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR": disabled]),
@@ -2857,14 +2784,11 @@ final class OpenComputerUseKitTests: XCTestCase {
             let choreographer = VisualInteractionChoreographer(
                 environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR": disabled],
                 moveCursor: { _ in recorder.record("move-cursor") },
-                settleCursorArrival: { _ in recorder.record("settle-arrival") },
-                showTargetHighlight: { _, _ in recorder.record("show-highlight") }
+                settleCursorArrival: { _ in recorder.record("settle-arrival") }
             )
 
             let outcome = choreographer.approach(
-                VisualCursorTarget(point: CGPoint(x: 120, y: 240), window: nil),
-                record: makeTargetHighlightRecord(),
-                snapshot: makeSnapshot(treeLines: [], focusedSummary: nil)
+                VisualCursorTarget(point: CGPoint(x: 120, y: 240), window: nil)
             )
 
             XCTAssertEqual(outcome, .skipped, disabled)
@@ -2950,23 +2874,17 @@ final class OpenComputerUseKitTests: XCTestCase {
             moveCursor: { _ in recorder.record("move-cursor") },
             repositionCursor: { _ in recorder.record("reposition-cursor") },
             settleCursorArrival: { _ in recorder.record("settle-arrival") },
-            showTargetHighlight: { _, _ in recorder.record("show-highlight") },
             now: { clock }
         )
         let target = VisualCursorTarget(point: CGPoint(x: 120, y: 240), window: nil)
-        let record = makeTargetHighlightRecord()
-        let snapshot = makeSnapshot(treeLines: [], focusedSummary: nil)
 
-        XCTAssertEqual(choreographer.approach(target, record: record, snapshot: snapshot), .animated)
+        XCTAssertEqual(choreographer.approach(target), .animated)
 
         clock += 0.1
-        XCTAssertEqual(choreographer.approach(target, record: record, snapshot: snapshot), .held)
+        XCTAssertEqual(choreographer.approach(target), .held)
 
-        // One travel animation for two actions, but the ring still marks both.
-        XCTAssertEqual(
-            recorder.steps,
-            ["move-cursor", "settle-arrival", "show-highlight", "show-highlight"]
-        )
+        // One travel animation for two actions; the held step adds nothing.
+        XCTAssertEqual(recorder.steps, ["move-cursor", "settle-arrival"])
     }
 
     func testVisualInteractionChoreographerCoalescesAdjacentTargetsIntoOneAnimation() {
@@ -2977,42 +2895,27 @@ final class OpenComputerUseKitTests: XCTestCase {
             moveCursor: { _ in recorder.record("move-cursor") },
             repositionCursor: { _ in recorder.record("reposition-cursor") },
             settleCursorArrival: { _ in recorder.record("settle-arrival") },
-            showTargetHighlight: { _, _ in recorder.record("show-highlight") },
             now: { clock }
         )
-        let record = makeTargetHighlightRecord()
-        let snapshot = makeSnapshot(treeLines: [], focusedSummary: nil)
 
         XCTAssertEqual(
-            choreographer.approach(
-                VisualCursorTarget(point: CGPoint(x: 120, y: 240), window: nil),
-                record: record,
-                snapshot: snapshot
-            ),
+            choreographer.approach(VisualCursorTarget(point: CGPoint(x: 120, y: 240), window: nil)),
             .animated
         )
 
         for point in [CGPoint(x: 320, y: 240), CGPoint(x: 520, y: 240)] {
             clock += 0.1
             XCTAssertEqual(
-                choreographer.approach(
-                    VisualCursorTarget(point: point, window: nil),
-                    record: record,
-                    snapshot: snapshot
-                ),
+                choreographer.approach(VisualCursorTarget(point: point, window: nil)),
                 .repositioned
             )
         }
 
-        // At most one Bezier animation and one arrival beat for the burst, but
-        // every action is still placed and still shows its ring.
+        // At most one Bezier animation and one arrival beat for the burst, and
+        // every coalesced step is still placed on its target.
         XCTAssertEqual(
             recorder.steps,
-            [
-                "move-cursor", "settle-arrival", "show-highlight",
-                "reposition-cursor", "show-highlight",
-                "reposition-cursor", "show-highlight",
-            ]
+            ["move-cursor", "settle-arrival", "reposition-cursor", "reposition-cursor"]
         )
     }
 
@@ -3024,32 +2927,21 @@ final class OpenComputerUseKitTests: XCTestCase {
             moveCursor: { _ in recorder.record("move-cursor") },
             repositionCursor: { _ in recorder.record("reposition-cursor") },
             settleCursorArrival: { _ in recorder.record("settle-arrival") },
-            showTargetHighlight: { _, _ in recorder.record("show-highlight") },
             now: { clock }
         )
-        let record = makeTargetHighlightRecord()
-        let snapshot = makeSnapshot(treeLines: [], focusedSummary: nil)
 
-        _ = choreographer.approach(
-            VisualCursorTarget(point: CGPoint(x: 120, y: 240), window: nil),
-            record: record,
-            snapshot: snapshot
-        )
+        _ = choreographer.approach(VisualCursorTarget(point: CGPoint(x: 120, y: 240), window: nil))
 
         // Outside the 400ms window the next target gets the full animation.
         clock += 0.5
         XCTAssertEqual(
-            choreographer.approach(
-                VisualCursorTarget(point: CGPoint(x: 320, y: 240), window: nil),
-                record: record,
-                snapshot: snapshot
-            ),
+            choreographer.approach(VisualCursorTarget(point: CGPoint(x: 320, y: 240), window: nil)),
             .animated
         )
 
         XCTAssertEqual(
             recorder.steps,
-            ["move-cursor", "settle-arrival", "show-highlight", "move-cursor", "settle-arrival", "show-highlight"]
+            ["move-cursor", "settle-arrival", "move-cursor", "settle-arrival"]
         )
     }
 
@@ -3061,24 +2953,13 @@ final class OpenComputerUseKitTests: XCTestCase {
             moveCursor: { _ in recorder.record("move-cursor") },
             repositionCursor: { _ in recorder.record("reposition-cursor") },
             settleCursorArrival: { _ in recorder.record("settle-arrival") },
-            showTargetHighlight: { _, _ in recorder.record("show-highlight") },
             now: { clock }
         )
-        let record = makeTargetHighlightRecord()
-        let snapshot = makeSnapshot(treeLines: [], focusedSummary: nil)
 
-        _ = choreographer.approach(
-            VisualCursorTarget(point: CGPoint(x: 120, y: 240), window: nil),
-            record: record,
-            snapshot: snapshot
-        )
+        _ = choreographer.approach(VisualCursorTarget(point: CGPoint(x: 120, y: 240), window: nil))
         clock += 0.01
         XCTAssertEqual(
-            choreographer.approach(
-                VisualCursorTarget(point: CGPoint(x: 320, y: 240), window: nil),
-                record: record,
-                snapshot: snapshot
-            ),
+            choreographer.approach(VisualCursorTarget(point: CGPoint(x: 320, y: 240), window: nil)),
             .animated
         )
 
@@ -3094,25 +2975,14 @@ final class OpenComputerUseKitTests: XCTestCase {
             moveCursor: { _ in recorder.record("move-cursor") },
             repositionCursor: { _ in recorder.record("reposition-cursor") },
             settleCursorArrival: { _ in recorder.record("settle-arrival") },
-            showTargetHighlight: { _, _ in recorder.record("show-highlight") },
             now: { clock }
         )
-        let record = makeTargetHighlightRecord()
-        let snapshot = makeSnapshot(treeLines: [], focusedSummary: nil)
 
-        _ = choreographer.approach(
-            VisualCursorTarget(point: CGPoint(x: 120, y: 240), window: nil),
-            record: record,
-            snapshot: snapshot
-        )
+        _ = choreographer.approach(VisualCursorTarget(point: CGPoint(x: 120, y: 240), window: nil))
 
         clock += 0.01
         XCTAssertEqual(
-            choreographer.approach(
-                VisualCursorTarget(point: CGPoint(x: 121.5, y: 240.5), window: nil),
-                record: record,
-                snapshot: snapshot
-            ),
+            choreographer.approach(VisualCursorTarget(point: CGPoint(x: 121.5, y: 240.5), window: nil)),
             .held
         )
 
@@ -3120,179 +2990,9 @@ final class OpenComputerUseKitTests: XCTestCase {
         // the original target is still a real move.
         clock += 0.01
         XCTAssertEqual(
-            choreographer.approach(
-                VisualCursorTarget(point: CGPoint(x: 123, y: 240), window: nil),
-                record: record,
-                snapshot: snapshot
-            ),
+            choreographer.approach(VisualCursorTarget(point: CGPoint(x: 123, y: 240), window: nil)),
             .repositioned
         )
-    }
-
-    // MARK: - Target highlight lifetime (P5)
-
-    @MainActor
-    func testTargetHighlightPopupTargetsGetAShorterDeadline() {
-        XCTAssertTrue(targetHighlightIsPopupRole("AXMenuItem"))
-        XCTAssertTrue(targetHighlightIsPopupRole("AXMenu"))
-        XCTAssertFalse(targetHighlightIsPopupRole("AXButton"))
-        XCTAssertFalse(targetHighlightIsPopupRole(nil))
-
-        XCTAssertTrue(targetHighlightIsPopupWindow(layer: 101))
-        XCTAssertFalse(targetHighlightIsPopupWindow(layer: 0))
-        XCTAssertFalse(targetHighlightIsPopupWindow(layer: nil))
-
-        XCTAssertEqual(targetHighlightDisplayDuration(isPopup: false), 0.45, accuracy: 0.0001)
-        XCTAssertEqual(targetHighlightDisplayDuration(isPopup: true), 0.30, accuracy: 0.0001)
-
-        // Hard contract: the ring is ordered out well inside 1.2s on both paths.
-        for isPopup in [false, true] {
-            let hardDeadline = targetHighlightDisplayDuration(isPopup: isPopup)
-                + TargetHighlightLifetimeController.defaultFadeOutDuration
-                + TargetHighlightLifetimeController.hardWithdrawSlack
-            XCTAssertLessThanOrEqual(hardDeadline, 1.2, "\(isPopup)")
-        }
-    }
-
-    @MainActor
-    func testTargetHighlightWatchdogWithdrawsWhenTheElementOrWindowIsGone() {
-        let expected = CGRect(x: 100, y: 200, width: 60, height: 24)
-
-        XCTAssertFalse(
-            targetHighlightShouldWithdraw(
-                expectedScreenFrame: expected,
-                sample: TargetHighlightLivenessSample(currentScreenFrame: expected)
-            )
-        )
-        // Dead AX element: the popup/menu case that used to leave the ring behind.
-        XCTAssertTrue(
-            targetHighlightShouldWithdraw(
-                expectedScreenFrame: expected,
-                sample: TargetHighlightLivenessSample(isElementValid: false)
-            )
-        )
-        XCTAssertTrue(
-            targetHighlightShouldWithdraw(
-                expectedScreenFrame: expected,
-                sample: TargetHighlightLivenessSample(isWindowPresent: false)
-            )
-        )
-        // The element moved far enough that the drawn rect is lying.
-        XCTAssertTrue(
-            targetHighlightShouldWithdraw(
-                expectedScreenFrame: expected,
-                sample: TargetHighlightLivenessSample(
-                    currentScreenFrame: expected.offsetBy(dx: 0, dy: 40)
-                )
-            )
-        )
-        XCTAssertTrue(
-            targetHighlightShouldWithdraw(
-                expectedScreenFrame: expected,
-                sample: TargetHighlightLivenessSample(
-                    currentScreenFrame: CGRect(x: 100, y: 200, width: 200, height: 24)
-                )
-            )
-        )
-        // An unreadable frame is not proof of a dead element.
-        XCTAssertFalse(
-            targetHighlightShouldWithdraw(
-                expectedScreenFrame: expected,
-                sample: TargetHighlightLivenessSample(currentScreenFrame: nil)
-            )
-        )
-    }
-
-    @MainActor
-    func testTargetHighlightDeadlineFiresWhileTheMainRunLoopIsNotPumped() {
-        let recorder = ElapsedTimeRecorder()
-        let timer = TargetHighlightDispatchTimer()
-        timer.schedule(after: 0.1) { recorder.record() }
-
-        // A busy main thread with no run loop pumping at all: a default-mode
-        // run loop timer could not fire here.
-        Thread.sleep(forTimeInterval: 0.5)
-
-        let elapsed = recorder.elapsed
-        XCTAssertNotNil(elapsed)
-        XCTAssertLessThan(elapsed ?? .infinity, 0.45)
-        timer.cancel()
-    }
-
-    @MainActor
-    func testTargetHighlightLifetimeReplacesThePreviousRingInsteadOfStackingIt() {
-        let recorder = TargetHighlightLifecycleRecorder()
-        let controller = recorder.makeController()
-
-        controller.show(recorder.makeRingTarget())
-        controller.show(recorder.makeRingTarget())
-
-        XCTAssertEqual(recorder.events, ["present", "withdraw", "present"])
-    }
-
-    @MainActor
-    func testTargetHighlightLifetimeFadesAndThenWithdrawsOnItsOwnDeadlines() {
-        let recorder = TargetHighlightLifecycleRecorder()
-        let controller = recorder.makeController()
-
-        controller.show(recorder.makeRingTarget(isPopup: false))
-
-        XCTAssertEqual(recorder.timers.count, 3)
-        XCTAssertEqual(recorder.timers[0].lastDelay ?? -1, 0.45, accuracy: 0.0001)
-        XCTAssertEqual(
-            recorder.timers[1].lastDelay ?? -1,
-            0.45 + TargetHighlightLifetimeController.defaultFadeOutDuration
-                + TargetHighlightLifetimeController.hardWithdrawSlack,
-            accuracy: 0.0001
-        )
-        XCTAssertEqual(
-            recorder.timers[2].lastDelay ?? -1,
-            TargetHighlightLifetimeController.watchdogInterval,
-            accuracy: 0.0001
-        )
-
-        recorder.timers[0].fireLast()
-        drainMainQueue()
-        XCTAssertEqual(recorder.events.last, "fade")
-
-        // The hard deadline orders the panel out even if the fade animation never
-        // completes.
-        recorder.timers[1].fireLast()
-        drainMainQueue()
-        XCTAssertEqual(recorder.events.last, "withdraw")
-        XCTAssertFalse(controller.isVisible)
-    }
-
-    @MainActor
-    func testTargetHighlightLifetimePopupDeadlineIsShorter() {
-        let recorder = TargetHighlightLifecycleRecorder()
-        let controller = recorder.makeController()
-
-        controller.show(recorder.makeRingTarget(isPopup: true))
-
-        XCTAssertEqual(recorder.timers[0].lastDelay ?? -1, 0.30, accuracy: 0.0001)
-    }
-
-    @MainActor
-    func testTargetHighlightWatchdogWithdrawsTheRingAndKeepsTickingWhileAlive() {
-        let recorder = TargetHighlightLifecycleRecorder()
-        let controller = recorder.makeController()
-        controller.show(recorder.makeRingTarget())
-
-        // Alive: the watchdog re-arms itself and keeps the ring.
-        recorder.sample = { target in
-            TargetHighlightLivenessSample(currentScreenFrame: target.expectedScreenFrame)
-        }
-        recorder.timers[2].fireLast()
-        drainMainQueue()
-        XCTAssertEqual(recorder.timers.count, 4)
-        XCTAssertFalse(recorder.events.contains("withdraw"))
-
-        // Dead element: the next tick withdraws immediately.
-        recorder.sample = { _ in TargetHighlightLivenessSample(isElementValid: false) }
-        recorder.timers[3].fireLast()
-        drainMainQueue()
-        XCTAssertEqual(recorder.events.last, "withdraw")
     }
 
     // MARK: - Automatic sky_click (P3)
@@ -3344,19 +3044,6 @@ final class OpenComputerUseKitTests: XCTestCase {
                 name
             )
         }
-    }
-
-    private func makeTargetHighlightRecord(
-        localFrame: CGRect? = CGRect(x: 10, y: 20, width: 60, height: 24)
-    ) -> ElementRecord {
-        ElementRecord(
-            index: 7,
-            identifier: nil,
-            element: nil,
-            localFrame: localFrame,
-            rawActions: [],
-            prettyActions: []
-        )
     }
 
     private func makeSnapshot(treeLines: [String], focusedSummary: String?, selectedText: String? = nil) -> AppSnapshot {
@@ -3485,15 +3172,6 @@ final class OpenComputerUseKitTests: XCTestCase {
         return (width, height)
     }
 
-    /// Runs the main-actor hop of an already-fired fake deadline without
-    /// pumping a full run loop.
-    private func drainMainQueue() {
-        let drained = expectation(description: "main queue drained")
-        DispatchQueue.main.async {
-            drained.fulfill()
-        }
-        wait(for: [drained], timeout: 1)
-    }
 }
 
 /// Ordered recorder used by the advisory overlay tests instead of the live
@@ -3503,26 +3181,6 @@ private final class VisualStepRecorder {
 
     func record(_ step: String) {
         steps.append(step)
-    }
-}
-
-/// Thread-safe elapsed-time recorder: the deadline test writes to it from the
-/// timer's own queue, which is the whole point of that test.
-private final class ElapsedTimeRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private let start = ProcessInfo.processInfo.systemUptime
-    private var elapsedValue: TimeInterval?
-
-    func record() {
-        lock.lock()
-        defer { lock.unlock() }
-        elapsedValue = ProcessInfo.processInfo.systemUptime - start
-    }
-
-    var elapsed: TimeInterval? {
-        lock.lock()
-        defer { lock.unlock() }
-        return elapsedValue
     }
 }
 
@@ -3549,64 +3207,5 @@ private final class FakeCursorIdleTimer: CursorIdleTimerHandling {
         }
 
         tick()
-    }
-}
-
-@MainActor
-private final class FakeTargetHighlightTimer: TargetHighlightTimerScheduling {
-    private(set) var delays: [TimeInterval] = []
-    private var actions: [@Sendable () -> Void] = []
-
-    var lastDelay: TimeInterval? {
-        delays.last
-    }
-
-    func schedule(after delay: TimeInterval, _ action: @escaping @Sendable () -> Void) {
-        delays.append(delay)
-        actions.append(action)
-    }
-
-    func cancel() {}
-
-    func fireLast() {
-        actions.last?()
-    }
-}
-
-/// Drives `TargetHighlightLifetimeController` with fake timers and a recording
-/// presenter, so the ring's lifetime contract is tested without a window server.
-@MainActor
-private final class TargetHighlightLifecycleRecorder {
-    private(set) var events: [String] = []
-    private(set) var timers: [FakeTargetHighlightTimer] = []
-    var sample: (TargetHighlightLifetimeController.RingTarget) -> TargetHighlightLivenessSample = { _ in
-        TargetHighlightLivenessSample()
-    }
-
-    func makeRingTarget(isPopup: Bool = false) -> TargetHighlightLifetimeController.RingTarget {
-        TargetHighlightLifetimeController.RingTarget(
-            globalRect: CGRect(x: 10, y: 20, width: 60, height: 24),
-            level: 0,
-            windowID: nil,
-            element: nil,
-            isPopup: isPopup,
-            expectedScreenFrame: CGRect(x: 10, y: 20, width: 60, height: 24)
-        )
-    }
-
-    func makeController() -> TargetHighlightLifetimeController {
-        TargetHighlightLifetimeController(
-            presentRing: { [weak self] _ in self?.events.append("present") },
-            fadeRing: { [weak self] in self?.events.append("fade") },
-            withdrawPanel: { [weak self] in self?.events.append("withdraw") },
-            sample: { [weak self] target in
-                self?.sample(target) ?? TargetHighlightLivenessSample()
-            },
-            makeTimer: { [weak self] in
-                let timer = FakeTargetHighlightTimer()
-                self?.timers.append(timer)
-                return timer
-            }
-        )
     }
 }
