@@ -144,6 +144,9 @@ public struct AppSnapshot {
     public let windowBounds: CGRect?
     let targetWindowID: CGWindowID?
     let targetWindowLayer: Int?
+    /// The AX window element the tree was rendered from. Used only to register a
+    /// read-only move/resize watch on the target window; never to activate it.
+    let windowElement: AXUIElement?
     public let screenshotPNGData: Data?
     let mode: SnapshotMode
     let treeLines: [String]
@@ -287,6 +290,7 @@ enum SnapshotBuilder {
             windowBounds: windowBounds,
             targetWindowID: windowCapture.windowID,
             targetWindowLayer: windowCapture.layer,
+            windowElement: rootElement,
             screenshotPNGData: screenshotPNGData,
             mode: .accessibility,
             treeLines: renderer.lines,
@@ -443,6 +447,7 @@ enum SnapshotBuilder {
             windowBounds: state.windowBounds.cgRect,
             targetWindowID: nil,
             targetWindowLayer: nil,
+            windowElement: nil,
             screenshotPNGData: nil,
             mode: .fixture,
             treeLines: lines,
@@ -462,18 +467,31 @@ private func enableBestEffortAccessibilityModes(_ appElement: AXUIElement) {
     _ = AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
 }
 
-private struct WindowCapture {
+struct WindowCapture {
     let windowID: CGWindowID
     let layer: Int
     let bounds: CGRect
     let image: CGImage?
 
     static func resolve(for pid: pid_t, titleHint: String?) -> WindowCapture? {
-        guard let infoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
+        guard let best = preferredWindowCaptureCandidate(visibleCandidates(for: pid), titleHint: titleHint) else {
             return nil
         }
 
-        let candidates = infoList.enumerated().compactMap { offset, info -> WindowCaptureCandidate? in
+        let image = captureImage(windowID: best.windowID, bounds: best.bounds)
+
+        return WindowCapture(windowID: best.windowID, layer: best.layer, bounds: best.bounds, image: image)
+    }
+
+    /// On-screen windows owned by a pid, front to back, straight from the
+    /// window server. Split out from `resolve` so the geometry probe can
+    /// re-read a window frame without paying for a screenshot.
+    static func visibleCandidates(for pid: pid_t) -> [WindowCaptureCandidate] {
+        guard let infoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
+            return []
+        }
+
+        return infoList.enumerated().compactMap { offset, info -> WindowCaptureCandidate? in
             guard
                 let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t,
                 ownerPID == pid,
@@ -496,14 +514,6 @@ private struct WindowCapture {
                 frontToBackIndex: offset
             )
         }
-
-        guard let best = preferredWindowCaptureCandidate(candidates, titleHint: titleHint) else {
-            return nil
-        }
-
-        let image = captureImage(windowID: best.windowID, bounds: best.bounds)
-
-        return WindowCapture(windowID: best.windowID, layer: best.layer, bounds: best.bounds, image: image)
     }
 
     private static func captureImage(windowID: CGWindowID, bounds: CGRect) -> CGImage? {

@@ -163,17 +163,29 @@ struct VisualInteractionChoreographer {
             environment: environment,
             moveCursor: { target in
                 VisualCursorSupport.performOnMain {
-                    SoftwareCursorOverlay.moveCursor(to: target.point, in: target.window)
+                    SoftwareCursorOverlay.moveCursor(
+                        to: target.point,
+                        in: target.window,
+                        anchor: target.restingAnchor
+                    )
                 }
             },
             repositionCursor: { target in
                 VisualCursorSupport.performOnMain {
-                    SoftwareCursorOverlay.repositionCursor(to: target.point, in: target.window)
+                    SoftwareCursorOverlay.repositionCursor(
+                        to: target.point,
+                        in: target.window,
+                        anchor: target.restingAnchor
+                    )
                 }
             },
             settleCursorArrival: { target in
                 VisualCursorSupport.performOnMain {
-                    SoftwareCursorOverlay.settle(at: target.point, in: target.window)
+                    SoftwareCursorOverlay.settle(
+                        at: target.point,
+                        in: target.window,
+                        anchor: target.restingAnchor
+                    )
                     SoftwareCursorOverlay.waitForArrivalSettle()
                 }
             },

@@ -1871,7 +1871,20 @@ final class OpenComputerUseKitTests: XCTestCase {
             target,
             VisualCursorTarget(
                 point: CGPoint(x: 484, y: 724),
-                window: CursorTargetWindow(windowID: 321, layer: 8)
+                window: CursorTargetWindow(windowID: 321, layer: 8),
+                // The screen-state point and frame travel with the target so a
+                // window move can re-derive it without a snapshot refresh.
+                screenStatePoint: CGPoint(x: 484, y: 276),
+                screenStateWindowBounds: CGRect(x: 400, y: 220, width: 900, height: 640)
+            )
+        )
+        XCTAssertEqual(
+            target?.restingAnchor,
+            CursorRestingAnchor(
+                windowID: 321,
+                layer: 8,
+                windowLocalPoint: CGPoint(x: 84, y: 56),
+                windowBounds: CGRect(x: 400, y: 220, width: 900, height: 640)
             )
         )
     }
@@ -3058,6 +3071,7 @@ final class OpenComputerUseKitTests: XCTestCase {
             windowBounds: nil,
             targetWindowID: nil,
             targetWindowLayer: nil,
+            windowElement: nil,
             screenshotPNGData: nil,
             mode: .accessibility,
             treeLines: treeLines,

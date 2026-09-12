@@ -7,6 +7,28 @@ import QuartzCore
 struct VisualCursorTarget: Equatable {
     let point: CGPoint
     let window: CursorTargetWindow?
+    /// The same target in screen-state (top-left origin) space, plus the window
+    /// frame it was derived from. The overlay keeps this so a window move or a
+    /// display change can re-derive the point instead of reusing a global
+    /// coordinate that belonged to the screen the window used to be on.
+    var screenStatePoint: CGPoint? = nil
+    var screenStateWindowBounds: CGRect? = nil
+
+    var restingAnchor: CursorRestingAnchor? {
+        guard let window, let screenStatePoint, let screenStateWindowBounds else {
+            return nil
+        }
+
+        return CursorRestingAnchor(
+            windowID: window.windowID,
+            layer: window.layer,
+            windowLocalPoint: CGPoint(
+                x: screenStatePoint.x - screenStateWindowBounds.minX,
+                y: screenStatePoint.y - screenStateWindowBounds.minY
+            ),
+            windowBounds: screenStateWindowBounds
+        )
+    }
 }
 
 public enum ClickMethod: String, CaseIterable, Sendable {
@@ -183,6 +205,7 @@ func inputEventPoint(
 
 func makeVisualCursorTarget(
     at point: CGPoint,
+    windowBounds: CGRect? = nil,
     targetWindowID: CGWindowID?,
     targetWindowLayer: Int?,
     screenMappings: [VisualCursorScreenMapping] = currentVisualCursorScreenMappings()
@@ -192,7 +215,9 @@ func makeVisualCursorTarget(
             fromScreenStatePoint: point,
             screenMappings: screenMappings
         ),
-        window: targetWindowID.map { CursorTargetWindow(windowID: $0, layer: targetWindowLayer ?? 0) }
+        window: targetWindowID.map { CursorTargetWindow(windowID: $0, layer: targetWindowLayer ?? 0) },
+        screenStatePoint: point,
+        screenStateWindowBounds: windowBounds
     )
 }
 
@@ -213,6 +238,7 @@ func makeVisualCursorTarget(
     )
     return makeVisualCursorTarget(
         at: point,
+        windowBounds: windowBounds,
         targetWindowID: targetWindowID,
         targetWindowLayer: targetWindowLayer,
         screenMappings: screenMappings
@@ -700,6 +726,7 @@ public final class ComputerUseService {
             let targetPoint = try windowPointToGlobalPoint(snapshot: snapshot, point: windowPoint)
             let cursorTarget = makeVisualCursorTarget(
                 at: targetPoint,
+                windowBounds: snapshot.windowBounds,
                 targetWindowID: snapshot.targetWindowID,
                 targetWindowLayer: snapshot.targetWindowLayer
             )
@@ -771,6 +798,7 @@ public final class ComputerUseService {
             let targetPoint = try windowPointToGlobalPoint(snapshot: snapshot, point: point)
             let cursorTarget = makeVisualCursorTarget(
                 at: targetPoint,
+                windowBounds: snapshot.windowBounds,
                 targetWindowID: snapshot.targetWindowID,
                 targetWindowLayer: snapshot.targetWindowLayer
             )
@@ -1156,12 +1184,86 @@ public final class ComputerUseService {
         return range
     }
 
+    /// The snapshot an action runs against.
+    ///
+    /// A cached snapshot is only current until the user moves or resizes the
+    /// target window: every global point (cursor tip, coordinate click,
+    /// screenshot pixel mapping) is derived from `windowBounds`, so a drag to
+    /// another display used to keep the overlay on the screen the window just
+    /// left. The window frame is therefore re-read here, before the action.
     private func currentSnapshot(for query: String, allowWindowRecovery: Bool? = nil) throws -> AppSnapshot {
-        if let snapshot = snapshotsByApp[query.lowercased()] {
-            return snapshot
+        let snapshot: AppSnapshot
+        if let cached = snapshotsByApp[query.lowercased()] {
+            snapshot = try reanchoredSnapshot(
+                cached,
+                query: query,
+                allowWindowRecovery: allowWindowRecovery
+            )
+        } else {
+            snapshot = try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery)
         }
 
-        return try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery)
+        observeTargetWindowMotionIfNeeded(for: snapshot)
+        return snapshot
+    }
+
+    /// Patches a moved window into the cached snapshot, or re-reads the whole
+    /// tree when the cached element frames cannot be trusted any more.
+    private func reanchoredSnapshot(
+        _ cached: AppSnapshot,
+        query: String,
+        allowWindowRecovery: Bool?
+    ) throws -> AppSnapshot {
+        guard cached.mode == .accessibility else {
+            return cached
+        }
+
+        let live = currentWindowGeometry(
+            for: cached.app,
+            windowID: cached.targetWindowID,
+            windowTitle: cached.windowTitle
+        )
+
+        switch snapshotWindowReanchorAction(
+            cachedWindowID: cached.targetWindowID,
+            cachedBounds: cached.windowBounds,
+            live: live
+        ) {
+        case .none:
+            return cached
+        case .patchGeometry:
+            guard let live else {
+                return cached
+            }
+
+            let reanchored = cached.reanchored(to: live)
+            store(reanchored, for: query)
+            return reanchored
+        case .fullRefresh:
+            return try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery)
+        }
+    }
+
+    /// Read-only move watch for the window this action targets. It exists so the
+    /// overlay can follow the window across displays between two actions; it
+    /// never activates, raises, unhides or focuses anything.
+    private func observeTargetWindowMotionIfNeeded(for snapshot: AppSnapshot) {
+        guard snapshot.mode == .accessibility,
+              let windowID = snapshot.targetWindowID,
+              let windowElement = snapshot.windowElement
+        else {
+            return
+        }
+
+        let observed = CursorObservedWindow(
+            pid: snapshot.app.pid,
+            windowID: windowID,
+            layer: snapshot.targetWindowLayer ?? 0,
+            element: windowElement
+        )
+        VisualCursorSupport.performOnMain {
+            SoftwareCursorOverlay.observeTargetWindow(observed)
+        }
     }
 
     @discardableResult
@@ -1180,17 +1282,22 @@ public final class ComputerUseService {
             recoveryPolicy: recoveryPolicy ?? snapshotRecoveryPolicy(allowWindowRecovery: allowWindowRecovery)
         )
 
+        store(snapshot, for: query)
+        return snapshot
+    }
+
+    /// One snapshot is reachable under the query, the app name and the bundle
+    /// id, so any later action resolves to the same cached entry.
+    private func store(_ snapshot: AppSnapshot, for query: String) {
         let keys = Set([
             query.lowercased(),
-            app.name.lowercased(),
-            (app.bundleIdentifier ?? "").lowercased(),
+            snapshot.app.name.lowercased(),
+            (snapshot.app.bundleIdentifier ?? "").lowercased(),
         ].filter { !$0.isEmpty })
 
         for key in keys {
             snapshotsByApp[key] = snapshot
         }
-
-        return snapshot
     }
 
     private func lookupElement(snapshot: AppSnapshot, index: String) throws -> ElementRecord {
@@ -2279,11 +2386,19 @@ public final class ComputerUseService {
         switch decision {
         case .animated:
             VisualCursorSupport.performOnMain {
-                SoftwareCursorOverlay.moveCursor(to: target.point, in: target.window)
+                SoftwareCursorOverlay.moveCursor(
+                    to: target.point,
+                    in: target.window,
+                    anchor: target.restingAnchor
+                )
             }
         case .repositioned:
             VisualCursorSupport.performOnMain {
-                SoftwareCursorOverlay.repositionCursor(to: target.point, in: target.window)
+                SoftwareCursorOverlay.repositionCursor(
+                    to: target.point,
+                    in: target.window,
+                    anchor: target.restingAnchor
+                )
             }
         case .held, .skipped:
             break
@@ -2298,7 +2413,11 @@ public final class ComputerUseService {
         }
 
         VisualCursorSupport.performOnMain {
-            SoftwareCursorOverlay.settle(at: target.point, in: target.window)
+            SoftwareCursorOverlay.settle(
+                at: target.point,
+                in: target.window,
+                anchor: target.restingAnchor
+            )
         }
     }
 
@@ -2327,7 +2446,8 @@ public final class ComputerUseService {
                 at: target.point,
                 clickCount: clickCount,
                 mouseButton: mouseButton,
-                in: target.window
+                in: target.window,
+                anchor: target.restingAnchor
             )
         }
     }
