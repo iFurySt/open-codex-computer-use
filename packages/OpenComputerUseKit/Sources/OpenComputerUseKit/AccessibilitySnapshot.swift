@@ -193,6 +193,13 @@ public struct AppSnapshot {
         lines.append("Window: \(quoted(displayTitle)), App: \(app.name).")
         lines.append(contentsOf: treeLines)
 
+        // Only present for a window parked outside every active display (a chrome-only tree);
+        // an on-display snapshot is byte-identical to before.
+        if let displayNote = offDisplayWindowNote(windowBounds: windowBounds) {
+            lines.append("")
+            lines.append("--- display note --- \(displayNote)")
+        }
+
         if let selectedText, !selectedText.isEmpty {
             lines.append("")
             lines.append("Selected text: [\(selectedText)]")

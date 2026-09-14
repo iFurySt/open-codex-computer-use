@@ -52,11 +52,15 @@ public enum VisualCursorDebugShowcase {
             x: screenStateFrame.minX + localFrame.minX + (localFrame.width * 0.35),
             y: screenStateFrame.minY + localFrame.midY
         )
-        let cursorTarget = makeVisualCursorTarget(
+        // The showcase only runs on an on-screen synthetic frame, but keep the off-display guard
+        // honest: nothing is drawn when the point cannot be mapped.
+        guard let cursorTarget = makeVisualCursorTarget(
             at: tipStatePoint,
             targetWindowID: nil,
             targetWindowLayer: nil
-        )
+        ) else {
+            throw ComputerUseError.invalidArguments("debug-cursor target is outside every active display")
+        }
 
         SoftwareCursorOverlay.repositionCursor(to: cursorTarget.point, in: nil)
 

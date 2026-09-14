@@ -203,14 +203,52 @@ func inputEventPoint(
     point
 }
 
+/// True when the point lies inside one of the currently active displays. A point outside every screen
+/// cannot be mapped to AppKit coordinates, so callers should treat it as "no drawable target" instead
+/// of drawing at a raw coordinate that belongs to another display's space.
+func isPointOnActiveDisplay(
+    _ point: CGPoint,
+    screenMappings: [VisualCursorScreenMapping] = currentVisualCursorScreenMappings()
+) -> Bool {
+    screenMappings.contains { $0.screenStateFrame.contains(point) }
+}
+
+/// True when the rectangle intersects at least one active display.
+func windowIntersectsActiveDisplay(
+    _ frame: CGRect,
+    screenMappings: [VisualCursorScreenMapping] = currentVisualCursorScreenMappings()
+) -> Bool {
+    screenMappings.contains { $0.screenStateFrame.intersects(frame) }
+}
+
+/// Non-sensitive note for a target window parked outside every active display. macOS serves a
+/// chrome-only tree in that state (no web area), and any cursor point drawn from it is meaningless, so
+/// both the snapshot and the action path say so rather than failing silently.
+func offDisplayWindowNote(
+    windowBounds: CGRect?,
+    screenMappings: [VisualCursorScreenMapping] = currentVisualCursorScreenMappings()
+) -> String? {
+    guard let windowBounds, !screenMappings.isEmpty else {
+        return nil
+    }
+
+    return windowIntersectsActiveDisplay(windowBounds, screenMappings: screenMappings)
+        ? nil
+        : "window is off all active displays: only the window chrome is available and cursor points cannot be mapped; move the window onto a display before acting."
+}
+
 func makeVisualCursorTarget(
     at point: CGPoint,
     windowBounds: CGRect? = nil,
     targetWindowID: CGWindowID?,
     targetWindowLayer: Int?,
     screenMappings: [VisualCursorScreenMapping] = currentVisualCursorScreenMappings()
-) -> VisualCursorTarget {
-    VisualCursorTarget(
+) -> VisualCursorTarget? {
+    guard isPointOnActiveDisplay(point, screenMappings: screenMappings) else {
+        return nil
+    }
+
+    return VisualCursorTarget(
         point: screenStatePointToAppKitGlobalPoint(
             fromScreenStatePoint: point,
             screenMappings: screenMappings

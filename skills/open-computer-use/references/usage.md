@@ -180,6 +180,13 @@ osascript -e 'tell application "Google Chrome" to set bounds of front window to 
 A snapshot that exposes only chrome (toolbar, tabs) is a geometry/frontmost signal, not a snapshot to
 act on.
 
+When the window really does lie outside every active display, `get_app_state` now says so itself with a
+trailing `--- display note --- window is off all active displays …` line, and coordinate/cursor helpers
+skip drawing points they cannot map. Note that macOS (and Chromium) clamp window moves so a window
+cannot be parked off every screen by dragging: the state arises from a display being removed, asleep
+or rearranged while the window keeps its old coordinates, which is exactly how the harness window plan
+went stale. A window on a secondary display is still "on a display" and must not produce the note.
+
 ## Choosing a Click Method
 
 `click_method` is optional. Omitting it uses `auto`, which preserves the platform's existing semantic-first behavior. Explicit methods never fall back to a different implementation:
