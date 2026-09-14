@@ -94,6 +94,10 @@ It also installs two things a DSH host needs beyond the MCP entry:
   stays on screen after the first action of any session or subagent. The
   installer writes `<dsh-home>/ocu-hooks.json` and maps DSH's Stop point onto
   `open-computer-use turn-ended`. Pass `--no-hook` to skip both.
+- **Editing the hook later.** DSH's live patch reload only re-applies a row whose
+  configuration actually changed, so editing `ocu-hooks.json` on its own leaves
+  the running plugin holding its previous command. Change the patch row too (for
+  example `defaultTimeoutMs`) to force a re-apply, or restart DSH.
 - **The skill.** Copied to `<dsh-home>/skills/open-computer-use`, which DSH scans
   as a user-level skill root, so every new conversation can see it. Pass
   `--no-skill` to skip. An existing skill directory is never overwritten
