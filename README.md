@@ -125,6 +125,10 @@ open-computer-use install-gemini-mcp --scope user
 # Install into opencode by writing to ~/.config/opencode/opencode.json (or the active config file)
 open-computer-use install-opencode-mcp
 
+# Install into DeepSeek Harness: writes a profile patch, the turn-boundary hook, and the skill
+open-computer-use install-dsh-mcp
+./scripts/install-dsh-mcp.sh --profile web --no-hook
+
 # Call a single Computer Use tool and print the MCP-style JSON result
 open-computer-use call list_apps
 ocu call list_apps

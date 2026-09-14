@@ -227,6 +227,7 @@ const installCommands = new Map([
   ["install-gemini-mcp", "install-gemini-mcp.sh"],
   ["install-codex-mcp", "install-codex-mcp.sh"],
   ["install-opencode-mcp", "install-opencode-mcp.sh"],
+  ["install-dsh-mcp", "install-dsh-mcp.sh"],
   ["install-codex-plugin", "install-codex-plugin.sh"],
 ]);
 
@@ -249,6 +250,7 @@ Commands:
   install-gemini-mcp   Install the MCP server into Gemini CLI config.
   install-codex-mcp    Install the MCP server into ~/.codex/config.toml.
   install-opencode-mcp Install the MCP server into ~/.config/opencode.
+  install-dsh-mcp      Install the MCP server into a DeepSeek Harness profile.
   install-codex-plugin Install this npm package into the local Codex plugin cache.
   help [command]       Show general or command-specific help.
   version              Print the CLI version.
@@ -336,6 +338,11 @@ Reinstall with:
 
 if (command === "-h" || command === "--help" || (command === "help" && args.length <= 1)) {
   printLauncherHelp();
+  process.exit(0);
+}
+
+if (command === "help" && args[1] === "install-dsh-mcp") {
+  printInstallHelp("install-dsh-mcp.sh", "open-computer-use install-dsh-mcp [--profile <name>] [--command <path>] [--no-hook] [--no-skill]");
   process.exit(0);
 }
 
@@ -536,8 +543,10 @@ function renderMetaPackageJson(packageName, version) {
       "scripts/install-config-helper.mjs",
       "scripts/install-codex-mcp.sh",
       "scripts/install-opencode-mcp.sh",
+      "scripts/install-dsh-mcp.sh",
       "scripts/install-codex-plugin.sh",
       "scripts/postinstall.mjs",
+      "skills/open-computer-use/",
       "README.md",
       "LICENSE",
     ],
@@ -550,13 +559,16 @@ function copyInstallerScripts(packageRoot) {
   cpSync(path.join(repoRoot, "scripts", "install-config-helper.mjs"), path.join(packageRoot, "scripts", "install-config-helper.mjs"));
   cpSync(path.join(repoRoot, "scripts", "install-codex-mcp.sh"), path.join(packageRoot, "scripts", "install-codex-mcp.sh"));
   cpSync(path.join(repoRoot, "scripts", "install-opencode-mcp.sh"), path.join(packageRoot, "scripts", "install-opencode-mcp.sh"));
+  cpSync(path.join(repoRoot, "scripts", "install-dsh-mcp.sh"), path.join(packageRoot, "scripts", "install-dsh-mcp.sh"));
   cpSync(path.join(repoRoot, "scripts", "install-codex-plugin.sh"), path.join(packageRoot, "scripts", "install-codex-plugin.sh"));
+  cpSync(path.join(repoRoot, "skills", "open-computer-use"), path.join(packageRoot, "skills", "open-computer-use"), { recursive: true });
 
   for (const scriptName of [
     "install-claude-mcp.sh",
     "install-gemini-mcp.sh",
     "install-codex-mcp.sh",
     "install-opencode-mcp.sh",
+    "install-dsh-mcp.sh",
     "install-codex-plugin.sh",
   ]) {
     chmodSync(path.join(packageRoot, "scripts", scriptName), 0o755);

@@ -14,6 +14,7 @@ function usage() {
   node ./scripts/install-config-helper.mjs codex-mcp <config-path> <server-name> <command-name>
   node ./scripts/install-config-helper.mjs gemini-mcp <config-path> <server-name> <command-name>
   node ./scripts/install-config-helper.mjs opencode-mcp <primary-config-path> <secondary-config-path> <server-name> <command-name>
+  node ./scripts/install-config-helper.mjs dsh-mcp <profile-patch-path> <hooks-path> <command-path> <with-turn-ended-hook>
   node ./scripts/install-config-helper.mjs codex-plugin-version <plugin-manifest-path>
   node ./scripts/install-config-helper.mjs codex-plugin-config <config-path> <repo-root> <marketplace-name> <plugin-name>
   node ./scripts/install-config-helper.mjs copy-into-dir <target-dir> <source-path> [<source-path> ...]
@@ -475,6 +476,177 @@ function copyIntoDir(targetDir, sourcePaths) {
   }
 }
 
+/**
+ * Markers around the block this installer owns inside a DSH profile patch. The
+ * patch is a plain YAML array the user also edits by hand, so the block is
+ * delimited and replaced wholesale instead of being merged key by key.
+ */
+const DSH_PATCH_BEGIN_MARKER = "# >>> open-computer-use (managed by install-dsh-mcp.sh)";
+const DSH_PATCH_END_MARKER = "# <<< open-computer-use";
+
+/** Quote a value as a double-quoted YAML scalar (paths routinely contain spaces and parentheses). */
+function quoteYamlString(value) {
+  return `"${String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+}
+
+/** Quote a value for the shell line a DSH hook runs. */
+function quoteShellWord(value) {
+  return `"${String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("$", "\\$").replaceAll("`", "\\`")}"`;
+}
+
+/**
+ * Render the DSH hook config that clears the Open Computer Use software cursor.
+ * The cursor is only hidden at a turn boundary (the MCP `notifications/turn-ended`
+ * notification), which dsh-mcp-client never sends, so without this hook the cursor
+ * stays on screen after the first action of any session or subagent.
+ */
+function renderDshHookConfig(commandPath) {
+  return {
+    hooks: {
+      Stop: [
+        {
+          hooks: [
+            {
+              type: "command",
+              command: `${quoteShellWord(commandPath)} turn-ended`,
+              timeout: 5,
+            },
+          ],
+        },
+      ],
+    },
+  };
+}
+
+/** Render the managed block appended to a DSH profile patch. */
+function renderDshPatchBlock(commandPath, hooksPath, withHook) {
+  const lines = [
+    DSH_PATCH_BEGIN_MARKER,
+    "# Replaced in place on every run; edits inside the block are overwritten.",
+    "# For the hook rationale see skills/open-computer-use/references/installation.md.",
+    "- insert:",
+    "    - id: mcp-open-computer-use",
+    "      name: '@deepseek-ai/dsh-mcp-client'",
+    "      config:",
+    "        serverName: ocu",
+    "        transport: stdio",
+    `        command: ${quoteYamlString(commandPath)}`,
+    "        args:",
+    "          - mcp",
+    "        toolCallTimeoutMs: 300000",
+    "        failOnStartupError: false",
+  ];
+
+  if (withHook) {
+    lines.push(
+      "    # OCU hides its software cursor only at a turn boundary, and dsh-mcp-client",
+      "    # never sends that notification; this row maps Stop onto the OCU CLI.",
+      "    - id: ocu-turn-ended-hook",
+      "      name: '@deepseek-ai/dsh-hooks-codex'",
+      "      config:",
+      `        configPath: ${quoteYamlString(hooksPath)}`,
+      "        defaultTimeoutMs: 5000",
+    );
+  }
+
+  lines.push(DSH_PATCH_END_MARKER);
+  return lines;
+}
+
+/** Replace the managed block in place, or append it when the patch has none yet. */
+function applyDshPatchBlock(existingText, blockLines, patchPath) {
+  const normalized = normalizeNewlines(existingText);
+  const lines = normalized.length > 0 ? normalized.split("\n") : [];
+  const beginIndex = lines.findIndex((line) => line.trim() === DSH_PATCH_BEGIN_MARKER);
+  const endIndex = lines.findIndex((line) => line.trim() === DSH_PATCH_END_MARKER);
+
+  if ((beginIndex === -1) !== (endIndex === -1) || (beginIndex !== -1 && endIndex < beginIndex)) {
+    fail(`Refusing to edit ${patchPath}: found only one of the two managed markers. Delete the stale marker line and re-run.`);
+  }
+
+  let nextLines;
+  if (beginIndex === -1) {
+    nextLines = trimTrailingBlankLines([...lines]);
+    if (nextLines.length > 0) {
+      nextLines.push("");
+    }
+    nextLines.push(...blockLines);
+  } else {
+    nextLines = [...lines.slice(0, beginIndex), ...blockLines, ...lines.slice(endIndex + 1)];
+  }
+
+  const text = trimTrailingBlankLines(nextLines).join("\n");
+  return text.length > 0 ? `${text}\n` : "";
+}
+
+/**
+ * Find rows this installer would own that already exist outside the managed
+ * block. They usually come from a hand-written registration; keeping both would
+ * register the MCP server twice, and dsh-mcp-client rejects a duplicate
+ * serverName.
+ */
+function findUnmanagedDshRows(existingText, ids) {
+  const lines = normalizeNewlines(existingText).split("\n");
+  const beginIndex = lines.findIndex((line) => line.trim() === DSH_PATCH_BEGIN_MARKER);
+  const endIndex = lines.findIndex((line) => line.trim() === DSH_PATCH_END_MARKER);
+  const outside = beginIndex !== -1 && endIndex > beginIndex
+    ? [...lines.slice(0, beginIndex), ...lines.slice(endIndex + 1)]
+    : lines;
+
+  const conflicts = [];
+  outside.forEach((line, index) => {
+    for (const id of ids) {
+      if (line.trim() === `- id: ${id}`) {
+        conflicts.push({ id, line: index + 1 });
+      }
+    }
+  });
+  return conflicts;
+}
+
+/**
+ * Install the stdio MCP server into one DSH profile patch, and optionally the
+ * turn-boundary hook that keeps the software cursor from sticking on screen.
+ */
+function installDshMcp(patchPath, hooksPath, commandPath, withHookValue) {
+  const withHook = withHookValue !== "0" && withHookValue !== "false";
+
+  if (!existsSync(commandPath)) {
+    fail(`MCP command does not exist: ${commandPath}`);
+  }
+
+  const existing = readTextIfExists(patchPath);
+  const managedIds = withHook
+    ? ["mcp-open-computer-use", "ocu-turn-ended-hook"]
+    : ["mcp-open-computer-use"];
+  const conflicts = findUnmanagedDshRows(existing, managedIds);
+  if (conflicts.length > 0) {
+    const found = conflicts.map((entry) => `"${entry.id}" (line ${entry.line})`).join(", ");
+    fail(
+      `Refusing to edit ${patchPath}: it already declares ${found} outside the managed block.\n` +
+        "Remove the hand-written row(s) and re-run: two rows for the same id register the MCP " +
+        "server twice, and dsh-mcp-client rejects a duplicate serverName.",
+    );
+  }
+
+  if (withHook) {
+    writeJSONConfig(hooksPath, renderDshHookConfig(commandPath));
+  }
+
+  const nextText = applyDshPatchBlock(existing, renderDshPatchBlock(commandPath, hooksPath, withHook), patchPath);
+
+  if (nextText !== existing) {
+    ensureParentDir(patchPath);
+    writeFileSync(patchPath, nextText, "utf8");
+  }
+
+  process.stdout.write(`MCP server "ocu" -> ${commandPath}\n`);
+  process.stdout.write(`DSH profile patch: ${patchPath} (${existing === nextText ? "already current" : "updated"})\n`);
+  if (withHook) {
+    process.stdout.write(`Turn-boundary hook config: ${hooksPath}\n`);
+  }
+}
+
 function main(argv) {
   const [command, ...args] = argv;
   switch (command) {
@@ -505,6 +677,13 @@ function main(argv) {
         process.exit(1);
       }
       installOpencodeMcp(...args);
+      return;
+    case "dsh-mcp":
+      if (args.length !== 4) {
+        usage();
+        process.exit(1);
+      }
+      installDshMcp(...args);
       return;
     case "codex-plugin-version":
       if (args.length !== 1) {

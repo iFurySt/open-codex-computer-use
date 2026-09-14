@@ -71,6 +71,39 @@ Codex App can also use the plugin installer:
 open-computer-use install-codex-plugin
 ```
 
+Install into DeepSeek Harness (DSH):
+
+```sh
+open-computer-use install-dsh-mcp
+ocu install-dsh-mcp
+
+# from a source checkout
+./scripts/install-dsh-mcp.sh
+```
+
+DSH profiles are composed from patch layers, so the installer writes a delimited
+block into `<dsh-home>/profiles/<profile>/cordis.patch.yml` (default profile
+`web`, default home `~/.dsh`). The block is replaced in place on every run, so
+re-running is idempotent and the rest of the file is untouched.
+
+It also installs two things a DSH host needs beyond the MCP entry:
+
+- **The turn-boundary hook.** Open Computer Use hides its software cursor only at
+  a turn boundary, signalled by the MCP `notifications/turn-ended` notification.
+  `dsh-mcp-client` never sends that notification, so without the hook the cursor
+  stays on screen after the first action of any session or subagent. The
+  installer writes `<dsh-home>/ocu-hooks.json` and maps DSH's Stop point onto
+  `open-computer-use turn-ended`. Pass `--no-hook` to skip both.
+- **The skill.** Copied to `<dsh-home>/skills/open-computer-use`, which DSH scans
+  as a user-level skill root, so every new conversation can see it. Pass
+  `--no-skill` to skip.
+
+Options: `--profile <name>`, `--dsh-home <dir>`, `--command <path>`, `--no-hook`,
+`--no-skill`. DSH spawns the registered command directly rather than through a
+shell, so `--command` must be an absolute path to an executable; when it is
+omitted the installer probes the usual install locations and the npm global
+layout, and fails with guidance if it finds nothing.
+
 For any other MCP client, add a stdio server manually:
 
 ```json
