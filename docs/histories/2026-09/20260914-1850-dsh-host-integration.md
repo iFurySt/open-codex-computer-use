@@ -21,6 +21,7 @@
 - **npm 侧对齐**：`scripts/npm/build-packages.mjs` 增加 `install-dsh-mcp` 命令、帮助文本、`help install-dsh-mcp` 分支、打包清单与拷贝逻辑（含把 `skills/open-computer-use` 打进包里，否则 npm 用户没有 skill 可用）。
 - **文档**：`skills/open-computer-use/references/installation.md` 增加 DSH 章节；`README.md` 宿主命令列表补齐。
 - **验证能力**：新增 `scripts/tests/install-dsh-mcp.test.sh` 并接入 `scripts/ci.sh`。
+- **非破坏性 skill 安装**：目标目录已存在且与 checkout 不一致时只警告不覆盖，`--force-skill` 才替换并留时间戳备份。理由：本机就存在一份比仓库更详细的中文运维版技能，直接覆盖等于静默毁掉用户自己的内容。
 
 ### 🧠 Design Intent (Why)
 - **钩子必须和 MCP 一起装**：OCU 的软件光标只在 turn 边界隐藏，触发源是 MCP 通知 `notifications/turn-ended`（`packages/OpenComputerUseKit/Sources/OpenComputerUseKit/MCPServer.swift` → `SoftwareCursorOverlay.reset()`；设计取舍见 `SoftwareCursorOverlay.swift:425-429`——进程内没有 inactivity timer，因为一轮里模型思考数分钟是常态）。而 `dsh-mcp-client` 从不发送该通知，任何会话或子代理调过一次动作后光标会永久留在屏幕上。只写 MCP 配置的安装器会把这个缺陷一起交付给用户。
@@ -38,7 +39,7 @@
 - `README.md`
 
 ### ✅ Verification
-- `scripts/tests/install-dsh-mcp.test.sh`：5 项断言全部通过（保留用户行 + 两条托管行、钩子命令带引号、skill 落位、重复执行字节不变、`--no-hook`/`--no-skill` 生效）。
+- `scripts/tests/install-dsh-mcp.test.sh`：9 项断言全部通过（保留用户行 + 两条托管行、钩子命令带引号、skill 落位、重复执行字节不变、`--no-hook`/`--no-skill` 生效、手写重复行被拒、已有 skill 不被覆盖、`--force-skill` 替换并留备份）。
 - `bash -n` / `node --check`：新增与改动的脚本通过。
 - 产物 YAML 经独立解析器校验：顶层 2 个条目，`insert` 中 id 为 `["mcp-open-computer-use", "ocu-turn-ended-hook"]`。
 - 与真机对照：在相同的目录结构下安装后，产物与当前手工维护的 DSH 配置等价。

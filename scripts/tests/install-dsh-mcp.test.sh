@@ -88,4 +88,16 @@ if [[ -f "${conflict_home}/ocu-hooks.json" ]]; then
 fi
 pass "a hand-written duplicate row is refused instead of duplicated"
 
+printf 'local edit\n' >> "${dsh_home}/skills/open-computer-use/SKILL.md"
+"${installer}" --dsh-home "${dsh_home}" --command "${fake_command}" >/dev/null 2>&1
+grep -q "local edit" "${dsh_home}/skills/open-computer-use/SKILL.md" || fail "an existing skill was overwritten without --force-skill"
+pass "an existing skill that differs is left untouched"
+
+"${installer}" --dsh-home "${dsh_home}" --command "${fake_command}" --force-skill >/dev/null 2>&1
+if grep -q "local edit" "${dsh_home}/skills/open-computer-use/SKILL.md"; then
+  fail "--force-skill did not replace the skill"
+fi
+[[ "$(find "${dsh_home}/skills" -maxdepth 1 -name 'open-computer-use.bak-*' | wc -l | tr -d ' ')" == "1" ]] || fail "--force-skill left no backup"
+pass "--force-skill replaces the skill and keeps a backup"
+
 echo "install-dsh-mcp tests passed"

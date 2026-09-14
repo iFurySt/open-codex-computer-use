@@ -96,13 +96,16 @@ It also installs two things a DSH host needs beyond the MCP entry:
   `open-computer-use turn-ended`. Pass `--no-hook` to skip both.
 - **The skill.** Copied to `<dsh-home>/skills/open-computer-use`, which DSH scans
   as a user-level skill root, so every new conversation can see it. Pass
-  `--no-skill` to skip.
+  `--no-skill` to skip. An existing skill directory is never overwritten
+  silently: when it differs from this checkout the installer leaves it in place
+  and says so, and `--force-skill` replaces it while keeping a timestamped
+  backup.
 
 Options: `--profile <name>`, `--dsh-home <dir>`, `--command <path>`, `--no-hook`,
-`--no-skill`. DSH spawns the registered command directly rather than through a
-shell, so `--command` must be an absolute path to an executable; when it is
-omitted the installer probes the usual install locations and the npm global
-layout, and fails with guidance if it finds nothing.
+`--no-skill`, `--force-skill`. DSH spawns the registered command directly rather
+than through a shell, so `--command` must be an absolute path to an executable;
+when it is omitted the installer probes the usual install locations and the npm
+global layout, and fails with guidance if it finds nothing.
 
 For any other MCP client, add a stdio server manually:
 

@@ -12,6 +12,7 @@ profile_name="web"
 command_override=""
 with_hook=1
 with_skill=1
+force_skill=0
 
 usage() {
   cat <<'EOF'
@@ -30,6 +31,8 @@ Options:
   --command <path>   Executable DSH spawns for the MCP server (default: auto-detect)
   --no-hook          Do not write the turn-boundary hook config or its patch row
   --no-skill         Do not copy the skill into <dsh-home>/skills
+  --force-skill      Replace an existing skill directory that differs from this
+                     checkout (the previous copy is kept as a timestamped backup)
   -h, --help         Show this help.
 
 Environment:
@@ -77,6 +80,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-skill)
       with_skill=0
+      shift
+      ;;
+    --force-skill)
+      force_skill=1
       shift
       ;;
     -h|--help)
@@ -171,11 +178,26 @@ if [[ "${with_hook}" -eq 0 ]]; then
   echo "Turn-boundary hook skipped (--no-hook); the software cursor can stay on screen between turns." >&2
 fi
 
+skill_target="${dsh_home}/skills/open-computer-use"
+
 if [[ "${with_skill}" -eq 1 ]]; then
-  if [[ -d "${skill_source}" ]]; then
+  if [[ ! -d "${skill_source}" ]]; then
+    echo "Skill source not found at ${skill_source}; skipping the skill copy." >&2
+  elif [[ ! -e "${skill_target}" ]]; then
+    node "${config_helper}" copy-into-dir "${dsh_home}/skills" "${skill_source}"
+  elif diff -rq "${skill_source}" "${skill_target}" >/dev/null 2>&1; then
+    echo "Skill already current at ${skill_target}"
+  elif [[ "${force_skill}" -eq 1 ]]; then
+    skill_backup="${skill_target}.bak-$(date +%Y%m%d-%H%M%S)"
+    mv "${skill_target}" "${skill_backup}"
+    echo "Existing skill moved to ${skill_backup}" >&2
     node "${config_helper}" copy-into-dir "${dsh_home}/skills" "${skill_source}"
   else
-    echo "Skill source not found at ${skill_source}; skipping the skill copy." >&2
+    cat >&2 <<EOF
+Skill at ${skill_target} differs from this checkout; leaving it untouched so a
+local copy is never overwritten silently. Re-run with --force-skill to replace it
+(a timestamped backup is kept).
+EOF
   fi
 fi
 
