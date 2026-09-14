@@ -9,6 +9,8 @@
 3. ~~动作前给目标元素画一个不抢焦点的透明高亮环，300–600ms 后淡出~~（**P10 已撤销**：官方 Codex 没有“目标高亮”概念，用户裁定彻底删除该特性，视觉只保留软件光标 + click pulse）。
 4. `click.method=auto` 的 AX 失败路径优先尝试 `sky_click`，失败再落 `postToPid`，且绝不因 sky 失败而回退到 global 物理指针（P3，默认关闭，见决策记录）。
 5. 虚拟光标在空闲期必须绝对静止：没有显式动作时不得有任何 position / order / level 更新，所有动画定时器在节拍结束后 `invalidate()`，并在写入前取整、相等即 no-op（P6，用户实测“光标小箭头原地小幅抖动，且 AI 空闲时也在抖”）。
+6. 打开的弹层不得再把页面挤掉：`get_app_state` 在应用级临时子树存在时把弹层追加在 `--- popup ---` 之后；弹层由 app 自己从无障碍树隐藏背景时给出 `--- popup note ---`（P12）。
+7. `click` / `set_value` 支持稳定选择器 `selector: "role[name=…]"`，由 OCU 在动作时重新解析，取代 read → act → read 循环（P12）。
 
 ## 范围
 
@@ -40,6 +42,7 @@
 4. P3：`.auto` 的 sky_click 优先路径（env 灰度）。
 5. 单元测试、`swift build` / `swift test`、文档与 history。
 6. P10：整体删除目标高亮特性，视觉对齐官方（只有软件光标 + click pulse），`debug-highlight` 改名 `debug-cursor`。
+7. P12：弹层快照共存（独立子树追加 + 背景被隐藏时的 note）与稳定选择器（click / set_value）。
 
 ## 验证方式
 
@@ -71,6 +74,10 @@
 - [x] P10 单测与证据：删除 `TargetHighlightStyleTests`（11）+ `DebugHighlightTests`（9）与环相关断言，新增 `DebugCursorTests`（7）；`swift build` Build complete、`swift test` 222 tests / 1 skipped / 0 failures（245 → 222）、`./scripts/check-docs.sh` 通过、截图 `tmp/ocu-cursor-only-<sha>/cursor-only.png`
 - [x] P11 跨屏/移动后重定位（用户实测“窗口移到内建屏，虚拟光标仍留在原屏”）：`currentSnapshot` 动作前用 `CGWindowListCopyWindowInfo(.optionIncludingWindow)` 重读目标窗口实时几何（`SnapshotWindowGeometry` + `snapshotWindowReanchorAction`：同窗口同尺寸仅移动 → `reanchored(to:)` 只 patch frame，尺寸变化或换窗口 → 整份 `refreshSnapshot`）；`VisualCursorTarget` 带上 screen-state 点与当时的窗口 frame，overlay 存 `CursorRestingAnchor`；`AXWindowMotionObserver`（只读 `AXWindowMoved` / `AXWindowResized`，`OPEN_COMPUTER_USE_WINDOW_MOVE_WATCH=0` 关闭）事件式跟随；动作前 `refreshTargetWindowAnchorIfScreenChanged` 兜底校验“光标屏 == 目标窗口屏”，不一致就由 live frame 重推 tip 重画（永不隐藏）
 - [x] P11 单测与证据：新增 `CursorCrossScreenTests`（9：reanchor 策略、`reanchored` 保留窗口相对 frame、通知式跨屏跟随、兜底重定位、屏一致性纯函数、只读通知集、开关默认值、禁用光标不挂观察者、reset 摘除观察者）；`swift build` Build complete、`swift test` 231 tests / 1 skipped / 0 failures（222 → 231）、`./scripts/check-docs.sh` 通过
+- [x] P12 弹层快照共存：新增 `PopupSnapshot.swift`（`PopupSubtreeDescriptor` / `isOpenPopupRole` / `isTransientPopupSubtree` / `transientPopupSubtreeSelection` / `appendingTransientPopupSection` / `collapsedWebAreaPopupNote`）；`SnapshotBuilder` 在渲染焦点窗口与菜单栏后，从 `AXApplication` 的 `AXChildren` + `AXWindows` 收集未渲染的临时子树（`AXPopover` / `AXSheet` / `AXMenu` / `AXListBox` / `AXDialog`，以及 floating / dialog / system dialog / system floating 子角色的 `AXWindow`；排除菜单栏与已最小化窗口），用同一个 `RenderContext` 与延续的索引渲染并追加到 `--- popup ---` 之后；焦点窗口自身就是弹层时改为追加它盖住的其它窗口。没有任何打开的弹层时选择结果为空、输出逐字节不变。
+- [x] P12 背景被 app 隐藏时的显式提示：Chromium 弹层组件（Radix）在弹层打开期间把文档 `aria-hidden`，实测 AX 形态是 `AXWebArea` 只剩一个 `AXListBox` 且焦点在弹层内——这类背景节点在 AX 树里**不存在**，无法被“追加子树”救回，因此 `collapsedWebAreaPopupNote` 在同一形态下追加 `--- popup note ---`，说明背景索引暂时不可用、先处理弹层、随后用 selector 继续，避免上层把它误判成“需要反复 get_app_state”。
+- [x] P12 稳定选择器：新增 `ElementSelector.swift`（`ElementSelector.parse` 支持 `role[name=…]` / `[name=…]` / `[role=…][name=…]` / 裸名字与引号；`selectorRoleMatches` 接受 AX 角色、去 `AX` 写法、常见别名 family 与快照里的本地化 role 文本；`resolveElementSelector` 先精确 name、再唯一前缀，按渲染父子链折叠 Chromium 的 wrapper + 文本叶子重复上报，多处命中 / 未命中 / 语法错误一律 fail closed 并列出候选）。`click` / `set_value` 新增可选 `selector` 且与 `element_index` 二选一；选择器路径在动作时重新渲染一次树再解析（`element_index` 仍用缓存快照、语义不变），`ElementRecord` 因此携带 title / label / value / roleText / placeholder / parentIndex。
+- [x] P12 单测与证据：新增 `PopupSnapshotTests`（11）+ `ElementSelectorTests`（15）；`swift build` Build complete、`swift test` 257 tests / 1 skipped / 0 failures（231 → 257）、`./scripts/check-docs.sh` 通过。
 
 ## 决策记录
 
@@ -100,3 +107,10 @@
 - 2026-09-12：P11 只 patch“同尺寸移动”，尺寸变化走整份重取。理由：元素 frame 是窗口相对坐标，纯移动不改变它们，patch `windowBounds` 即可让所有全局点重新正确；而 resize 会同时改变布局与截图缩放比，patch 反而制造更难查的错误坐标。窗口解析不到（最小化 / 在别的 Space 且枚举不到）时保持快照原样而不是 fail closed：AX 动作路径本来就不需要 frame，放弃缓存会让原本可用的 `click` 失败。
 - 2026-09-12：P11 的跨屏跟随做成只读 AX 观察者 + 动作前兜底两层，而不是轮询。理由：`NSWindow.didMoveNotification` 是进程内通知，跨进程窗口移动唯一的事件源是 AX 通知；而周期性轮询 window server 会破坏 P6 建立的“空闲绝对静止、只读不写”契约。App 不保证都发 `AXWindowMoved`，所以每次动作前仍用 `CGWindowListCopyWindowInfo` 校验“光标所在屏 == 目标窗口所在屏”，不一致就重算重画；该路径只读、不隐藏光标。
 - 2026-09-12：P11 的窗口移动跟随用 `repositionCursor`（立即落位）而不是 `moveCursor`（Bezier 飞行）。理由：用户是自己在拖窗口，光标跟着窗口瞬移才是“跟着走”；播一段飞行动画会把拖动过程变成两次运动。
+- 2026-09-14：P12 的根因不是“快照只从某个 web area 开始遍历”，而是**弹层组件自己把背景从无障碍树里拿掉了**。证据：人工验收期间的真实快照原文里，弹层打开时 `15 HTML 内容`（`AXWebArea`）的唯一子节点是 `16 列表框`，其余表单字段（资源名称 / 用途 / 交付目标 / …）在窗口 chrome 之后完全消失，光标焦点落在弹层内的 `17 文本 (selected)`；同一个页面在弹层关闭时这些字段都在。Radix 的 `Select` 用 `aria-hidden` 隐藏 portal 之外的内容，Chromium 因此不把被隐藏子树暴露到 macOS AX 树。结论：**任何“换遍历起点 / 收集额外子树”的方案都救不回这批节点**，因为它们在 AX 层不存在。
+- 2026-09-14：P12 因此把问题拆成两半处理，而不是伪造背景。可救的一半（弹层确实在自己的顶层子树里：原生 popover / sheet / menu / floating·dialog window）用 `--- popup ---` 追加，一次读取同时拿到窗口与弹层；不可救的一半（背景被 app 隐藏）用 `--- popup note ---` 显式说明“背景索引暂时不可用、先处理弹层、之后用 selector”，而不是让上层把“页面消失”误判为需要反复重读。
+- 2026-09-14：P12 **不**做“把上一份快照的背景行搬进当前快照”。理由：`aria-hidden` 会让 Chromium 删除对应的 platform node，旧 `AXUIElement` 句柄已经失效，把旧 `element_index` 一并端上去等于给上层埋一个必然失败的陷阱；真正需要保留的“我现在填到哪了”属于调用方上下文，不属于快照。
+- 2026-09-14：P12 的弹层追加默认开启、不新增开关。理由：选择结果在没有任何临时子树时为空，输出与旧版逐字节一致；弹层内容与主树共用同一个节点预算（`shouldContinueRendering`），不会无限膨胀。开关只会增加一个“忘了打开就没有弹层”的失败模式。
+- 2026-09-14：P12 的选择器在**动作时重新渲染**一次树再解析，`element_index` 仍走缓存快照。理由：选择器的语义就是“与快照无关的稳定目标”，用旧句柄解析会解析到已经被替换的元素；`element_index` 的既有契约（当次快照内有效）必须原样保留，否则会破坏所有现存调用方与文档。
+- 2026-09-14：P12 的 name 匹配顺序为“精确 → 唯一前缀”，并把 Chromium 的 wrapper + 文本叶子重复上报按渲染父子链折叠成最外层节点。理由：Radix 选项在真实快照里同时出现在 `19 文本 草稿` 与其子节点 `20 文本 草稿`，按字符串判重会把同一个可点目标判成“多处命中”而永远选不中；而两个不相关元素同名时必须报错而不是猜。
+- 2026-09-14：P12 `get_app_state` 的官方描述文案**不改**（`testToolDescriptionsMatchOfficialComputerUseSurface` 钉住官方 parameters surface）；面向 agent 的弹层 / 选择器说明放在 MCP `initialize.instructions`、`selector` 参数描述与 skill `usage.md`，避免破坏与官方 tool surface 的对齐。

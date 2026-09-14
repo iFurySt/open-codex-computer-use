@@ -106,6 +106,37 @@ open-computer-use snapshot --max-tree-nodes 3000 --max-tree-depth 96 "Google Chr
 - Re-run `get_app_state` after navigation, modal changes, page reloads, or failed actions.
 - Use coordinate actions only when the rendered tree does not expose the target as an element.
 
+### Stable selectors
+
+`element_index` only describes the snapshot it came from: every action re-renders the tree and
+the indices move. When a target has a stable name, pass `selector` to `click` or `set_value`
+instead of reading the tree again:
+
+```sh
+open-computer-use call set_value --args '{"app":"Google Chrome","selector":"textbox[name=用途]","value":"draft"}'
+open-computer-use call click --args '{"app":"Google Chrome","selector":"button[name=检查变更]"}'
+```
+
+Accepted forms: `role[name=NAME]`, `[name=NAME]`, `[role=ROLE][name=NAME]` or a bare `NAME`.
+Role aliases (`button`, `textfield`, `textbox`, `combobox`, `text`, `link`, `listbox`,
+`checkbox`, …), exact AX roles and the localized role text shown in the tree all match. The name
+is matched against the element title, description, value, identifier and placeholder: exact
+matches win, a unique prefix match is accepted, and two unrelated matches fail closed with the
+candidate list instead of guessing. `selector` cannot be combined with `element_index`.
+
+### Popups and overlays
+
+`get_app_state` renders the focused window and, when the app has opened an overlay that lives in
+its own subtree (native popover, sheet, menu, floating/dialog window), appends it after a
+`--- popup ---` marker. One read then covers both the window content and the popup options; a
+snapshot without an open popup is unchanged.
+
+A trailing `--- popup note ---` means something different: the app itself is hiding the content
+behind the popup from the accessibility tree (Chromium does this for the document around an open
+Radix/ARIA popup), so the background `element_index` values are temporarily unavailable. Finish
+the popup interaction (choose an option, or press Escape) and then act on the content behind it
+with `selector` — repeatedly re-reading the tree will not bring it back.
+
 ## Choosing a Click Method
 
 `click_method` is optional. Omitting it uses `auto`, which preserves the platform's existing semantic-first behavior. Explicit methods never fall back to a different implementation:

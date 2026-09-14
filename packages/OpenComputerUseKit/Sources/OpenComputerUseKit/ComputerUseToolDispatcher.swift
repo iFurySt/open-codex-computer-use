@@ -61,6 +61,7 @@ public final class ComputerUseToolDispatcher {
             return try service.click(
                 app: requireString("app", in: arguments),
                 elementIndex: optionalElementIndex(in: arguments),
+                selector: optionalString("selector", in: arguments),
                 x: optionalDouble("x", in: arguments),
                 y: optionalDouble("y", in: arguments),
                 clickCount: Int(optionalDouble("click_count", in: arguments) ?? 1),
@@ -107,7 +108,8 @@ public final class ComputerUseToolDispatcher {
         case "set_value":
             return try service.setValue(
                 app: requireString("app", in: arguments),
-                elementIndex: requireElementIndex(in: arguments),
+                elementIndex: optionalElementIndex(in: arguments),
+                selector: optionalString("selector", in: arguments),
                 value: requireString("value", in: arguments),
                 allowWindowRecovery: optionalBool("allow_window_recovery", in: arguments)
             )

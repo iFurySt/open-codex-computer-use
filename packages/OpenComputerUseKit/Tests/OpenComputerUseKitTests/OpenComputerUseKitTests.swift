@@ -1660,7 +1660,7 @@ final class OpenComputerUseKitTests: XCTestCase {
         ) { error in
             XCTAssertEqual(
                 (error as? ComputerUseError)?.errorDescription,
-                "click_method 'accessibility' requires element_index"
+                "click_method 'accessibility' requires element_index or selector"
             )
         }
 

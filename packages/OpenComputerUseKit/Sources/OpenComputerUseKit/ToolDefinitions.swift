@@ -38,6 +38,7 @@ public enum ToolDefinitions {
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier"),
                     "element_index": stringProperty(description: "Element index to click"),
+                    "selector": selectorProperty(),
                     "x": numberProperty(description: "X coordinate in screenshot pixel coordinates"),
                     "y": numberProperty(description: "Y coordinate in screenshot pixel coordinates"),
                     "click_count": integerProperty(description: "Number of clicks. Defaults to 1"),
@@ -46,7 +47,7 @@ public enum ToolDefinitions {
                         enumValues: ["left", "right", "middle"]
                     ),
                     "click_method": stringProperty(
-                        description: "Click implementation: auto (default), accessibility, app_post, sky_click, or global. Accessibility requires element_index. app_post sends a public event directly to the target app. sky_click uses the macOS SkyLight background window path. Global may move the system pointer and requires OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1. auto tries accessibility first and then app_post, attempting sky_click in between only when OPEN_COMPUTER_USE_AUTO_SKY_CLICK=1.",
+                        description: "Click implementation: auto (default), accessibility, app_post, sky_click, or global. Accessibility requires element_index or selector. app_post sends a public event directly to the target app. sky_click uses the macOS SkyLight background window path. Global may move the system pointer and requires OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1. auto tries accessibility first and then app_post, attempting sky_click in between only when OPEN_COMPUTER_USE_AUTO_SKY_CLICK=1.",
                         enumValues: ClickMethod.allCases.map(\.rawValue)
                     ),
                     "allow_window_recovery": windowRecoveryProperty(),
@@ -141,10 +142,11 @@ public enum ToolDefinitions {
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier"),
                     "element_index": stringProperty(description: "Element identifier"),
+                    "selector": selectorProperty(),
                     "value": stringProperty(description: "Value to assign"),
                     "allow_window_recovery": windowRecoveryProperty(),
                 ],
-                required: ["app", "element_index", "value"]
+                required: ["app", "value"]
             )
         ),
         ToolDefinition(
@@ -261,6 +263,16 @@ private func numberProperty(description: String) -> [String: Any] {
     [
         "type": "number",
         "description": description,
+    ]
+}
+
+/// A stable name for an element, resolved against a freshly rendered tree when
+/// the action runs. It removes the read -> act -> read loop that snapshot-scoped
+/// element indices force on the caller.
+private func selectorProperty() -> [String: Any] {
+    [
+        "type": "string",
+        "description": "Stable element selector resolved against the accessibility tree at action time, for example \"button[name=检查变更]\", \"combobox[name=类型]\" or \"[name=返回]\". Prefer it over element_index when the element has a name: element indices only describe the snapshot they came from. Role aliases such as button, textfield, textbox, combobox, text, link, listbox and checkbox are accepted. Cannot be combined with element_index.",
     ]
 }
 

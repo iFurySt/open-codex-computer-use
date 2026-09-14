@@ -119,7 +119,7 @@ func validateClickMethod(
     environment: [String: String]
 ) throws {
     if method == .accessibility, !hasElementIndex {
-        throw ComputerUseError.message("click_method 'accessibility' requires element_index")
+        throw ComputerUseError.message("click_method 'accessibility' requires element_index or selector")
     }
 
     if method == .global, !globalPointerFallbacksEnabled(environment: environment) {
@@ -678,6 +678,7 @@ public final class ComputerUseService {
     public func click(
         app query: String,
         elementIndex: String?,
+        selector: String? = nil,
         x: Double?,
         y: Double?,
         clickCount: Int,
@@ -685,9 +686,10 @@ public final class ComputerUseService {
         clickMethod: ClickMethod = .auto,
         allowWindowRecovery: Bool? = nil
     ) throws -> ToolCallResult {
+        let parsedSelector = try elementSelector(elementIndex: elementIndex, selector: selector, tool: "click")
         try validateClickMethod(
             clickMethod,
-            hasElementIndex: elementIndex != nil,
+            hasElementIndex: elementIndex != nil || parsedSelector != nil,
             environment: ProcessInfo.processInfo.environment
         )
         try validateSkyClickArguments(
@@ -696,7 +698,21 @@ public final class ComputerUseService {
             clickCount: clickCount
         )
 
-        let snapshot = try currentSnapshot(for: query, allowWindowRecovery: allowWindowRecovery)
+        // A selector is resolved against a tree rendered at action time, so it
+        // never depends on the indices of an earlier snapshot. element_index
+        // keeps its snapshot-scoped semantics (and its cached snapshot).
+        let snapshot: AppSnapshot
+        let targetElementIndex: String?
+        if let parsedSelector {
+            snapshot = try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery)
+            targetElementIndex = try resolveSelectorIndex(parsedSelector, in: snapshot)
+        } else {
+            snapshot = try currentSnapshot(for: query, allowWindowRecovery: allowWindowRecovery)
+            targetElementIndex = elementIndex
+        }
+
+        let targetDescription = parsedSelector.map { "selector=\($0.raw)" }
+            ?? "element_index=\(targetElementIndex ?? "")"
         let button = MouseButtonKind(rawValue: mouseButton.lowercased()) ?? .left
         if snapshot.mode == .fixture {
             guard clickMethod == .auto else {
@@ -707,8 +723,8 @@ public final class ComputerUseService {
 
             let cursorTarget: VisualCursorTarget?
             var moveApproach: VisualCursorApproach = .skipped
-            if let elementIndex {
-                let record = try lookupElement(snapshot: snapshot, index: elementIndex)
+            if let targetElementIndex {
+                let record = try lookupElement(snapshot: snapshot, index: targetElementIndex)
                 guard let identifier = record.identifier else {
                     throw ComputerUseError.invalidArguments("fixture click requires an identifier-backed element")
                 }
@@ -734,14 +750,14 @@ public final class ComputerUseService {
             return snapshotResult(for: try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery), style: .actionResult)
         }
 
-        if let elementIndex {
+        if let targetElementIndex {
             let record = try ensureElementVisible(
-                try lookupElement(snapshot: snapshot, index: elementIndex),
-                index: elementIndex,
+                try lookupElement(snapshot: snapshot, index: targetElementIndex),
+                index: targetElementIndex,
                 snapshot: snapshot
             )
             guard let windowPoint = clickPoint(for: record, snapshot: snapshot) else {
-                throw ComputerUseError.stateUnavailable("element \(elementIndex) has no clickable frame")
+                throw ComputerUseError.stateUnavailable("element \(targetElementIndex) has no clickable frame")
             }
             let targetPoint = try windowPointToGlobalPoint(snapshot: snapshot, point: windowPoint)
             let cursorTarget = makeVisualCursorTarget(
@@ -771,7 +787,7 @@ public final class ComputerUseService {
                             windowPoint: windowPoint,
                             button: button,
                             clickCount: clickCount,
-                            targetDescription: "element_index=\(elementIndex)",
+                            targetDescription: targetDescription,
                             snapshot: snapshot
                         )
                     }
@@ -787,7 +803,7 @@ public final class ComputerUseService {
                         )
                     ) else {
                         throw ComputerUseError.message(
-                            "click_method 'accessibility' could not click element_index=\(elementIndex)"
+                            "click_method 'accessibility' could not click \(targetDescription)"
                         )
                     }
                 case .appPost, .skyClick, .global:
@@ -797,7 +813,7 @@ public final class ComputerUseService {
                         windowPoint: windowPoint,
                         button: button,
                         clickCount: clickCount,
-                        targetDescription: "element_index=\(elementIndex)",
+                        targetDescription: targetDescription,
                         snapshot: snapshot
                     )
                 }
@@ -857,7 +873,7 @@ public final class ComputerUseService {
                         )
                     }
                 case .accessibility:
-                    throw ComputerUseError.message("click_method 'accessibility' requires element_index")
+                    throw ComputerUseError.message("click_method 'accessibility' requires element_index or selector")
                 case .appPost, .skyClick, .global:
                     try performExplicitMouseClick(
                         method: clickMethod,
@@ -881,7 +897,7 @@ public final class ComputerUseService {
                 mouseButton: button
             )
         } else {
-            throw ComputerUseError.invalidArguments("click requires either element_index or x/y")
+            throw ComputerUseError.invalidArguments("click requires either element_index, selector or x/y")
         }
 
         return snapshotResult(
@@ -1047,14 +1063,31 @@ public final class ComputerUseService {
 
     public func setValue(
         app query: String,
-        elementIndex: String,
+        elementIndex: String?,
+        selector: String? = nil,
         value: String,
         allowWindowRecovery: Bool? = nil
     ) throws -> ToolCallResult {
-        let snapshot = try currentSnapshot(for: query, allowWindowRecovery: allowWindowRecovery)
+        let parsedSelector = try elementSelector(elementIndex: elementIndex, selector: selector, tool: "set_value")
+        guard elementIndex != nil || parsedSelector != nil else {
+            throw ComputerUseError.missingArgument("element_index or selector")
+        }
+
+        // Same rule as click: a selector is resolved against a tree rendered at
+        // action time, an element_index keeps its snapshot-scoped semantics.
+        let snapshot: AppSnapshot
+        let targetElementIndex: String
+        if let parsedSelector {
+            snapshot = try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery)
+            targetElementIndex = try resolveSelectorIndex(parsedSelector, in: snapshot)
+        } else {
+            snapshot = try currentSnapshot(for: query, allowWindowRecovery: allowWindowRecovery)
+            targetElementIndex = elementIndex ?? ""
+        }
+
         let record = try ensureElementVisible(
-            try lookupElement(snapshot: snapshot, index: elementIndex),
-            index: elementIndex,
+            try lookupElement(snapshot: snapshot, index: targetElementIndex),
+            index: targetElementIndex,
             snapshot: snapshot
         )
 
@@ -1072,7 +1105,7 @@ public final class ComputerUseService {
         }
 
         guard let element = record.element else {
-            throw ComputerUseError.stateUnavailable("element \(elementIndex) has no backing accessibility object")
+            throw ComputerUseError.stateUnavailable("element \(targetElementIndex) has no backing accessibility object")
         }
 
         guard try isSettableForSetValue(element: element, attribute: kAXValueAttribute) else {
@@ -1326,6 +1359,40 @@ public final class ComputerUseService {
         }
 
         return record
+    }
+
+    /// Validates the element-targeting arguments shared by `click` and
+    /// `set_value`: an index and a selector are two ways to address the same
+    /// element, so passing both is a caller bug rather than a preference.
+    private func elementSelector(elementIndex: String?, selector: String?, tool: String) throws -> ElementSelector? {
+        guard let selector, !selector.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+
+        if elementIndex != nil {
+            throw ComputerUseError.invalidArguments("\(tool) accepts either element_index or selector, not both")
+        }
+
+        do {
+            return try ElementSelector.parse(selector)
+        } catch let error as ElementSelectorParseError {
+            throw ComputerUseError.invalidArguments(error.errorDescription ?? "invalid selector")
+        }
+    }
+
+    /// Resolves a selector against one rendered tree and fails closed with the
+    /// candidate list when the match is missing or ambiguous.
+    private func resolveSelectorIndex(_ selector: ElementSelector, in snapshot: AppSnapshot) throws -> String {
+        let candidates = snapshot.elements.values
+            .sorted { $0.index < $1.index }
+            .map { ElementSelectorCandidate(record: $0) }
+
+        switch resolveElementSelector(selector, candidates: candidates) {
+        case .matched(let index):
+            return String(index)
+        case .notFound(let message), .ambiguous(let message):
+            throw ComputerUseError.message(message)
+        }
     }
 
     func matchingAction(requested: String, record: ElementRecord) -> String? {
@@ -2087,7 +2154,13 @@ public final class ComputerUseService {
             role: stringValue(of: element, attribute: kAXRoleAttribute) ?? record.role,
             rawActions: copyActions(for: element) ?? record.rawActions,
             prettyActions: record.prettyActions,
-            isSyntheticText: record.isSyntheticText
+            isSyntheticText: record.isSyntheticText,
+            title: record.title,
+            label: record.label,
+            value: record.value,
+            roleText: record.roleText,
+            placeholder: record.placeholder,
+            parentIndex: record.parentIndex
         )
     }
 
