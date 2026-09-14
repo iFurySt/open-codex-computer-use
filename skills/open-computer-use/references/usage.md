@@ -124,6 +124,11 @@ is matched against the element title, description, value, identifier and placeho
 matches win, a unique prefix match is accepted, and two unrelated matches fail closed with the
 candidate list instead of guessing. `selector` cannot be combined with `element_index`.
 
+A fail-closed message is authoritative, not a transient glitch: if the candidates it lists are all
+popup items while your target lives behind an open overlay, the background is hidden from the
+accessibility tree and no retry will find it. Finish the overlay interaction first (verified against
+Chromium + Radix: a background heading stays unresolvable until the popup closes).
+
 ### Popups and overlays
 
 `get_app_state` renders the focused window and, when the app has opened an overlay that lives in
@@ -136,6 +141,12 @@ behind the popup from the accessibility tree (Chromium does this for the documen
 Radix/ARIA popup), so the background `element_index` values are temporarily unavailable. Finish
 the popup interaction (choose an option, or press Escape) and then act on the content behind it
 with `selector` — repeatedly re-reading the tree will not bring it back.
+
+The two markers are independent, and both may be absent while an overlay is open: a Chromium
+listbox whose options are reachable inside the web area renders as the web area's only child, so the
+options are complete (selected item included) even though every background field is gone. Treat
+"options present" as the success signal for this shape; a missing `--- popup ---`/`note` does not
+mean the read failed.
 
 ## Choosing a Click Method
 
