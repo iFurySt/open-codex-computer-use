@@ -298,24 +298,44 @@ func windowLocalVisibleRect(windowBounds: CGRect?) -> CGRect? {
     return CGRect(origin: .zero, size: windowBounds.size)
 }
 
-/// True only when the element's click anchor can be proven to sit outside the
-/// window's visible rect. Unknown or degenerate geometry must never trigger a
-/// scroll, because the legacy behaviour (click at the element frame) is then the
-/// only safe option.
+/// True when the element's click anchor sits outside the window's visible rect, or
+/// when its reported geometry is a degenerate sliver.
+///
+/// Chromium clips the accessibility frame of content that a scroll container has
+/// pushed out of view: an off-screen control is reported at a valid position with a
+/// 0-1 pt size (measured on the console at 127.0.0.1:8790: the "配置类型" trigger
+/// read back as x=344 y=87 w=42 h=1 while clipped). Treating that sliver as
+/// "already visible" silently disabled scroll-into-view for every long web form, so
+/// a degenerate but *positioned* frame now counts as needing a scroll. Attempting
+/// the scroll is harmless when nothing is scrollable (ensureElementVisible falls
+/// back to the unchanged record), while skipping it leaves the operator staring at
+/// a viewport that never follows the action.
+///
+/// Only geometry that cannot be trusted at all - no frame, non-finite values, or no
+/// usable window rect - still returns false.
 func elementNeedsScrollIntoView(localFrame: CGRect?, windowBounds: CGRect?) -> Bool {
     guard
         let localFrame,
-        localFrame.width > 0,
-        localFrame.height > 0,
         localFrame.width.isFinite,
         localFrame.height.isFinite,
+        localFrame.origin.x.isFinite,
+        localFrame.origin.y.isFinite,
         let visibleRect = windowLocalVisibleRect(windowBounds: windowBounds)
     else {
         return false
     }
 
+    // Degenerate sliver: Chromium's clipped-out-of-view signature (see above).
+    if localFrame.width <= degenerateSliverThreshold || localFrame.height <= degenerateSliverThreshold {
+        return true
+    }
+
     return !visibleRect.contains(CGPoint(x: localFrame.midX, y: localFrame.midY))
 }
+
+/// Sizes at or below this many points are treated as a clipped-off-view sliver
+/// rather than a usable control: no interactive control renders that thin.
+let degenerateSliverThreshold: CGFloat = 1
 
 /// `click` / `set_value` / `select_text` scroll their target into view by
 /// default; `OPEN_COMPUTER_USE_SCROLL_TARGET_INTO_VIEW=0` (or `false`/`no`/`off`)
@@ -2009,10 +2029,19 @@ public final class ComputerUseService {
         index: String,
         snapshot: AppSnapshot
     ) throws -> ElementRecord {
+        let needsScroll = elementNeedsScrollIntoView(
+            localFrame: record.localFrame,
+            windowBounds: snapshot.windowBounds
+        )
+        debugClickDecision(
+            "scroll-into-view probe needsScroll=\(needsScroll) mode=\(snapshot.mode) localFrame="
+                + (record.localFrame.map { String(describing: $0) } ?? "nil")
+        )
+
         guard
             scrollTargetIntoViewEnabled(environment: ProcessInfo.processInfo.environment),
             snapshot.mode == .accessibility,
-            elementNeedsScrollIntoView(localFrame: record.localFrame, windowBounds: snapshot.windowBounds),
+            needsScroll,
             let element = record.element
         else {
             return record

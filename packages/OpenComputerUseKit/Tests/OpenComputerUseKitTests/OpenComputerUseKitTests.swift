@@ -2704,20 +2704,42 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertNil(windowLocalVisibleRect(windowBounds: CGRect(x: 0, y: 0, width: 0, height: 10)))
     }
 
-    func testElementNeedsScrollIntoViewOnlyForProvenOutOfWindowFrames() {
+    func testElementNeedsScrollIntoViewForOutOfWindowAndDegenerateFrames() {
         let windowBounds = CGRect(x: 100, y: 200, width: 800, height: 600)
         let visible = CGRect(x: 20, y: 30, width: 120, height: 24)
 
         XCTAssertFalse(elementNeedsScrollIntoView(localFrame: visible, windowBounds: windowBounds))
         XCTAssertFalse(elementNeedsScrollIntoView(localFrame: nil, windowBounds: windowBounds))
         XCTAssertFalse(elementNeedsScrollIntoView(localFrame: visible, windowBounds: nil))
-        XCTAssertFalse(elementNeedsScrollIntoView(localFrame: .zero, windowBounds: windowBounds))
         XCTAssertFalse(
             elementNeedsScrollIntoView(
                 localFrame: visible,
                 windowBounds: CGRect(x: 0, y: 0, width: 0, height: 0)
             )
         )
+        XCTAssertFalse(
+            elementNeedsScrollIntoView(
+                localFrame: CGRect(x: CGFloat.nan, y: 30, width: 120, height: 24),
+                windowBounds: windowBounds
+            )
+        )
+
+        // Degenerate geometry with a usable position: Chromium reports content that a
+        // scroll container clipped out of view this way (measured: x=344 y=87 w=42 h=1).
+        // Scrolling must be attempted, otherwise the viewport never follows the action.
+        XCTAssertTrue(
+            elementNeedsScrollIntoView(
+                localFrame: CGRect(x: 344, y: 87, width: 42, height: 1),
+                windowBounds: windowBounds
+            )
+        )
+        XCTAssertTrue(
+            elementNeedsScrollIntoView(
+                localFrame: CGRect(x: 20, y: 30, width: 0, height: 0),
+                windowBounds: windowBounds
+            )
+        )
+        XCTAssertTrue(elementNeedsScrollIntoView(localFrame: .zero, windowBounds: windowBounds))
 
         // Below the fold.
         XCTAssertTrue(
