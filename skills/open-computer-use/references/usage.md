@@ -148,6 +148,38 @@ options are complete (selected item included) even though every background field
 "options present" as the success signal for this shape; a missing `--- popup ---`/`note` does not
 mean the read failed.
 
+### Pre-flight: the target window must be on an active display
+
+Reading and acting are geometry-dependent even on pure accessibility paths:
+
+- A window parked at coordinates no current display covers (a window plan that remembered a second
+  monitor which has since been rearranged, or a harness log line like `readback differs, not retried`)
+  gets an incomplete tree: the browser chrome still renders while the web area (`HTML 内容`) is
+  simply absent. Fixing the window position is the fix; retrying the action is not.
+- The software cursor is drawn at the mapped target point. It is ON by default (set
+  `OPEN_COMPUTER_USE_VISUAL_CURSOR=0` to disable) and the screen mapping returns the raw point when it
+  falls inside no screen, so an off-display window makes the cursor appear on an unrelated screen.
+  Treat a cursor on the wrong screen as a geometry warning, not a rendering quirk.
+- The physical pointer does NOT move unless the process sets
+  `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1`; the default accessibility/app-post paths leave
+  the user's cursor where it is.
+
+Order of operations before the first action: check geometry, move the window onto an active display,
+then require the target subtree in a fresh `get_app_state`.
+
+```sh
+# 1. where is the window, and does any active display cover it?
+osascript -e 'tell application "System Events" to tell process "Google Chrome" to get {position, size} of window 1'
+
+# 2. if it is outside every screen, move it onto one
+osascript -e 'tell application "Google Chrome" to set bounds of front window to {120, 120, 1350, 940}'
+
+# 3. only then read, and require the target subtree (for a page: `HTML 内容`) to be present
+```
+
+A snapshot that exposes only chrome (toolbar, tabs) is a geometry/frontmost signal, not a snapshot to
+act on.
+
 ## Choosing a Click Method
 
 `click_method` is optional. Omitting it uses `auto`, which preserves the platform's existing semantic-first behavior. Explicit methods never fall back to a different implementation:
