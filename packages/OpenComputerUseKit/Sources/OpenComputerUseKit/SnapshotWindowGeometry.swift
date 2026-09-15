@@ -75,6 +75,26 @@ extension AppSnapshot {
     }
 }
 
+/// Whether a cursor travel that started against `startFrame` has to stop early.
+///
+/// A travel samples one path over several frames and keeps writing the cursor
+/// on every frame, so it cannot be redirected from outside: an accessibility
+/// move notification can re-place the resting cursor, but the next travel frame
+/// drags it straight back towards the stale sample. A window dragged to another
+/// display therefore used to leave the cursor flying to the screen the window
+/// had just left, until the whole travel finished.
+///
+/// Re-reading the frame every frame and aborting on any change is what makes the
+/// re-anchor the notification already performed stick. An unreadable frame
+/// (window gone or minimized) is not a change: the accessibility action paths do
+/// not need a frame at all, matching `snapshotWindowReanchorAction`.
+func cursorTravelMustAbort(startFrame: CGRect?, liveFrame: CGRect?) -> Bool {
+    guard let startFrame, let liveFrame else {
+        return false
+    }
+    return liveFrame != startFrame
+}
+
 /// Live geometry of the window the snapshot was built from.
 ///
 /// Matched by window id first, so a moved or resized window is re-read even

@@ -744,9 +744,23 @@ enum SoftwareCursorOverlay {
         let startTime = CACurrentMediaTime()
         var progress: CGFloat = 0
         var springState = CursorMotionSpringState()
+        let startFrame = targetWindow.flatMap { environment.windowBounds($0.windowID) }
 
         while true {
             refreshActiveOrderingIfNeeded()
+
+            // The travel holds the main thread, so the move notification that
+            // already re-anchored the resting cursor cannot stop it: the next
+            // frame would write the stale sample back. Detect the frame change
+            // here, land on the live frame and abandon the rest of the path.
+            if let window = targetWindow {
+                let liveFrame = environment.windowBounds(window.windowID)
+                if cursorTravelMustAbort(startFrame: startFrame, liveFrame: liveFrame), let liveFrame {
+                    applyLiveWindowAnchor(liveFrame, window: window)
+                    refreshTargetWindowAnchorIfScreenChanged()
+                    return
+                }
+            }
 
             let elapsed = CGFloat(CACurrentMediaTime() - startTime)
             let normalizedElapsed = (elapsed / max(duration, 0.001)).clamped(to: 0...1)

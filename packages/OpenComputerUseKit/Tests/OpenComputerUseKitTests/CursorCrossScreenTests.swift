@@ -321,6 +321,54 @@ final class CursorCrossScreenTests: XCTestCase {
         XCTAssertEqual(host.orderOutCount, 0)
     }
 
+    /// The travel loop keeps writing frames, so the move notification alone
+    /// cannot redirect it. This pins the frame check that stops a cursor from
+    /// flying to the display the window just left.
+    func testTravelAbortsOnlyWhenTheLiveFrameActuallyChanged() {
+        let onA = CGRect(x: 0, y: 0, width: 800, height: 600)
+        let onB = CGRect(x: -1400, y: 200, width: 800, height: 600)
+
+        XCTAssertFalse(cursorTravelMustAbort(startFrame: onA, liveFrame: onA))
+        XCTAssertTrue(cursorTravelMustAbort(startFrame: onA, liveFrame: onB))
+        XCTAssertTrue(
+            cursorTravelMustAbort(startFrame: onA, liveFrame: CGRect(x: 0, y: 0, width: 900, height: 600))
+        )
+        // Unknown geometry is not a change: the accessibility paths need no frame.
+        XCTAssertFalse(cursorTravelMustAbort(startFrame: nil, liveFrame: onB))
+        XCTAssertFalse(cursorTravelMustAbort(startFrame: onA, liveFrame: nil))
+    }
+
+    /// End-to-end over the real travel loop: the window frame changes between
+    /// the frame the travel started from and the first frame it draws, and the
+    /// cursor has to end up on the live frame instead of finishing the path.
+    @MainActor
+    func testTravelLandsOnTheLiveFrameWhenTheWindowMovesMidTravel() {
+        let host = FakeCursorPanelHost()
+        let observer = FakeWindowMotionObserver()
+        var boundsReads = 0
+        installFakeEnvironment(
+            host: host,
+            liveBounds: {
+                boundsReads += 1
+                return boundsReads <= 1 ? Self.windowOnA : Self.windowOnB
+            },
+            observer: observer
+        )
+        defer { SoftwareCursorOverlay.installEnvironmentForTesting(.live) }
+
+        let target = makeTarget()
+        SoftwareCursorOverlay.observeTargetWindow(observedWindow)
+        SoftwareCursorOverlay.moveCursor(
+            to: target?.point ?? .zero,
+            in: CursorTargetWindow(windowID: Self.windowID, layer: 0),
+            anchor: target?.restingAnchor
+        )
+
+        XCTAssertEqual(host.frameOrigin, expectedOrigin(forTipPosition: CGPoint(x: 900, y: 440)))
+        XCTAssertTrue(host.isVisible)
+        XCTAssertEqual(host.orderOutCount, 0)
+    }
+
     func testScreenMismatchOnlyFiresWhenBothDisplaysAreKnown() {
         let screenIndex: (CGPoint) -> Int? = { point in
             point.x < 700 ? 0 : 1

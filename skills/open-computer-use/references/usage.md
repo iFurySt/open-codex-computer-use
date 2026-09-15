@@ -187,6 +187,11 @@ cannot be parked off every screen by dragging: the state arises from a display b
 or rearranged while the window keeps its old coordinates, which is exactly how the harness window plan
 went stale. A window on a secondary display is still "on a display" and must not produce the note.
 
+A window dragged to another display *while the cursor is travelling* aborts that travel: the cursor is
+re-placed on the window's live frame instead of finishing the path towards the screen the window just
+left. Reading no frame at all (window minimized, hidden, or moved to another Space) is not a change, so
+the accessibility action paths keep working.
+
 ## Choosing a Click Method
 
 `click_method` is optional. Omitting it uses `auto`, which preserves the platform's existing semantic-first behavior. Explicit methods never fall back to a different implementation:
