@@ -369,6 +369,83 @@ final class CursorCrossScreenTests: XCTestCase {
         XCTAssertEqual(host.orderOutCount, 0)
     }
 
+    /// The window list keeps reporting the pre-move frame for about a second
+    /// (measured on the reporting machine: 83 identical frames), so the
+    /// accessibility notification is the only signal that reaches a travel
+    /// while it is still running.
+    ///
+    /// The notification is delivered on the first `pumpFrame()`, which keeps
+    /// this deterministic without depending on travel duration.
+    @MainActor
+    func testTravelAbortsWhenTheMoveNotificationArrivesMidTravel() {
+        let host = FakeCursorPanelHost()
+        var liveBounds: CGRect? = Self.windowOnA
+        installFakeEnvironment(host: host, liveBounds: { liveBounds }, observer: FakeWindowMotionObserver())
+        defer { SoftwareCursorOverlay.installEnvironmentForTesting(.live) }
+
+        let target = makeTarget()
+        SoftwareCursorOverlay.observeTargetWindow(observedWindow)
+
+        DispatchQueue.main.async {
+            liveBounds = Self.windowOnB
+            SoftwareCursorOverlay.targetWindowDidMove()
+        }
+
+        SoftwareCursorOverlay.moveCursor(
+            to: target?.point ?? .zero,
+            in: CursorTargetWindow(windowID: Self.windowID, layer: 0),
+            anchor: target?.restingAnchor
+        )
+
+        XCTAssertEqual(host.frameOrigin, expectedOrigin(forTipPosition: CGPoint(x: 900, y: 440)))
+        XCTAssertTrue(host.isVisible)
+    }
+
+    /// The action pipeline is move -> settle -> action, and that settle uses the
+    /// target point derived from the snapshot taken *before* the window moved.
+    /// Without re-deriving it, the settle re-places the cursor on the display
+    /// the window just left and undoes the travel abort. This was the step that
+    /// still failed on the reporting machine after the travel abort alone.
+    @MainActor
+    func testSettleUsesTheLiveFrameWhenTheWindowMovedAfterTheSnapshot() {
+        let host = FakeCursorPanelHost()
+        var liveBounds: CGRect? = Self.windowOnB
+        installFakeEnvironment(host: host, liveBounds: { liveBounds }, observer: FakeWindowMotionObserver())
+        defer { SoftwareCursorOverlay.installEnvironmentForTesting(.live) }
+
+        let target = makeTarget()
+        SoftwareCursorOverlay.observeTargetWindow(observedWindow)
+        SoftwareCursorOverlay.settle(
+            at: target?.point ?? .zero,
+            in: CursorTargetWindow(windowID: Self.windowID, layer: 0),
+            anchor: target?.restingAnchor
+        )
+
+        XCTAssertEqual(host.frameOrigin, expectedOrigin(forTipPosition: CGPoint(x: 900, y: 440)))
+    }
+
+    /// `pulseClick` follows the same settle, so the click feedback must not be
+    /// drawn on the old display either.
+    @MainActor
+    func testPulseClickUsesTheLiveFrameWhenTheWindowMovedAfterTheSnapshot() {
+        let host = FakeCursorPanelHost()
+        var liveBounds: CGRect? = Self.windowOnB
+        installFakeEnvironment(host: host, liveBounds: { liveBounds }, observer: FakeWindowMotionObserver())
+        defer { SoftwareCursorOverlay.installEnvironmentForTesting(.live) }
+
+        let target = makeTarget()
+        SoftwareCursorOverlay.observeTargetWindow(observedWindow)
+        SoftwareCursorOverlay.pulseClick(
+            at: target?.point ?? .zero,
+            clickCount: 1,
+            mouseButton: .left,
+            in: CursorTargetWindow(windowID: Self.windowID, layer: 0),
+            anchor: target?.restingAnchor
+        )
+
+        XCTAssertEqual(host.frameOrigin, expectedOrigin(forTipPosition: CGPoint(x: 900, y: 440)))
+    }
+
     func testScreenMismatchOnlyFiresWhenBothDisplaysAreKnown() {
         let screenIndex: (CGPoint) -> Int? = { point in
             point.x < 700 ? 0 : 1

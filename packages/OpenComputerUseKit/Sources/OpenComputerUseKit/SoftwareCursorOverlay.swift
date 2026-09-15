@@ -372,7 +372,9 @@ enum SoftwareCursorOverlay {
         prepareWindowIfNeeded()
         configureOrdering(relativeTo: targetWindow)
         rememberRestingAnchor(anchor, for: targetWindow)
-        let constrainedTarget = clampTipPosition(targetPoint)
+        let constrainedTarget = clampTipPosition(
+            liveTargetPoint(targetPoint, window: targetWindow, anchor: anchor)
+        )
         let now = CACurrentMediaTime()
         idleDriver.markInteraction(at: now)
         seedVisualDynamicsIfNeeded(at: constrainedTarget, time: now)
@@ -394,7 +396,9 @@ enum SoftwareCursorOverlay {
         prepareWindowIfNeeded()
         configureOrdering(relativeTo: targetWindow)
         rememberRestingAnchor(anchor, for: targetWindow)
-        let constrainedTarget = clampTipPosition(targetPoint)
+        let constrainedTarget = clampTipPosition(
+            liveTargetPoint(targetPoint, window: targetWindow, anchor: anchor)
+        )
         idleDriver.markInteraction(at: CACurrentMediaTime())
         restingTipPosition = constrainedTarget
         observationPhase = "settling"
@@ -591,6 +595,10 @@ enum SoftwareCursorOverlay {
     /// Internal rather than private so the follow-the-window contract is
     /// unit-testable without a real accessibility observer.
     static func targetWindowDidMove() {
+        // Bumped before the guards below: a travel has to be able to abort even
+        // when the resting anchor no longer matches.
+        windowMotionGeneration &+= 1
+
         // `applyLiveWindowAnchor` re-checks that the resting anchor belongs to
         // this window, so a placement for another target can never drag the
         // cursor to a stale window.
@@ -610,6 +618,109 @@ enum SoftwareCursorOverlay {
         }
 
         applyLiveWindowAnchor(liveBounds, window: window)
+    }
+
+    /// Counts accessibility move notifications, so a travel that is already
+    /// running can tell that the window moved under it.
+    private static var windowMotionGeneration = 0
+
+    /// Screen-state frame of the observed window, read from its accessibility
+    /// element instead of the window list.
+    private static func observedWindowFrameFromAccessibility() -> CGRect? {
+        guard let element = pendingWindowObservation?.element else {
+            return nil
+        }
+
+        var positionValue: CFTypeRef?
+        var sizeValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionValue) == .success,
+              AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeValue) == .success,
+              let positionValue,
+              let sizeValue
+        else {
+            return nil
+        }
+
+        var position = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),
+              AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
+        else {
+            return nil
+        }
+
+        return CGRect(origin: position, size: size)
+    }
+
+    /// The window's current frame, preferring the accessibility element (which
+    /// reflects a move immediately) over the window list (measured lagging by
+    /// about a second).
+    private static func liveWindowFrame(for windowID: CGWindowID) -> CGRect? {
+        observedWindowFrameFromAccessibility() ?? environment.windowBounds(windowID)
+    }
+
+    /// Re-derive a cursor point that was computed from a snapshot taken before
+    /// the target window moved.
+    private static func liveTargetPoint(
+        _ targetPoint: CGPoint,
+        window: CursorTargetWindow?,
+        anchor: CursorRestingAnchor?
+    ) -> CGPoint {
+        guard let window,
+              let anchor,
+              anchor.windowID == window.windowID,
+              let liveFrame = liveWindowFrame(for: window.windowID),
+              liveFrame != anchor.windowBounds,
+              liveFrame.width > 0,
+              liveFrame.height > 0
+        else {
+            return targetPoint
+        }
+
+        let localPoint = CGPoint(
+            x: anchor.windowLocalPoint.x.clamped(to: 0...liveFrame.width),
+            y: anchor.windowLocalPoint.y.clamped(to: 0...liveFrame.height)
+        )
+        let screenStatePoint = CGPoint(x: liveFrame.minX + localPoint.x, y: liveFrame.minY + localPoint.y)
+        return environment.screenStateToAppKitPoint(screenStatePoint)
+    }
+
+    /// Stop a travel whose window moved under it, and land the cursor on the
+    /// window instead of finishing the path towards the screen it just left.
+    private static func abortTravelOntoObservedWindow(_ targetWindow: CursorTargetWindow?) {
+        guard let window = targetWindow,
+              let frame = liveWindowFrame(for: window.windowID),
+              frame.width > 0,
+              frame.height > 0
+        else {
+            return
+        }
+
+        let localPoint: CGPoint
+        if let anchor = restingAnchor, anchor.windowID == window.windowID {
+            localPoint = CGPoint(
+                x: anchor.windowLocalPoint.x.clamped(to: 0...frame.width),
+                y: anchor.windowLocalPoint.y.clamped(to: 0...frame.height)
+            )
+        } else {
+            localPoint = CGPoint(x: frame.width / 2, y: frame.height / 2)
+        }
+
+        isReanchoringFromWindowMotion = true
+        defer { isReanchoringFromWindowMotion = false }
+
+        repositionCursor(
+            to: environment.screenStateToAppKitPoint(
+                CGPoint(x: frame.minX + localPoint.x, y: frame.minY + localPoint.y)
+            ),
+            in: window,
+            anchor: CursorRestingAnchor(
+                windowID: window.windowID,
+                layer: window.layer,
+                windowLocalPoint: localPoint,
+                windowBounds: frame
+            )
+        )
     }
 
     /// Fallback for a move no notification ever reported.
@@ -745,9 +856,15 @@ enum SoftwareCursorOverlay {
         var progress: CGFloat = 0
         var springState = CursorMotionSpringState()
         let startFrame = targetWindow.flatMap { environment.windowBounds($0.windowID) }
+        let startGeneration = windowMotionGeneration
 
         while true {
             refreshActiveOrderingIfNeeded()
+
+            if windowMotionGeneration != startGeneration {
+                abortTravelOntoObservedWindow(targetWindow)
+                return
+            }
 
             // The travel holds the main thread, so the move notification that
             // already re-anchored the resting cursor cannot stop it: the next

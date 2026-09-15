@@ -41,6 +41,20 @@
 - `swift test`：264 tests / 1 skipped / 0 failures；`make check-docs` 通过。
 - **未做真机双屏复现**：本机探测窗口（TextEdit / Finder）落在 OCU 驱动的 Space 之外，动作路径报 `cgWindowNotFound`，无法在不干扰用户桌面的前提下复现该场景。
 
+### 🔁 2026-09-15 补记 | 真机实测确认 + choreographer 层落点修复
+
+用户提示"刚才有其他任务对话在使用 ocu"后重测，最终修好并验证：
+
+1. **中止行进只是第一步**。真机插桩证明两件事：
+   - 通知在行进途中就送达，且此刻 AX frame 已是新的（`ax=(600,200,…)`），而窗口列表仍是旧值（`list=(-1400,200,…)`）——印证"窗口列表滞后约 1 秒、AX 位置即时"；
+   - 但光标最终仍停在旧屏，因为 `VisualInteractionChoreographer.approach` 是 `moveCursor(target)` → `settleCursorArrival(target)`，`settle` 用**同一个移动前算出的 target** 再落位一次，覆盖了中止结果。
+2. **补齐 choreographer 层**：`SoftwareCursorOverlay.settle` / `pulseClick` 落位前经 `liveTargetPoint(...)` 按实时 frame 重算（元素 frame 是窗口相对的，保留 window-local 偏移、只换原点）。中止落点同样优先用 AX frame。
+3. **验证**：
+   - 新增 3 个用例（通知中止行进、settle 与 pulseClick 用实时 frame）；全套 267 tests / 1 skipped / 0 failures；
+   - 反向证明：去掉 settle 的实时重算后用例失败，落点 `140,370`（即旧屏）；
+   - **真机连续三次实测通过**：窗口拖到主屏后光标停在主屏 `x=1023`（处于窗口范围 600–1118 内）；对照组（仅窗口列表兜底的版本）在同一场景下光标停在旧屏 `-977`。
+4. **教训**：中途一次"修复无效"是**别的会话同时驱动 OCU** 造成的假阴性；重测前先用 10 秒被动采样确认 overlay 位置无变化，再下结论。
+
 ### ⚠️ 未覆盖 / 风险
 - 真实拖动（鼠标按住移动）期间的行为未现场验证，单测用注入的 frame 序列覆盖。
 - 中止后若 `applyLiveWindowAnchor` 因 anchor 不匹配而跳过，光标会停在行进中途，需要下一次动作纠正（比继续飞向旧屏可接受，但不是最优）。

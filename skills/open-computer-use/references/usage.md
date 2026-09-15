@@ -189,7 +189,10 @@ went stale. A window on a secondary display is still "on a display" and must not
 
 A window dragged to another display *while the cursor is travelling* aborts that travel: the cursor is
 re-placed on the window's live frame instead of finishing the path towards the screen the window just
-left. Reading no frame at all (window minimized, hidden, or moved to another Space) is not a change, so
+left. The `settle` and click pulse that follow the travel re-derive their point from the same live frame,
+so the cursor is not put back on the old display afterwards. Both use the window's accessibility element
+for that frame, because `CGWindowListCopyWindowInfo` can keep reporting the pre-move frame for about a
+second (measured: 83 identical travel frames). Reading no frame at all (window minimized, hidden, or moved to another Space) is not a change, so
 the accessibility action paths keep working.
 
 ## Choosing a Click Method
