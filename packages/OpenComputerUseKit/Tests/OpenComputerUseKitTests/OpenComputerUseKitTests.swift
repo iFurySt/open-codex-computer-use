@@ -229,27 +229,23 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(resolvedOpenComputerUseVersion(bundle: Bundle(for: Self.self)), openComputerUseVersion)
     }
 
-    func testBoundedScreenshotPNGDataShrinksLargeScreenshots() throws {
+    func testBoundedScreenshotDataShrinksLargeScreenshotsToTheDimensionCap() throws {
         let image = try makeNoisyTestImage(width: 800, height: 600)
-        let data = try XCTUnwrap(boundedScreenshotPNGData(
-            for: image,
-            maxBytes: 50_000,
-            maxDimension: 320,
-            minScale: 0.05
-        ))
+        let data = try XCTUnwrap(boundedScreenshotData(for: image, maxDimension: 320))
         let size = try imageSize(in: data)
 
-        XCTAssertLessThanOrEqual(data.count, 50_000)
         XCTAssertLessThanOrEqual(max(size.width, size.height), 320)
+        XCTAssertEqual(Array(data.prefix(3)), [0xFF, 0xD8, 0xFF], "the picture is a JPEG")
     }
 
-    func testBoundedScreenshotPNGDataKeepsSmallScreenshotsAtOriginalSize() throws {
+    func testBoundedScreenshotDataKeepsSmallScreenshotsAtOriginalSize() throws {
         let image = try makeSolidTestImage(width: 32, height: 24)
-        let data = try XCTUnwrap(boundedScreenshotPNGData(for: image, maxBytes: 1_000_000, maxDimension: 320))
+        let data = try XCTUnwrap(boundedScreenshotData(for: image, maxDimension: 320))
         let size = try imageSize(in: data)
 
         XCTAssertEqual(size.width, 32)
         XCTAssertEqual(size.height, 24)
+        XCTAssertEqual(Array(data.prefix(3)), [0xFF, 0xD8, 0xFF], "the picture is a JPEG")
     }
 
     func testToolDefinitionCount() {
@@ -1514,7 +1510,7 @@ final class OpenComputerUseKitTests: XCTestCase {
 
     func testDragDeliveryNoteIsInsertedAfterSnapshotTextAndBeforeScreenshot() {
         let snapshotText = "App=com.example.app (pid 42)\nWindow: \"Example\", App: Example."
-        let result = ToolCallResult(content: [.text(snapshotText), .pngImage(Data([0x89, 0x50, 0x4E, 0x47]))])
+        let result = ToolCallResult(content: [.text(snapshotText), .jpegImage(Data([0xFF, 0xD8, 0xFF, 0xE0]))])
 
         let annotated = appendingDragDeliveryNote(to: result, path: .appPost)
 
@@ -2321,7 +2317,7 @@ final class OpenComputerUseKitTests: XCTestCase {
             windowBounds: nil,
             targetWindowID: nil,
             targetWindowLayer: nil,
-            screenshotPNGData: nil,
+            screenshotData: nil,
             mode: .accessibility,
             treeLines: treeLines,
             focusedSummary: focusedSummary,

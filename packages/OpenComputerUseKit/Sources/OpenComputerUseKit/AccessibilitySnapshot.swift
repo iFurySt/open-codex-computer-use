@@ -92,9 +92,13 @@ public struct SnapshotTextLimit: Equatable, Sendable {
 let accessibilityTreeMaxNodeCount = AccessibilityTreeLimits.defaultMaxNodeCount
 let accessibilityTreeMaxDepth = AccessibilityTreeLimits.defaultMaxDepth
 let screenshotCaptureTimeout: TimeInterval = 5
-let screenshotResultMaxPNGBytes = 900_000
+/// The only bound on a screenshot: pixels. A byte cap is not needed, a 1280-wide JPEG at
+/// this quality stays well under the size a PNG of the same screen reached.
 let screenshotResultMaxDimension: CGFloat = 1280
-let screenshotResultMinScale: CGFloat = 0.25
+/// JPEG, not PNG: a model prices an image by its pixel size, not its bytes, so bytes only
+/// cost upload time. A screen PNG can reach 900 KB; at this quality the JPEG is a fraction
+/// of that and the text in it stays readable.
+let screenshotJPEGQuality: CGFloat = 0.8
 private let windowVisibilityRecoveryDelay: TimeInterval = 0.7
 private let axWebAreaRole = "AXWebArea"
 private let axContentsAttribute = "AXContents"
@@ -108,7 +112,7 @@ public struct AppSnapshot {
     public let windowBounds: CGRect?
     let targetWindowID: CGWindowID?
     let targetWindowLayer: Int?
-    public let screenshotPNGData: Data?
+    public let screenshotData: Data?
     let mode: SnapshotMode
     let treeLines: [String]
     let focusedSummary: String?
@@ -223,7 +227,7 @@ enum SnapshotBuilder {
         treeLimits: AccessibilityTreeLimits
     ) -> AppSnapshot {
         let windowBounds = windowCapture.bounds
-        let screenshotPNGData = windowCapture.pngDataIfAvailable()
+        let screenshotData = windowCapture.dataIfAvailable()
         let focusedElement = preferredFocusedElement(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
         let selectedText = focusedElement.flatMap { copySelectedText($0, textLimit: textLimit) }
         let context = RenderContext(
@@ -247,7 +251,7 @@ enum SnapshotBuilder {
             windowBounds: windowBounds,
             targetWindowID: windowCapture.windowID,
             targetWindowLayer: windowCapture.layer,
-            screenshotPNGData: screenshotPNGData,
+            screenshotData: screenshotData,
             mode: .accessibility,
             treeLines: renderer.lines,
             focusedSummary: renderer.focusedSummary,
@@ -403,7 +407,7 @@ enum SnapshotBuilder {
             windowBounds: state.windowBounds.cgRect,
             targetWindowID: nil,
             targetWindowLayer: nil,
-            screenshotPNGData: nil,
+            screenshotData: nil,
             mode: .fixture,
             treeLines: lines,
             focusedSummary: focusedSummary,
@@ -493,12 +497,12 @@ private struct WindowCapture {
             ?? 1
     }
 
-    func pngDataIfAvailable() -> Data? {
+    func dataIfAvailable() -> Data? {
         guard let image else {
             return nil
         }
 
-        return boundedScreenshotPNGData(for: image)
+        return boundedScreenshotData(for: image)
     }
 }
 
@@ -543,46 +547,25 @@ func preferredWindowCaptureCandidate(_ candidates: [WindowCaptureCandidate], tit
     return hinted
 }
 
-func boundedScreenshotPNGData(
+/// The window's picture, its longest side at most `maxDimension`, as JPEG.
+func boundedScreenshotData(
     for image: CGImage,
-    maxBytes: Int = screenshotResultMaxPNGBytes,
-    maxDimension: CGFloat = screenshotResultMaxDimension,
-    minScale: CGFloat = screenshotResultMinScale
+    maxDimension: CGFloat = screenshotResultMaxDimension
 ) -> Data? {
-    guard image.width > 0, image.height > 0, maxBytes > 0 else {
+    guard image.width > 0, image.height > 0 else {
         return nil
     }
 
-    let original = pngData(for: image)
-    let largestDimension = CGFloat(max(image.width, image.height))
-    var scale = min(1, maxDimension / largestDimension)
-
-    if scale >= 1, let original, original.count <= maxBytes {
-        return original
+    let scale = min(1, maxDimension / CGFloat(max(image.width, image.height)))
+    guard scale < 1 else {
+        return jpegData(for: image)
     }
-
-    var best = original
-    while scale >= minScale {
-        guard let resized = resizedCGImage(image, scale: scale),
-              let data = pngData(for: resized)
-        else {
-            break
-        }
-
-        best = data
-        if data.count <= maxBytes {
-            return data
-        }
-
-        scale *= 0.85
-    }
-
-    return best
+    return resizedCGImage(image, scale: scale).flatMap(jpegData)
 }
 
-private func pngData(for image: CGImage) -> Data? {
+private func jpegData(for image: CGImage) -> Data? {
     let bitmap = NSBitmapImageRep(cgImage: image)
-    return bitmap.representation(using: .png, properties: [:])
+    return bitmap.representation(using: .jpeg, properties: [.compressionFactor: screenshotJPEGQuality])
 }
 
 private func resizedCGImage(_ image: CGImage, scale: CGFloat) -> CGImage? {

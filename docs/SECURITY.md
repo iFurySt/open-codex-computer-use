@@ -9,7 +9,7 @@
 
 ## 数据处理
 
-- 普通 app 的 screenshot 默认只在内存中编码成 PNG，并通过 MCP `image` content block 直接回传；默认不长期持久化。
+- 普通 app 的 screenshot 默认只在内存中编码成 JPEG，并通过 MCP `image` content block 直接回传；默认不长期持久化。
 - Linux runtime 的 screenshot 是 best-effort；如果 GNOME Wayland 返回黑图，bridge 会省略 image block，避免把无效截图误当成真实画面。
 - fixture app 的合成状态只写到本地临时 JSON 文件，目的是支撑 deterministic smoke test；当前写入走原子替换，减少测试期间的读写竞争。
 - 当前仓库不引入第三方服务，也不上传截图、AX tree 或输入内容。

@@ -1659,8 +1659,8 @@ public final class ComputerUseService {
 
     private func screenshotPixelSize(snapshot: AppSnapshot) -> CGSize? {
         guard
-            let screenshotPNGData = snapshot.screenshotPNGData,
-            let imageSource = CGImageSourceCreateWithData(screenshotPNGData as CFData, nil),
+            let screenshotData = snapshot.screenshotData,
+            let imageSource = CGImageSourceCreateWithData(screenshotData as CFData, nil),
             let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any],
             let pixelWidth = properties[kCGImagePropertyPixelWidth] as? CGFloat,
             let pixelHeight = properties[kCGImagePropertyPixelHeight] as? CGFloat,
@@ -1921,8 +1921,8 @@ public final class ComputerUseService {
 
     private func snapshotResult(for snapshot: AppSnapshot, style: SnapshotTextStyle) -> ToolCallResult {
         var content = [ToolResultContentItem.text(snapshot.renderedText(style: style))]
-        if let screenshotPNGData = snapshot.screenshotPNGData {
-            content.append(.pngImage(screenshotPNGData))
+        if let screenshotData = snapshot.screenshotData {
+            content.append(.jpegImage(screenshotData))
         }
         return ToolCallResult(content: content)
     }

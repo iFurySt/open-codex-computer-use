@@ -12,12 +12,13 @@ public struct ToolResultContentItem: @unchecked Sendable {
         )
     }
 
-    public static func pngImage(_ data: Data) -> ToolResultContentItem {
+    /// Every picture the harness hands out is a JPEG (see `boundedScreenshotData`).
+    public static func jpegImage(_ data: Data) -> ToolResultContentItem {
         ToolResultContentItem(
             dictionary: [
                 "type": "image",
                 "data": data.base64EncodedString(),
-                "mimeType": "image/png",
+                "mimeType": "image/jpeg",
             ]
         )
     }
