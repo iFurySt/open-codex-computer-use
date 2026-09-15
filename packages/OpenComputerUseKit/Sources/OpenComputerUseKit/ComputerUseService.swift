@@ -449,6 +449,21 @@ func shouldPreferContainingWebRowAXClickCandidate(
 public final class ComputerUseService {
     private var snapshotsByApp: [String: AppSnapshot] = [:]
 
+    // Targeted-lookup registry. `query` stores each match here keyed by a high,
+    // monotonic element index; the existing element actions resolve that index to
+    // the queried control and act without any snapshot. Indexes sit above the
+    // snapshot tree range and are never reissued, so a later snapshot cannot
+    // reassign one to a different control.
+    private struct TargetedElement {
+        let record: ElementRecord
+        let context: TargetedAX.WindowContext
+    }
+    private var targetedElements: [Int: TargetedElement] = [:]
+    private var targetedElementOrder: [Int] = []
+    private var targetedIndexCounter = ComputerUseService.targetedIndexBase
+    static let targetedIndexBase = 1_000_000
+    private static let maxTargetedElements = 5000
+
     public init() {}
 
     public func listApps() -> ToolCallResult {
@@ -487,7 +502,7 @@ public final class ComputerUseService {
             clickCount: clickCount
         )
 
-        let snapshot = try currentSnapshot(for: query)
+        let snapshot = try snapshotForAction(app: query, elementIndex: elementIndex)
         let button = MouseButtonKind(rawValue: mouseButton.lowercased()) ?? .left
         if snapshot.mode == .fixture {
             guard clickMethod == .auto else {
@@ -655,7 +670,7 @@ public final class ComputerUseService {
     }
 
     public func performSecondaryAction(app query: String, elementIndex: String, action: String) throws -> ToolCallResult {
-        let snapshot = try currentSnapshot(for: query)
+        let snapshot = try snapshotForAction(app: query, elementIndex: elementIndex)
         let record = try lookupElement(snapshot: snapshot, index: elementIndex)
 
         if snapshot.mode == .fixture {
@@ -692,7 +707,7 @@ public final class ComputerUseService {
             throw ComputerUseError.message("pages must be > 0")
         }
 
-        let snapshot = try currentSnapshot(for: query)
+        let snapshot = try snapshotForAction(app: query, elementIndex: elementIndex)
         let record = try lookupElement(snapshot: snapshot, index: elementIndex)
 
         if snapshot.mode == .fixture {
@@ -782,7 +797,7 @@ public final class ComputerUseService {
     }
 
     public func setValue(app query: String, elementIndex: String, value: String) throws -> ToolCallResult {
-        let snapshot = try currentSnapshot(for: query)
+        let snapshot = try snapshotForAction(app: query, elementIndex: elementIndex)
         let record = try lookupElement(snapshot: snapshot, index: elementIndex)
 
         if snapshot.mode == .fixture {
@@ -823,6 +838,123 @@ public final class ComputerUseService {
 
         settleVisualCursor(at: cursorTarget)
         return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+    }
+
+    /// Find controls in the app's current window by text and/or role, using the
+    /// app's own accessibility search where it offers one. No tree render, no
+    /// screenshot. Each result carries an `index` the existing element actions
+    /// (click, set_value, scroll, perform_secondary_action) accept.
+    public func query(
+        app query: String,
+        text: String? = nil,
+        role: String? = nil,
+        exact: Bool = false,
+        limit: Int = 20,
+        maxNodes: Int = 500,
+        windowID: CGWindowID? = nil
+    ) throws -> [[String: Any]] {
+        guard (text.map { !$0.isEmpty } ?? false) || (role.map { !$0.isEmpty } ?? false) else {
+            throw ComputerUseError.invalidArguments("query requires at least one of text or role")
+        }
+
+        // Read-only against a running app: resolution matches an existing process, and
+        // the window lookup below never activates or raises. An app that is not running
+        // yet is still launched, which brings it forward as any launch does.
+        let app = try AppDiscovery.resolve(query)
+        let context = try SnapshotBuilder.resolveTargetWindow(for: app, windowID: windowID)
+        var criteria = TargetedAX.Criteria(text: text, exact: exact, role: role, limit: limit, maxNodes: maxNodes)
+        var result = SnapshotBuilder.targetedSearch(criteria, in: context)
+        var forgiven = false
+        // A label that differs by a word is the common exact miss, so retry it as a
+        // substring and say so, rather than reporting the control as absent.
+        if exact, result.records.isEmpty, !result.capped {
+            criteria.exact = false
+            result = SnapshotBuilder.targetedSearch(criteria, in: context)
+            forgiven = !result.records.isEmpty
+        }
+
+        // Only fail when the cap stopped the walk with nothing found — that is the
+        // case where an empty result would be misleading. Matches found under a
+        // truncated walk are still matches.
+        if result.capped, result.records.isEmpty {
+            throw ComputerUseError.stateUnavailable(
+                "query hit the max_nodes cap (\(maxNodes)) before finding any match. Raise max_nodes or narrow the query (add a role or more specific text)."
+            )
+        }
+
+        return result.records.map { record in
+            var registered = registerTargetedElement(record: record, context: context)
+            if forgiven { registered["match"] = "contains" }
+            return registered
+        }
+    }
+
+    /// A snapshot carrying real window context but no rendered tree or screenshot,
+    /// so the existing action internals run unchanged against a queried element.
+    private func liteSnapshot(context: TargetedAX.WindowContext, elements: [Int: ElementRecord]) -> AppSnapshot {
+        AppSnapshot(
+            app: context.app,
+            windowTitle: nil,
+            windowBounds: context.windowBounds,
+            targetWindowID: context.windowID,
+            targetWindowLayer: context.windowLayer,
+            screenshotPNGData: nil,
+            mode: .accessibility,
+            treeLines: [],
+            focusedSummary: nil,
+            focusedElement: context.focusedElement,
+            selectedText: nil,
+            elements: elements
+        )
+    }
+
+    /// The snapshot an element action runs against. A queried index resolves to
+    /// that control's own window context with no snapshot; any other index uses
+    /// the normal current snapshot.
+    private func snapshotForAction(app query: String, elementIndex: String?) throws -> AppSnapshot {
+        if let elementIndex, let index = Int(elementIndex), let target = targetedElements[index] {
+            let (context, record) = SnapshotBuilder.currentGeometry(of: target.record, in: target.context)
+            return liteSnapshot(context: context, elements: [index: record])
+        }
+        return try currentSnapshot(for: query)
+    }
+
+    private func registerTargetedElement(record source: ElementRecord, context: TargetedAX.WindowContext) -> [String: Any] {
+        targetedIndexCounter += 1
+        let index = targetedIndexCounter
+        // Re-key the record to its assigned public index so later lookups match.
+        let record = ElementRecord(
+            index: index,
+            identifier: source.identifier,
+            element: source.element,
+            localFrame: source.localFrame,
+            role: source.role,
+            title: source.title,
+            value: source.value,
+            rawActions: source.rawActions,
+            prettyActions: source.prettyActions,
+            isSyntheticText: source.isSyntheticText
+        )
+        targetedElements[index] = TargetedElement(record: record, context: context)
+        targetedElementOrder.append(index)
+        if targetedElementOrder.count > Self.maxTargetedElements {
+            let evicted = targetedElementOrder.removeFirst()
+            targetedElements[evicted] = nil
+        }
+        return compactRecordDictionary(record)
+    }
+
+    private func compactRecordDictionary(_ record: ElementRecord) -> [String: Any] {
+        var dict: [String: Any] = ["index": record.index]
+        if let role = record.role, !role.isEmpty { dict["role"] = role }
+        if let title = record.title, !title.isEmpty { dict["title"] = title }
+        if let value = record.value, !value.isEmpty { dict["value"] = value }
+        if let identifier = record.identifier, !identifier.isEmpty { dict["identifier"] = identifier }
+        if let frame = record.localFrame {
+            dict["bounds"] = ["x": frame.origin.x, "y": frame.origin.y, "w": frame.size.width, "h": frame.size.height]
+        }
+        if !record.prettyActions.isEmpty { dict["actions"] = record.prettyActions }
+        return dict
     }
 
     private func currentSnapshot(for query: String) throws -> AppSnapshot {

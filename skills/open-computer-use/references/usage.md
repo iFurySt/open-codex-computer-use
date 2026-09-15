@@ -104,6 +104,13 @@ open-computer-use snapshot --max-tree-nodes 3000 --max-tree-depth 96 "Google Chr
 - Run `get_app_state` immediately before element-targeted actions.
 - Re-run `get_app_state` after navigation, modal changes, page reloads, or failed actions.
 - Use coordinate actions only when the rendered tree does not expose the target as an element.
+- On macOS, when you already know what the control says, `query` is cheaper than a
+  full state: `open-computer-use call query --args '{"app":"Safari","text":"Compose","role":"button"}'`
+  returns just the matches, each with an `index` the element actions accept. It
+  reads the app's current window without activating or raising it, and it can find
+  a control that appeared after an earlier action without a fresh `get_app_state`.
+  An empty result means the control is not on screen; a match marked
+  `"match": "contains"` was found by substring after an `exact` miss.
 
 ## Choosing a Click Method
 

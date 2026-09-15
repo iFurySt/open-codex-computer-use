@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 func normalizedElementIndexArgument(_ value: Any?) -> String? {
@@ -47,6 +48,17 @@ public final class ComputerUseToolDispatcher {
         switch name {
         case "list_apps":
             return service.listApps()
+        case "query":
+            let matches = try service.query(
+                app: requireString("app", in: arguments),
+                text: optionalString("text", in: arguments),
+                role: optionalString("role", in: arguments),
+                exact: optionalBool("exact", in: arguments) ?? false,
+                limit: try optionalPositiveInt("limit", in: arguments) ?? 20,
+                maxNodes: try optionalPositiveInt("max_nodes", in: arguments) ?? 500,
+                windowID: optionalDouble("window_id", in: arguments).map { CGWindowID($0) }
+            )
+            return .text(renderedQueryMatches(matches))
         case "get_app_state":
             return try service.getAppState(
                 app: requireString("app", in: arguments),
@@ -128,6 +140,27 @@ public final class ComputerUseToolDispatcher {
         }
 
         return value
+    }
+
+    private func optionalBool(_ key: String, in arguments: [String: Any]) -> Bool? {
+        switch arguments[key] {
+        case let value as Bool: return value
+        case let value as NSNumber: return value.boolValue
+        case let value as String: return Bool(value.lowercased())
+        default: return nil
+        }
+    }
+
+    /// Matches as JSON, so a caller can read them without parsing prose. An empty
+    /// result is `[]`, which is a finding — the control is not on screen.
+    private func renderedQueryMatches(_ matches: [[String: Any]]) -> String {
+        guard
+            let data = try? JSONSerialization.data(withJSONObject: matches, options: [.sortedKeys, .prettyPrinted]),
+            let text = String(data: data, encoding: .utf8)
+        else {
+            return "[]"
+        }
+        return text
     }
 
     private func optionalString(_ key: String, in arguments: [String: Any]) -> String? {

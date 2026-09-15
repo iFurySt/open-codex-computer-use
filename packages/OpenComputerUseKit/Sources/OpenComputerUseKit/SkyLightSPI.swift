@@ -1,3 +1,4 @@
+import ApplicationServices
 import CoreGraphics
 import Darwin
 import Foundation
@@ -77,6 +78,7 @@ final class SkyLightSPI: @unchecked Sendable {
     private static let setWindowLocationSymbol = "CGEventSetWindowLocation"
     private static let postEventRecordSymbol = "SLPSPostEventRecordTo"
     private static let getProcessForPIDSymbol = "GetProcessForPID"
+    private static let axElementGetWindowSymbol = "_AXUIElementGetWindow"
     private static let applicationServicesPath = "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
 
     private typealias PostToPidFunction = @convention(c) (pid_t, UnsafeMutableRawPointer?) -> Void
@@ -87,6 +89,7 @@ final class SkyLightSPI: @unchecked Sendable {
     private typealias SetWindowLocationFunction = @convention(c) (UnsafeMutableRawPointer?, Double, Double) -> Void
     private typealias PostEventRecordFunction = @convention(c) (UnsafeRawPointer?, UnsafePointer<UInt8>?) -> Int32
     private typealias GetProcessForPIDFunction = @convention(c) (pid_t, UnsafeMutableRawPointer?) -> Int32
+    private typealias AXElementGetWindowFunction = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
 
     private let frameworkHandle: UnsafeMutableRawPointer?
     private let applicationServicesHandle: UnsafeMutableRawPointer?
@@ -95,6 +98,7 @@ final class SkyLightSPI: @unchecked Sendable {
     private let setWindowLocationFunction: SetWindowLocationFunction?
     private let postEventRecordFunction: PostEventRecordFunction?
     private let getProcessForPIDFunction: GetProcessForPIDFunction?
+    private let axElementGetWindowFunction: AXElementGetWindowFunction?
 
     let capability: SkyLightSPICapability
 
@@ -108,6 +112,7 @@ final class SkyLightSPI: @unchecked Sendable {
         setWindowLocationFunction = Self.resolve(handle: handle, symbol: Self.setWindowLocationSymbol)
         postEventRecordFunction = Self.resolve(handle: handle, symbol: Self.postEventRecordSymbol)
         getProcessForPIDFunction = Self.resolve(handle: appServicesHandle, symbol: Self.getProcessForPIDSymbol)
+        axElementGetWindowFunction = Self.resolve(handle: appServicesHandle, symbol: Self.axElementGetWindowSymbol)
 
         var missingSymbols: [String] = []
         if postToPidFunction == nil {
@@ -216,6 +221,16 @@ final class SkyLightSPI: @unchecked Sendable {
                 "click_method 'sky_click' synthetic target-focus event failed (OSStatus \(status))"
             )
         }
+    }
+
+    /// The CGWindowID behind an AX window element. Binding geometry to the exact
+    /// window the AX tree was read from beats re-finding it by title: titles repeat,
+    /// change while the app works, and are localized.
+    func windowID(for element: AXUIElement) -> CGWindowID? {
+        guard let axElementGetWindowFunction else { return nil }
+        var windowID: CGWindowID = 0
+        guard axElementGetWindowFunction(element, &windowID) == .success, windowID != 0 else { return nil }
+        return windowID
     }
 
     private static func resolve<T>(handle: UnsafeMutableRawPointer?, symbol: String) -> T? {

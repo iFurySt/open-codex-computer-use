@@ -69,6 +69,26 @@ public enum ToolDefinitions {
             )
         ),
         ToolDefinition(
+            name: "query",
+            description: "Targeted accessibility lookup: find controls in the app's current window using the app's own accessibility search, with no full snapshot and no screenshot. Returns matching controls, each with an `index` usable by the element actions (click, set_value, scroll, perform_secondary_action). Requires text and/or role. This tool is part of plugin `Computer Use`.",
+            annotations: readOnlyAnnotations(),
+            inputSchema: objectSchema(
+                properties: [
+                    "app": stringProperty(description: "App name or bundle identifier"),
+                    "text": stringProperty(description: "Match text in the control's title, description or value. Case-insensitive substring unless exact is true."),
+                    "role": stringProperty(description: "Match this accessibility role (the AX prefix is optional, e.g. button or AXButton)"),
+                    "exact": [
+                        "type": "boolean",
+                        "description": "Require a complete text match instead of a substring. Defaults to false. An exact miss is retried as a substring, and those matches are marked `match: \"contains\"`.",
+                    ],
+                    "limit": positiveIntegerProperty(description: "Maximum matches to return. Defaults to 20."),
+                    "max_nodes": positiveIntegerProperty(description: "Node cap for the fallback traversal when the app has no native search. Defaults to 500."),
+                    "window_id": numberProperty(description: "Search this specific window (CGWindowID) instead of the app's current window."),
+                ],
+                required: ["app"]
+            )
+        ),
+        ToolDefinition(
             name: "get_app_state",
             description: "Start an app use session if needed, then get the state of the app's key window and return a screenshot and accessibility tree. This must be called once per assistant turn before interacting with the app. This tool is part of plugin `Computer Use`.",
             annotations: readOnlyAnnotations(),

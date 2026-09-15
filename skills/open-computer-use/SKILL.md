@@ -15,6 +15,9 @@ It supports the same core tool surface across macOS, Linux, and Windows:
 `list_apps`, `get_app_state`, `click`, `perform_secondary_action`, `scroll`,
 `drag`, `type_text`, `press_key`, and `set_value`.
 
+macOS additionally exposes `query`: a targeted accessibility lookup that finds
+controls by text and/or role without rendering a tree or taking a screenshot.
+
 ## Core Workflow
 
 1. On macOS, run `sw_vers -productVersion` before invoking the CLI and require macOS 14.0 or later. On older versions, explain that the runtime cannot launch; do not recommend `doctor` or permission changes as a fix for binary incompatibility.
