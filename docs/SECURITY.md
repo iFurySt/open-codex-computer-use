@@ -4,6 +4,7 @@
 
 - 对 MCP host 暴露的接口仍是本地 `stdio`；macOS CLI 与 `.app` app agent 之间会使用用户临时目录下的 Unix domain socket，socket 创建后会收紧为当前用户读写，且不对外监听 TCP/HTTP 端口。未设置 `OPEN_COMPUTER_USE_AGENT_SOCKET_NAMESPACE` 时继续使用历史 Socket；设置后仅以 namespace 摘要派生私有文件名，不把宿主目录或原始 namespace 写入 Socket 路径。
 - 所有动作都必须显式带 `app` 参数；当前不会在后台自动扫描并控制任意 app。
+- macOS `run_intent` 只执行应用自己的 App Intent：identifier 必须是点分且只含字母、数字、`_`、`-` 的片段（因此 `/`、`..`、空格、换行不会进入文件名），并显式拒绝 `is.workflow.` 开头的 Shortcuts 内置动作。每个 intent 首次调用只生成并打开一个单动作 shortcut，由用户在 Shortcuts 里点一次 Add Shortcut 才会真正安装；参数变化需要重新走一次这个确认。子进程的 stdin 接 `/dev/null`，并有 120s 的执行上限。
 - macOS 真实 app 路径依赖 `Open Computer Use.app` 已获得 `Accessibility` 与 `Screen Recording` 权限；终端里的 CLI / Node launcher 会把 `mcp`、`doctor`、`call`、`snapshot` 和 `list-apps` 转发给由 LaunchServices 启动的本地 app agent，避免把权限要求落到 iTerm / Terminal 身上。
 - 实验性 Linux runtime 依赖已登录桌面用户的 AT-SPI2 / D-Bus session；coordinate mouse、drag、keyboard synthesis 只是 best-effort fallback，不应被视为跨 Wayland compositor 的通用后台输入授权。
 

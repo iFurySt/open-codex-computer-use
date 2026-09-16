@@ -47,6 +47,13 @@ public final class ComputerUseToolDispatcher {
         switch name {
         case "list_apps":
             return service.listApps()
+        case "run_intent":
+            return try AppIntentExecution.run(
+                bundleID: requireString("bundle_id", in: arguments),
+                actionID: requireString("action_id", in: arguments),
+                parameters: arguments["parameters"] as? [String: Any] ?? [:],
+                input: optionalString("input", in: arguments)
+            )
         case "get_app_state":
             return try service.getAppState(
                 app: requireString("app", in: arguments),
