@@ -195,6 +195,47 @@ for that frame, because `CGWindowListCopyWindowInfo` can keep reporting the pre-
 second (measured: 83 identical travel frames). Reading no frame at all (window minimized, hidden, or moved to another Space) is not a change, so
 the accessibility action paths keep working.
 
+## Focus Behaviour
+
+The default action path does not take focus away from whatever the user is working in:
+
+- `click` with the default `click_method` (`auto`) uses the element's accessibility action and then `app_post`; both are delivered to the target process.
+- `type_text` writes the focused element's `AXValue` when that attribute is settable and only falls back to PID-directed keyboard events when it is not.
+- `set_value` writes the attribute directly.
+
+Three code paths *do* raise or activate the target app, and all three are opt-in:
+
+| Path | Enabled by |
+|---|---|
+| `activateClickTarget` (`AXRaise`, then `kAXMain` / `kAXFocused`) | `allow_window_recovery: true` |
+| `AccessibilitySnapshot.recoverVisibleWindow` | `allow_window_recovery: true` |
+| `InputSimulation.prepareAppForGlobalPointerInput` (`AXRaise`, then `NSRunningApplication.activate`) | `click_method: "global"` with `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` |
+
+Keep them off while the user is working on the same machine: otherwise the target app is raised and the app they were typing in loses focus. A target app can also raise *itself* in response to an accessibility action — Chromium does — which no client-side setting can prevent.
+
+`click_method: "sky_click"` is the one pointer path built specifically to avoid this: it synthesizes focus for the target process only and never deactivates the real frontmost app (see [macos-skylight-background-click.md](../../../docs/references/macos-skylight-background-click.md)).
+
+### Verifying focus behaviour on a two-display machine
+
+Measure it, do not assume it:
+
+```sh
+# 1. sample the frontmost app while the agent works; log only changes.
+#    Any small helper that prints NSWorkspace.shared.frontmostApplication works.
+<frontmost-sampler> 45 > /tmp/frontmost.log 2>&1 &
+
+# 2. drive the action from the CLI, so it runs in parallel with the human.
+open-computer-use call type_text --args '{"app":"Google Chrome for Testing","text":"PROBE-STRING"}'
+```
+
+The check passes when the frontmost app never changes, the target field contains exactly the probe
+string, and the person typing reports no lost characters.
+
+**Never synthesize the "user is typing" side of this test.** Injected key events go to whatever is
+frontmost at that instant — the real desktop — so an emulation harness that guesses the wrong window
+types into the user's own applications. On a machine someone is using, only a human types and the
+agent only measures.
+
 ## Choosing a Click Method
 
 `click_method` is optional. Omitting it uses `auto`, which preserves the platform's existing semantic-first behavior. Explicit methods never fall back to a different implementation:
