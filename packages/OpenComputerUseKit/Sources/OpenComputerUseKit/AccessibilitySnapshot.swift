@@ -13,6 +13,18 @@ final class ElementRecord {
     let rawActions: [String]
     let prettyActions: [String]
     let isSyntheticText: Bool
+    /// The name exactly as the snapshot rendered it (title / link text).
+    let title: String?
+    /// The element description (`AXDescription`), rendered as `Description: …`.
+    let label: String?
+    /// The rendered value, which is also the visible name of a Chromium text leaf.
+    let value: String?
+    /// The rendered role text, including localized Chromium labels.
+    let roleText: String?
+    let placeholder: String?
+    /// The index of the rendered parent, used to tell "the same UI target
+    /// reported twice" from "two different targets share a name".
+    let parentIndex: Int?
 
     init(
         index: Int,
@@ -22,7 +34,13 @@ final class ElementRecord {
         role: String? = nil,
         rawActions: [String],
         prettyActions: [String],
-        isSyntheticText: Bool = false
+        isSyntheticText: Bool = false,
+        title: String? = nil,
+        label: String? = nil,
+        value: String? = nil,
+        roleText: String? = nil,
+        placeholder: String? = nil,
+        parentIndex: Int? = nil
     ) {
         self.index = index
         self.identifier = identifier
@@ -32,6 +50,12 @@ final class ElementRecord {
         self.rawActions = rawActions
         self.prettyActions = prettyActions
         self.isSyntheticText = isSyntheticText
+        self.title = title
+        self.label = label
+        self.value = value
+        self.roleText = roleText
+        self.placeholder = placeholder
+        self.parentIndex = parentIndex
     }
 }
 
@@ -41,9 +65,45 @@ enum SnapshotMode {
 }
 
 enum SnapshotRecoveryPolicy: Equatable {
+    /// Legacy behaviour: may unhide / activate / `open -b` / `AXRaise` /
+    /// `AXMain` / `AXFocused` the target app. This changes the user's
+    /// foreground focus, so it is never the default.
     case allowActivation
+    /// Default: read the app as-is and fail closed when no on-screen window
+    /// exists. Never changes foreground focus.
     case readOnly
 }
+
+/// Window recovery changes the user's foreground focus, so it is opt-in.
+///
+/// An explicit `allow_window_recovery` tool argument wins; otherwise the
+/// process-level `OPEN_COMPUTER_USE_ALLOW_WINDOW_RECOVERY=1` gate applies.
+func snapshotRecoveryPolicy(
+    allowWindowRecovery: Bool?,
+    environment: [String: String] = ProcessInfo.processInfo.environment
+) -> SnapshotRecoveryPolicy {
+    if let allowWindowRecovery {
+        return allowWindowRecovery ? .allowActivation : .readOnly
+    }
+
+    return windowRecoveryEnabled(environment: environment) ? .allowActivation : .readOnly
+}
+
+func windowRecoveryEnabled(environment: [String: String]) -> Bool {
+    guard let rawValue = environment["OPEN_COMPUTER_USE_ALLOW_WINDOW_RECOVERY"]?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+    else {
+        return false
+    }
+
+    return ["1", "true", "yes", "on"].contains(rawValue)
+}
+
+/// Default policy for every snapshot build that does not resolve an explicit
+/// `allow_window_recovery` argument. Kept as a named constant so tests can pin
+/// the default instead of re-encoding it.
+let defaultSnapshotRecoveryPolicy: SnapshotRecoveryPolicy = .readOnly
 
 public struct AccessibilityTreeLimits: Equatable, Sendable {
     public static let defaultMaxNodeCount = 1200
@@ -108,6 +168,9 @@ public struct AppSnapshot {
     public let windowBounds: CGRect?
     let targetWindowID: CGWindowID?
     let targetWindowLayer: Int?
+    /// The AX window element the tree was rendered from. Used only to register a
+    /// read-only move/resize watch on the target window; never to activate it.
+    let windowElement: AXUIElement?
     public let screenshotPNGData: Data?
     let mode: SnapshotMode
     let treeLines: [String]
@@ -129,6 +192,13 @@ public struct AppSnapshot {
         lines.append("App=\(appReference) (pid \(app.pid))")
         lines.append("Window: \(quoted(displayTitle)), App: \(app.name).")
         lines.append(contentsOf: treeLines)
+
+        // Only present for a window parked outside every active display (a chrome-only tree);
+        // an on-display snapshot is byte-identical to before.
+        if let displayNote = offDisplayWindowNote(windowBounds: windowBounds) {
+            lines.append("")
+            lines.append("--- display note --- \(displayNote)")
+        }
 
         if let selectedText, !selectedText.isEmpty {
             lines.append("")
@@ -152,7 +222,7 @@ enum SnapshotBuilder {
         for app: RunningAppDescriptor,
         textLimit: SnapshotTextLimit = .defaults,
         treeLimits: AccessibilityTreeLimits = .defaults,
-        recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation
+        recoveryPolicy: SnapshotRecoveryPolicy = defaultSnapshotRecoveryPolicy
     ) throws -> AppSnapshot {
         if app.name == FixtureBridge.appName, let fixtureState = try FixtureBridge.readState() {
             return buildFixtureSnapshot(app: app, state: fixtureState)
@@ -177,7 +247,9 @@ enum SnapshotBuilder {
 
         var rootWindow: AXUIElement
         guard let resolvedFocusedWindow = focusedWindow else {
-            throw ComputerUseError.stateUnavailable(computerUseNoWindowFoundMessage)
+            throw ComputerUseError.stateUnavailable(
+                computerUseWindowNotFoundMessage(recoveryPolicy: recoveryPolicy)
+            )
         }
         rootWindow = resolvedFocusedWindow
 
@@ -195,7 +267,9 @@ enum SnapshotBuilder {
         }
 
         guard let windowCapture else {
-            throw ComputerUseError.stateUnavailable(computerUseNoWindowFoundMessage)
+            throw ComputerUseError.stateUnavailable(
+                computerUseWindowNotFoundMessage(recoveryPolicy: recoveryPolicy)
+            )
         }
 
         return buildAccessibilitySnapshot(
@@ -235,10 +309,40 @@ enum SnapshotBuilder {
 
         var renderer = TreeRenderer(context: context)
         renderer.render(rootElement)
-        if let menuBar = copyElement(appElement, attribute: kAXMenuBarAttribute),
-           !CFEqual(menuBar, rootElement)
-        {
+        let menuBar = copyElement(appElement, attribute: kAXMenuBarAttribute)
+        if let menuBar, !CFEqual(menuBar, rootElement) {
             renderer.render(menuBar)
+        }
+
+        var treeLines = renderer.lines
+        var elements = renderer.records
+        var focusedSummary = renderer.focusedSummary
+
+        let popupSubtrees = transientPopupSubtrees(
+            appElement: appElement,
+            rootElement: rootElement,
+            excluding: [rootElement] + (menuBar.map { [$0] } ?? [])
+        )
+        let popupNote = collapsedWebAreaPopupNote(records: renderer.records, focusedIndex: renderer.focusedIndex)
+
+        if !popupSubtrees.isEmpty {
+            // The overlay lives in its own subtree: render it with the same
+            // context so indices and frames stay comparable, and append it after
+            // a marker. A popup-free app never enters this branch.
+            var popupRenderer = TreeRenderer(context: context, startingIndex: renderer.nextIndex)
+            for subtree in popupSubtrees {
+                popupRenderer.render(subtree)
+            }
+
+            treeLines = appendingTransientPopupSection(
+                primary: renderer.lines,
+                popup: popupRenderer.lines,
+                note: popupNote
+            )
+            elements.merge(popupRenderer.records) { _, appended in appended }
+            focusedSummary = focusedSummary ?? popupRenderer.focusedSummary
+        } else if popupNote != nil {
+            treeLines = appendingTransientPopupSection(primary: renderer.lines, popup: [], note: popupNote)
         }
 
         return AppSnapshot(
@@ -247,14 +351,74 @@ enum SnapshotBuilder {
             windowBounds: windowBounds,
             targetWindowID: windowCapture.windowID,
             targetWindowLayer: windowCapture.layer,
+            windowElement: rootElement,
             screenshotPNGData: screenshotPNGData,
             mode: .accessibility,
-            treeLines: renderer.lines,
-            focusedSummary: renderer.focusedSummary,
+            treeLines: treeLines,
+            focusedSummary: focusedSummary,
             focusedElement: focusedElement,
             selectedText: selectedText,
-            elements: renderer.records
+            elements: elements
         )
+    }
+
+    /// App-owned top-level subtrees the primary window render never touched:
+    /// the other windows plus overlay roots the app exposes as direct children.
+    ///
+    /// Only transient overlays (and, when the focused window already *is* the
+    /// overlay, the windows it opened over) survive the selection, so an app
+    /// without an open popup renders exactly as before.
+    private static func transientPopupSubtrees(
+        appElement: AXUIElement,
+        rootElement: AXUIElement,
+        excluding excluded: [AXUIElement]
+    ) -> [AXUIElement] {
+        var descriptors: [PopupSubtreeDescriptor] = [
+            PopupSubtreeDescriptor(
+                role: stringValue(of: rootElement, attribute: kAXRoleAttribute),
+                subrole: stringValue(of: rootElement, attribute: kAXSubroleAttribute),
+                title: stringValue(of: rootElement, attribute: kAXTitleAttribute),
+                isPrimaryWindow: true
+            ),
+        ]
+        var candidates: [AXUIElement] = []
+
+        let appChildren = (copyArray(appElement, attribute: kAXChildrenAttribute) ?? [])
+            + (copyArray(appElement, attribute: kAXWindowsAttribute) ?? [])
+        for child in appChildren {
+            guard !excluded.contains(where: { CFEqual($0, child) }) else {
+                continue
+            }
+
+            guard !candidates.contains(where: { CFEqual($0, child) }) else {
+                continue
+            }
+
+            let role = stringValue(of: child, attribute: kAXRoleAttribute)
+            // The menu bar is chrome, not background content, and a minimized
+            // window has nothing readable behind an overlay.
+            guard role != kAXMenuBarRole as String else {
+                continue
+            }
+
+            if role == kAXWindowRole as String, boolValue(of: child, attribute: kAXMinimizedAttribute) == true {
+                continue
+            }
+
+            candidates.append(child)
+            descriptors.append(
+                PopupSubtreeDescriptor(
+                    role: role,
+                    subrole: stringValue(of: child, attribute: kAXSubroleAttribute),
+                    title: stringValue(of: child, attribute: kAXTitleAttribute),
+                    isPrimaryWindow: false
+                )
+            )
+        }
+
+        return transientPopupSubtreeSelection(descriptors).compactMap { index in
+            index == 0 ? nil : candidates[index - 1]
+        }
     }
 
     private static func recoverVisibleWindow(for app: RunningAppDescriptor, appElement: AXUIElement, preferredWindow: AXUIElement?) -> Bool {
@@ -388,7 +552,10 @@ enum SnapshotBuilder {
                 localFrame: element.frame.cgRect,
                 role: element.role,
                 rawActions: element.actions,
-                prettyActions: element.actions
+                prettyActions: element.actions,
+                title: element.title,
+                value: element.value,
+                roleText: element.role
             )
             records[element.index] = record
 
@@ -403,12 +570,13 @@ enum SnapshotBuilder {
             windowBounds: state.windowBounds.cgRect,
             targetWindowID: nil,
             targetWindowLayer: nil,
+            windowElement: nil,
             screenshotPNGData: nil,
             mode: .fixture,
             treeLines: lines,
             focusedSummary: focusedSummary,
             focusedElement: nil,
-            selectedText: nil,
+            selectedText: state.selectedText,
             elements: records
         )
     }
@@ -422,18 +590,31 @@ private func enableBestEffortAccessibilityModes(_ appElement: AXUIElement) {
     _ = AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
 }
 
-private struct WindowCapture {
+struct WindowCapture {
     let windowID: CGWindowID
     let layer: Int
     let bounds: CGRect
     let image: CGImage?
 
     static func resolve(for pid: pid_t, titleHint: String?) -> WindowCapture? {
-        guard let infoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
+        guard let best = preferredWindowCaptureCandidate(visibleCandidates(for: pid), titleHint: titleHint) else {
             return nil
         }
 
-        let candidates = infoList.enumerated().compactMap { offset, info -> WindowCaptureCandidate? in
+        let image = captureImage(windowID: best.windowID, bounds: best.bounds)
+
+        return WindowCapture(windowID: best.windowID, layer: best.layer, bounds: best.bounds, image: image)
+    }
+
+    /// On-screen windows owned by a pid, front to back, straight from the
+    /// window server. Split out from `resolve` so the geometry probe can
+    /// re-read a window frame without paying for a screenshot.
+    static func visibleCandidates(for pid: pid_t) -> [WindowCaptureCandidate] {
+        guard let infoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
+            return []
+        }
+
+        return infoList.enumerated().compactMap { offset, info -> WindowCaptureCandidate? in
             guard
                 let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t,
                 ownerPID == pid,
@@ -456,14 +637,6 @@ private struct WindowCapture {
                 frontToBackIndex: offset
             )
         }
-
-        guard let best = preferredWindowCaptureCandidate(candidates, titleHint: titleHint) else {
-            return nil
-        }
-
-        let image = captureImage(windowID: best.windowID, bounds: best.bounds)
-
-        return WindowCapture(windowID: best.windowID, layer: best.layer, bounds: best.bounds, image: image)
     }
 
     private static func captureImage(windowID: CGWindowID, bounds: CGRect) -> CGImage? {
@@ -669,17 +842,19 @@ private struct RenderContext {
 
 private struct TreeRenderer {
     let context: RenderContext
-    var nextIndex = 0
+    var nextIndex: Int
     var lines: [String] = []
     var records: [Int: ElementRecord] = [:]
     var identifierIndex: [String: String] = [:]
     var focusedSummary: String?
+    var focusedIndex: Int?
 
-    init(context: RenderContext) {
+    init(context: RenderContext, startingIndex: Int = 0) {
         self.context = context
+        self.nextIndex = startingIndex
     }
 
-    mutating func render(_ root: AXUIElement, depth: Int = 0, ancestors: [AXUIElement] = []) {
+    mutating func render(_ root: AXUIElement, depth: Int = 0, ancestors: [AXUIElement] = [], parentIndex: Int? = nil) {
         guard shouldContinueRendering(nextIndex: nextIndex, depth: depth, limits: context.treeLimits) else {
             return
         }
@@ -786,7 +961,7 @@ private struct TreeRenderer {
             preservesCompactGenericActionTarget: rendersCompactGenericActionTarget
         ) {
             for child in childElements {
-                render(child, depth: depth, ancestors: nextAncestors)
+                render(child, depth: depth, ancestors: nextAncestors, parentIndex: parentIndex)
             }
             return
         }
@@ -844,7 +1019,13 @@ private struct TreeRenderer {
             localFrame: localFrame,
             role: role,
             rawActions: actions,
-            prettyActions: prettyActions
+            prettyActions: prettyActions,
+            title: displayTitle,
+            label: label,
+            value: value,
+            roleText: renderedRoleText,
+            placeholder: placeholder,
+            parentIndex: parentIndex
         )
         records[index] = record
 
@@ -854,6 +1035,7 @@ private struct TreeRenderer {
 
         if let focusedElement = context.focusedElement, CFEqual(focusedElement, root) {
             focusedSummary = lineBody
+            focusedIndex = index
         }
 
         if role == kAXRowRole as String, boolValue(of: root, attribute: kAXSelectedAttribute) != true {
@@ -864,9 +1046,9 @@ private struct TreeRenderer {
         }
 
         if rendersSummaryAsChildren, let genericTextSummary {
-            renderSyntheticText(genericTextSummary, representedBy: root, depth: depth + 1)
+            renderSyntheticText(genericTextSummary, representedBy: root, depth: depth + 1, parentIndex: index)
             for image in summaryImageChildren {
-                render(image, depth: depth + 1, ancestors: nextAncestors)
+                render(image, depth: depth + 1, ancestors: nextAncestors, parentIndex: index)
             }
             return
         }
@@ -876,11 +1058,11 @@ private struct TreeRenderer {
         }
 
         for child in childElements {
-            render(child, depth: depth + 1, ancestors: nextAncestors)
+            render(child, depth: depth + 1, ancestors: nextAncestors, parentIndex: index)
         }
     }
 
-    private mutating func renderSyntheticText(_ text: String, representedBy element: AXUIElement, depth: Int) {
+    private mutating func renderSyntheticText(_ text: String, representedBy element: AXUIElement, depth: Int, parentIndex: Int?) {
         guard shouldContinueRendering(nextIndex: nextIndex, depth: depth, limits: context.treeLimits) else {
             return
         }
@@ -896,7 +1078,11 @@ private struct TreeRenderer {
             localFrame: resolveLocalFrame(of: element, windowBounds: context.windowBounds),
             rawActions: [],
             prettyActions: [],
-            isSyntheticText: true
+            isSyntheticText: true,
+            title: text,
+            value: text,
+            roleText: "text",
+            parentIndex: parentIndex
         )
     }
 

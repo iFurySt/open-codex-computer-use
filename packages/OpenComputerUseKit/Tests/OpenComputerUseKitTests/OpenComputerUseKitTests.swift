@@ -253,7 +253,22 @@ final class OpenComputerUseKitTests: XCTestCase {
     }
 
     func testToolDefinitionCount() {
-        XCTAssertEqual(ToolDefinitions.all.count, 9)
+        XCTAssertEqual(ToolDefinitions.all.count, 10)
+        XCTAssertEqual(
+            ToolDefinitions.all.map(\.name).sorted(),
+            [
+                "click",
+                "drag",
+                "get_app_state",
+                "list_apps",
+                "perform_secondary_action",
+                "press_key",
+                "scroll",
+                "select_text",
+                "set_value",
+                "type_text",
+            ]
+        )
     }
 
     func testReadToolArgumentsAcceptsJSONObject() throws {
@@ -691,6 +706,46 @@ final class OpenComputerUseKitTests: XCTestCase {
             scrollPages?["description"] as? String,
             "Number of pages to scroll. Fractional values are supported. Defaults to 1"
         )
+        XCTAssertEqual(
+            tools["select_text"]?.description,
+            "Select text inside a text element, or place the text cursor before or after it. Provide text exactly as it appears in the accessibility tree, including any Markdown formatting. If the text is not unique, provide surrounding prefix or suffix text to disambiguate it. This tool is part of plugin `Computer Use`."
+        )
+        let selectTextSchema = tools["select_text"]?.inputSchema
+        let selectTextProperties = selectTextSchema?["properties"] as? [String: [String: Any]]
+        XCTAssertEqual(selectTextSchema?["required"] as? [String], ["app", "element_index", "text"])
+        XCTAssertEqual(selectTextSchema?["additionalProperties"] as? Bool, false)
+        XCTAssertEqual(
+            selectTextProperties?["selection"]?["enum"] as? [String],
+            ["text", "cursor_before", "cursor_after"]
+        )
+        XCTAssertEqual(
+            selectTextProperties?["selection"]?["description"] as? String,
+            "Whether to select the text or place the cursor before or after it. Defaults to text."
+        )
+        XCTAssertEqual(selectTextProperties?["element_index"]?["description"] as? String, "Text element identifier")
+        XCTAssertEqual(
+            selectTextProperties?["prefix"]?["description"] as? String,
+            "Optional text immediately before the target, used to disambiguate repeated matches"
+        )
+        XCTAssertEqual(
+            selectTextProperties?["suffix"]?["description"] as? String,
+            "Optional text immediately after the target, used to disambiguate repeated matches"
+        )
+        XCTAssertEqual(
+            selectTextProperties?["text"]?["description"] as? String,
+            "Target text as shown in the accessibility tree"
+        )
+    }
+
+    func testSelectTextRejectsInvalidSelectionMode() {
+        let dispatcher = ComputerUseToolDispatcher()
+        let result = dispatcher.callToolAsResult(
+            name: "select_text",
+            arguments: ["app": "Sublime Text", "element_index": "14", "text": "abc", "selection": "sideways"]
+        )
+
+        XCTAssertTrue(result.isError)
+        XCTAssertEqual(result.primaryText, "selection must be one of text, cursor_before, cursor_after")
     }
 
     func testDispatcherMissingArgumentsMatchOfficialToolText() {
@@ -1543,13 +1598,26 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(try parseClickMethod("GLOBAL"), .global)
     }
 
-    func testOnlySkyClickUsesReadOnlyActionSnapshotRefresh() {
-        XCTAssertEqual(clickActionSnapshotRecoveryPolicy(for: .skyClick), .readOnly)
+    func testActionSnapshotRefreshStaysReadOnlyUnlessWindowRecoveryIsOptedIn() {
+        for method in ClickMethod.allCases {
+            XCTAssertEqual(
+                clickActionSnapshotRecoveryPolicy(for: method, environment: [:]),
+                .readOnly,
+                method.rawValue
+            )
+        }
+
+        // sky_click must never activate the target, even when window recovery is on.
+        XCTAssertEqual(
+            clickActionSnapshotRecoveryPolicy(for: .skyClick, allowWindowRecovery: true),
+            .readOnly
+        )
 
         for method in ClickMethod.allCases where method != .skyClick {
             XCTAssertEqual(
-                clickActionSnapshotRecoveryPolicy(for: method),
-                .allowActivation
+                clickActionSnapshotRecoveryPolicy(for: method, allowWindowRecovery: true),
+                .allowActivation,
+                method.rawValue
             )
         }
     }
@@ -1592,7 +1660,7 @@ final class OpenComputerUseKitTests: XCTestCase {
         ) { error in
             XCTAssertEqual(
                 (error as? ComputerUseError)?.errorDescription,
-                "click_method 'accessibility' requires element_index"
+                "click_method 'accessibility' requires element_index or selector"
             )
         }
 
@@ -1803,7 +1871,20 @@ final class OpenComputerUseKitTests: XCTestCase {
             target,
             VisualCursorTarget(
                 point: CGPoint(x: 484, y: 724),
-                window: CursorTargetWindow(windowID: 321, layer: 8)
+                window: CursorTargetWindow(windowID: 321, layer: 8),
+                // The screen-state point and frame travel with the target so a
+                // window move can re-derive it without a snapshot refresh.
+                screenStatePoint: CGPoint(x: 484, y: 276),
+                screenStateWindowBounds: CGRect(x: 400, y: 220, width: 900, height: 640)
+            )
+        )
+        XCTAssertEqual(
+            target?.restingAnchor,
+            CursorRestingAnchor(
+                windowID: 321,
+                layer: 8,
+                windowLocalPoint: CGPoint(x: 84, y: 56),
+                windowBounds: CGRect(x: 400, y: 220, width: 900, height: 640)
             )
         )
     }
@@ -2035,22 +2116,13 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(start.y, geometry.tipAnchor.y, accuracy: 0.0001)
     }
 
-    func testVisualCursorKeepsPostInteractionIdleStateLongEnoughForFollowupTools() {
-        XCTAssertEqual(visualCursorPostInteractionIdleTimeout(), 30)
-        XCTAssertGreaterThanOrEqual(visualCursorPostInteractionIdleTimeout(), 30)
-    }
-
-    func testCursorPanelReordersWhenForcedEvenIfTargetWindowDidNotChange() {
-        let targetWindow = CursorTargetWindow(windowID: 42, layer: 0)
-
-        XCTAssertTrue(
-            shouldReorderCursorPanel(
-                activeTargetWindow: targetWindow,
-                effectiveTargetWindow: targetWindow,
-                panelIsVisible: true,
-                forceReorder: true
-            )
-        )
+    /// The cursor has no inactivity deadline any more: it stays on screen for
+    /// the whole turn and only `turn-ended` / `reset` /
+    /// `OPEN_COMPUTER_USE_VISUAL_CURSOR=0` take it away. The behavioural half of
+    /// that contract lives in `CursorOverlayVisibilityTests`.
+    func testCursorPanelStaysAboveNormalWindowsForTheWholeTurn() {
+        XCTAssertEqual(cursorOverlayBaseLevel, .floating)
+        XCTAssertGreaterThan(cursorOverlayBaseLevel.rawValue, NSWindow.Level.normal.rawValue)
     }
 
     func testCursorPanelDoesNotReorderWhenVisibleAndTargetWindowIsStable() {
@@ -2060,10 +2132,266 @@ final class OpenComputerUseKitTests: XCTestCase {
             shouldReorderCursorPanel(
                 activeTargetWindow: targetWindow,
                 effectiveTargetWindow: targetWindow,
-                panelIsVisible: true,
-                forceReorder: false
+                panelIsVisible: true
             )
         )
+    }
+
+    func testCursorPanelReordersOnlyWhenTheTargetWindowChangesOrThePanelMustShow() {
+        let targetWindow = CursorTargetWindow(windowID: 42, layer: 0)
+        let otherWindow = CursorTargetWindow(windowID: 7, layer: 3)
+
+        XCTAssertTrue(
+            shouldReorderCursorPanel(
+                activeTargetWindow: nil,
+                effectiveTargetWindow: targetWindow,
+                panelIsVisible: true
+            )
+        )
+        XCTAssertTrue(
+            shouldReorderCursorPanel(
+                activeTargetWindow: targetWindow,
+                effectiveTargetWindow: otherWindow,
+                panelIsVisible: true
+            )
+        )
+        XCTAssertTrue(
+            shouldReorderCursorPanel(
+                activeTargetWindow: targetWindow,
+                effectiveTargetWindow: targetWindow,
+                panelIsVisible: false
+            )
+        )
+    }
+
+    // MARK: - Software cursor stillness contract
+
+    func testCursorFrameOriginIsAlignedToWholePoints() {
+        let tipAnchor = CGPoint(x: 60.35, y: 70.3)
+
+        XCTAssertEqual(
+            integralCursorFrameOrigin(
+                forTipPosition: CGPoint(x: 184.4, y: 92.6),
+                tipAnchor: tipAnchor
+            ),
+            CGPoint(x: 124, y: 22)
+        )
+
+        // The spring keeps moving the tip by fractions of a point after the
+        // animation looks finished. Those must map to the same written origin,
+        // otherwise every tick hands the window server a new frame.
+        XCTAssertEqual(
+            integralCursorFrameOrigin(
+                forTipPosition: CGPoint(x: 184.02, y: 92.4),
+                tipAnchor: tipAnchor
+            ),
+            integralCursorFrameOrigin(
+                forTipPosition: CGPoint(x: 184.0, y: 92.49),
+                tipAnchor: tipAnchor
+            )
+        )
+    }
+
+    @MainActor
+    func testCursorPanelWriteGateSkipsRepeatedFrameAndLevelWrites() {
+        let gate = CursorPanelWriteGate()
+        let tipAnchor = CGPoint(x: 60.35, y: 70.3)
+
+        let first = gate.frameWrite(forTipPosition: CGPoint(x: 820, y: 540), tipAnchor: tipAnchor)
+        XCTAssertTrue(first.didChange)
+        XCTAssertEqual(first.origin, CGPoint(x: 760, y: 470))
+        XCTAssertEqual(gate.frameWriteCount, 1)
+
+        let repeated = gate.frameWrite(forTipPosition: CGPoint(x: 820.002, y: 539.998), tipAnchor: tipAnchor)
+        XCTAssertFalse(repeated.didChange)
+        XCTAssertEqual(repeated.origin, first.origin)
+        XCTAssertEqual(gate.frameWriteCount, 1)
+        XCTAssertEqual(gate.skippedFrameWriteCount, 1)
+
+        XCTAssertTrue(gate.levelWrite(for: NSWindow.Level(rawValue: 3)))
+        XCTAssertFalse(gate.levelWrite(for: NSWindow.Level(rawValue: 3)))
+        XCTAssertEqual(gate.levelWriteCount, 1)
+
+        let targetWindow = CursorTargetWindow(windowID: 42, layer: 3)
+        XCTAssertTrue(gate.markOrdering(activeTargetWindow: targetWindow, panelIsVisible: true))
+        XCTAssertFalse(gate.markOrdering(activeTargetWindow: targetWindow, panelIsVisible: true))
+        XCTAssertFalse(gate.markOrdering(activeTargetWindow: targetWindow, panelIsVisible: true))
+        XCTAssertTrue(gate.markOrdering(activeTargetWindow: targetWindow, panelIsVisible: false))
+        XCTAssertEqual(gate.reorderCount, 2)
+        XCTAssertEqual(gate.skippedReorderCount, 2)
+
+        // A hidden cursor forgets everything: showing it again must write.
+        gate.reset()
+        XCTAssertNil(gate.activeTargetWindow)
+        XCTAssertTrue(gate.frameWrite(forTipPosition: CGPoint(x: 820, y: 540), tipAnchor: tipAnchor).didChange)
+        XCTAssertTrue(gate.levelWrite(for: NSWindow.Level(rawValue: 3)))
+        XCTAssertTrue(gate.markOrdering(activeTargetWindow: targetWindow, panelIsVisible: true))
+    }
+
+    @MainActor
+    func testCursorIdleTicksStopTouchingThePanelOnceTheIdleWindowElapses() {
+        let start: CFTimeInterval = 5_000
+        var now = start
+        var timers: [FakeCursorIdleTimer] = []
+        let gate = CursorPanelWriteGate()
+        let driver = CursorIdleDriver(
+            now: { now },
+            makeTimer: { _, tick in
+                let timer = FakeCursorIdleTimer(tick: tick)
+                timers.append(timer)
+                return timer
+            }
+        )
+
+        let tipAnchor = CGPoint(x: 60.35, y: 70.3)
+        let targetWindow = CursorTargetWindow(windowID: 42, layer: 0)
+        var frameWrites = 0
+        var orderWrites = 0
+
+        // The explicit action writes the frame / level / ordering exactly once.
+        _ = gate.levelWrite(for: NSWindow.Level(rawValue: 0))
+        if gate.markOrdering(activeTargetWindow: targetWindow, panelIsVisible: true) { orderWrites += 1 }
+        if gate.frameWrite(forTipPosition: CGPoint(x: 820, y: 540), tipAnchor: tipAnchor).didChange { frameWrites += 1 }
+        XCTAssertEqual(frameWrites, 1)
+        XCTAssertEqual(orderWrites, 1)
+
+        // The production idle tick over the resting pose: same integral origin,
+        // same target window.
+        driver.markInteraction(at: now)
+        driver.startIdleAnimation(now: now, window: 1) {
+            if gate.markOrdering(activeTargetWindow: targetWindow, panelIsVisible: true) { orderWrites += 1 }
+            if gate.frameWrite(forTipPosition: CGPoint(x: 820.002, y: 539.998), tipAnchor: tipAnchor).didChange {
+                frameWrites += 1
+            }
+        }
+
+        // Five seconds of 60 Hz ticks while nothing is happening.
+        for step in 1...300 {
+            now = start + (Double(step) / 60.0)
+            timers.last?.fire()
+        }
+
+        XCTAssertEqual(frameWrites, 1)
+        XCTAssertEqual(orderWrites, 1)
+        XCTAssertEqual(driver.idleTickCount, 60)
+        XCTAssertEqual(driver.suppressedIdleTickCount, 1)
+        XCTAssertFalse(driver.isIdleAnimationRunning)
+        XCTAssertEqual(timers.last?.invalidateCount, 1)
+        XCTAssertEqual(timers.count, 1)
+    }
+
+    @MainActor
+    func testCursorIdleDriverInvalidatesThePreviousTimerWhenStartedAgain() {
+        var timers: [FakeCursorIdleTimer] = []
+        let driver = CursorIdleDriver(
+            now: { 100 },
+            makeTimer: { _, tick in
+                let timer = FakeCursorIdleTimer(tick: tick)
+                timers.append(timer)
+                return timer
+            }
+        )
+
+        driver.markInteraction(at: 100)
+        driver.startIdleAnimation(now: 100, window: 10) {}
+        driver.startIdleAnimation(now: 100, window: 10) {}
+
+        XCTAssertEqual(timers.count, 2)
+        XCTAssertEqual(timers[0].invalidateCount, 1)
+        XCTAssertFalse(timers[0].isRunning)
+        XCTAssertTrue(timers[1].isRunning)
+        XCTAssertTrue(driver.isIdleAnimationRunning)
+
+        // An invalidated timer never fires again, so the shared idle phase can
+        // only ever be advanced by one writer per frame.
+        timers[0].fire()
+        XCTAssertEqual(driver.idleTickCount, 0)
+        timers[1].fire()
+        XCTAssertEqual(driver.idleTickCount, 1)
+
+        driver.stopIdleAnimation()
+        XCTAssertFalse(driver.isIdleAnimationRunning)
+        XCTAssertEqual(timers[1].invalidateCount, 1)
+    }
+
+    @MainActor
+    func testCursorIdleDriverNeverPumpsWithoutAnInteractionAnchor() {
+        let driver = CursorIdleDriver()
+
+        XCTAssertFalse(driver.shouldPumpIdleAnimation(at: 100, window: 10))
+
+        driver.markInteraction(at: 100)
+        XCTAssertTrue(driver.shouldPumpIdleAnimation(at: 100, window: 10))
+        XCTAssertTrue(driver.shouldPumpIdleAnimation(at: 110, window: 10))
+        XCTAssertFalse(driver.shouldPumpIdleAnimation(at: 110.001, window: 10))
+        XCTAssertFalse(driver.shouldPumpIdleAnimation(at: 100, window: 0))
+    }
+
+    func testVisualCursorIdleSwayWindowDefaultsToOneSecondAndStaysTunable() {
+        XCTAssertEqual(visualCursorIdleSwayWindowMilliseconds(environment: [:]), 1_000)
+        XCTAssertEqual(
+            visualCursorIdleSwayWindowMilliseconds(
+                environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR_IDLE_SWAY_MS": "250"]
+            ),
+            250
+        )
+        XCTAssertEqual(
+            visualCursorIdleSwayWindowMilliseconds(
+                environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR_IDLE_SWAY_MS": "0"]
+            ),
+            0
+        )
+        XCTAssertEqual(
+            visualCursorIdleSwayWindowMilliseconds(
+                environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR_IDLE_SWAY_MS": "abc"]
+            ),
+            1_000
+        )
+        XCTAssertEqual(
+            visualCursorIdleSwayWindowMilliseconds(
+                environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR_IDLE_SWAY_MS": "-5"]
+            ),
+            1_000
+        )
+        XCTAssertEqual(
+            visualCursorIdleSwayWindow(environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR_IDLE_SWAY_MS": "500"]),
+            0.5,
+            accuracy: 0.0001
+        )
+    }
+
+    func testCursorOverlayDebugStatsStayOffUnlessRequested() {
+        XCTAssertFalse(visualCursorDebugStatsEnabled(environment: [:]))
+        XCTAssertFalse(
+            visualCursorDebugStatsEnabled(environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR_DEBUG_STATS": "0"])
+        )
+        XCTAssertTrue(
+            visualCursorDebugStatsEnabled(environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR_DEBUG_STATS": " 1 "])
+        )
+        XCTAssertTrue(
+            visualCursorDebugStatsEnabled(environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR_DEBUG_STATS": "YES"])
+        )
+
+        let line = cursorOverlayDebugStatsLine(
+            CursorOverlayDebugStats(
+                frameWrites: 3,
+                skippedFrameWrites: 180,
+                levelWrites: 1,
+                reorders: 1,
+                skippedReorders: 180,
+                idleTicks: 60,
+                suppressedIdleTicks: 1,
+                invalidatedIdleTimers: 2
+            )
+        )
+
+        XCTAssertTrue(line.hasPrefix("[open-computer-use] cursor overlay stats"))
+        XCTAssertTrue(line.contains("frameWrites=3"))
+        XCTAssertTrue(line.contains("skippedFrameWrites=180"))
+        XCTAssertTrue(line.contains("reorders=1"))
+        XCTAssertTrue(line.contains("skippedReorders=180"))
+        XCTAssertTrue(line.contains("suppressedIdleTicks=1"))
+        XCTAssertTrue(line.contains("invalidatedIdleTimers=2"))
     }
 
     func testVisualCursorRuntimeMapsAppKitUpwardMotionToCursorMotionScreenState() {
@@ -2309,6 +2637,450 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertGreaterThan(abs(negativePose.angleOffset), 0.08)
     }
 
+    // MARK: - Quiet window recovery (P2)
+
+    func testWindowRecoveryIsOptInByDefault() {
+        XCTAssertEqual(defaultSnapshotRecoveryPolicy, .readOnly)
+        XCTAssertEqual(snapshotRecoveryPolicy(allowWindowRecovery: nil, environment: [:]), .readOnly)
+        XCTAssertEqual(
+            snapshotRecoveryPolicy(
+                allowWindowRecovery: nil,
+                environment: ["OPEN_COMPUTER_USE_ALLOW_WINDOW_RECOVERY": "1"]
+            ),
+            .allowActivation
+        )
+        XCTAssertEqual(snapshotRecoveryPolicy(allowWindowRecovery: true, environment: [:]), .allowActivation)
+        // An explicit per-call false must win over the process-level opt-in.
+        XCTAssertEqual(
+            snapshotRecoveryPolicy(
+                allowWindowRecovery: false,
+                environment: ["OPEN_COMPUTER_USE_ALLOW_WINDOW_RECOVERY": "1"]
+            ),
+            .readOnly
+        )
+
+        for disabled in ["0", "false", "no", "off", "  NO  "] {
+            XCTAssertFalse(
+                windowRecoveryEnabled(environment: ["OPEN_COMPUTER_USE_ALLOW_WINDOW_RECOVERY": disabled]),
+                disabled
+            )
+        }
+    }
+
+    func testWindowNotFoundMessageKeepsOfficialShapeAndExplainsTheFix() {
+        let readOnlyMessage = computerUseWindowNotFoundMessage(recoveryPolicy: .readOnly)
+        XCTAssertTrue(readOnlyMessage.hasPrefix(computerUseNoWindowFoundMessage))
+        XCTAssertTrue(readOnlyMessage.contains("current Space"))
+        XCTAssertTrue(readOnlyMessage.contains("allow_window_recovery=true"))
+        XCTAssertTrue(readOnlyMessage.contains("OPEN_COMPUTER_USE_ALLOW_WINDOW_RECOVERY=1"))
+
+        let recoveryMessage = computerUseWindowNotFoundMessage(recoveryPolicy: .allowActivation)
+        XCTAssertTrue(recoveryMessage.hasPrefix(computerUseNoWindowFoundMessage))
+        XCTAssertFalse(recoveryMessage.contains("Window recovery is opt-in"))
+    }
+
+    func testWindowRecoveryToolArgumentIsAnOptionalBoolean() {
+        let tools = Dictionary(uniqueKeysWithValues: ToolDefinitions.all.map { ($0.name, $0) })
+
+        for name in ["get_app_state", "click", "perform_secondary_action", "scroll", "drag", "type_text", "press_key", "set_value", "select_text"] {
+            let properties = tools[name]?.inputSchema["properties"] as? [String: [String: Any]]
+            XCTAssertEqual(properties?["allow_window_recovery"]?["type"] as? String, "boolean", name)
+        }
+
+        XCTAssertNil(
+            (tools["list_apps"]?.inputSchema["properties"] as? [String: [String: Any]])?["allow_window_recovery"]
+        )
+        XCTAssertEqual(tools["get_app_state"]?.inputSchema["required"] as? [String], ["app"])
+    }
+
+    // MARK: - Scroll into view (P1)
+
+    func testWindowLocalVisibleRectUsesWindowRelativeSpace() {
+        XCTAssertEqual(
+            windowLocalVisibleRect(windowBounds: CGRect(x: 100, y: 200, width: 800, height: 600)),
+            CGRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        XCTAssertNil(windowLocalVisibleRect(windowBounds: nil))
+        XCTAssertNil(windowLocalVisibleRect(windowBounds: CGRect(x: 0, y: 0, width: 0, height: 10)))
+    }
+
+    func testElementNeedsScrollIntoViewForOutOfWindowAndDegenerateFrames() {
+        let windowBounds = CGRect(x: 100, y: 200, width: 800, height: 600)
+        let visible = CGRect(x: 20, y: 30, width: 120, height: 24)
+
+        XCTAssertFalse(elementNeedsScrollIntoView(localFrame: visible, windowBounds: windowBounds))
+        XCTAssertFalse(elementNeedsScrollIntoView(localFrame: nil, windowBounds: windowBounds))
+        XCTAssertFalse(elementNeedsScrollIntoView(localFrame: visible, windowBounds: nil))
+        XCTAssertFalse(
+            elementNeedsScrollIntoView(
+                localFrame: visible,
+                windowBounds: CGRect(x: 0, y: 0, width: 0, height: 0)
+            )
+        )
+        XCTAssertFalse(
+            elementNeedsScrollIntoView(
+                localFrame: CGRect(x: CGFloat.nan, y: 30, width: 120, height: 24),
+                windowBounds: windowBounds
+            )
+        )
+
+        // Degenerate geometry with a usable position: Chromium reports content that a
+        // scroll container clipped out of view this way (measured: x=344 y=87 w=42 h=1).
+        // Scrolling must be attempted, otherwise the viewport never follows the action.
+        XCTAssertTrue(
+            elementNeedsScrollIntoView(
+                localFrame: CGRect(x: 344, y: 87, width: 42, height: 1),
+                windowBounds: windowBounds
+            )
+        )
+        XCTAssertTrue(
+            elementNeedsScrollIntoView(
+                localFrame: CGRect(x: 20, y: 30, width: 0, height: 0),
+                windowBounds: windowBounds
+            )
+        )
+        XCTAssertTrue(elementNeedsScrollIntoView(localFrame: .zero, windowBounds: windowBounds))
+
+        // Below the fold.
+        XCTAssertTrue(
+            elementNeedsScrollIntoView(
+                localFrame: CGRect(x: 20, y: 700, width: 120, height: 24),
+                windowBounds: windowBounds
+            )
+        )
+        // Above the viewport (the page is scrolled past it).
+        XCTAssertTrue(
+            elementNeedsScrollIntoView(
+                localFrame: CGRect(x: 20, y: -40, width: 120, height: 24),
+                windowBounds: windowBounds
+            )
+        )
+        // Horizontally outside the viewport.
+        XCTAssertTrue(
+            elementNeedsScrollIntoView(
+                localFrame: CGRect(x: 900, y: 30, width: 120, height: 24),
+                windowBounds: windowBounds
+            )
+        )
+    }
+
+    func testScrollTargetIntoViewIsOnByDefaultAndCanBeDisabled() {
+        XCTAssertTrue(scrollTargetIntoViewEnabled(environment: [:]))
+        XCTAssertTrue(
+            scrollTargetIntoViewEnabled(environment: ["OPEN_COMPUTER_USE_SCROLL_TARGET_INTO_VIEW": "1"])
+        )
+
+        for disabled in ["0", "false", "no", "off", "  OFF  "] {
+            XCTAssertFalse(
+                scrollTargetIntoViewEnabled(environment: ["OPEN_COMPUTER_USE_SCROLL_TARGET_INTO_VIEW": disabled]),
+                disabled
+            )
+        }
+    }
+
+    // MARK: - Advisory cursor ordering (P4 follow-up)
+
+    func testVisualInteractionChoreographerMovesTheCursorBeforeTheAction() {
+        let recorder = VisualStepRecorder()
+        let choreographer = VisualInteractionChoreographer(
+            environment: [:],
+            moveCursor: { _ in recorder.record("move-cursor") },
+            settleCursorArrival: { _ in recorder.record("settle-arrival") }
+        )
+
+        choreographer.approach(VisualCursorTarget(point: CGPoint(x: 120, y: 240), window: nil))
+
+        // Cursor first, arrival beat second: the real action runs after
+        // `approach` returns, exactly like the official `Move cursor to ...` /
+        // `Signal cursor movement completion ...` order.
+        XCTAssertEqual(recorder.steps, ["move-cursor", "settle-arrival"])
+    }
+
+    func testVisualInteractionChoreographerSkipsEverythingWithoutACursorTarget() {
+        let recorder = VisualStepRecorder()
+        let choreographer = VisualInteractionChoreographer(
+            environment: [:],
+            moveCursor: { _ in recorder.record("move-cursor") },
+            settleCursorArrival: { _ in recorder.record("settle-arrival") }
+        )
+
+        XCTAssertEqual(choreographer.approach(nil), .skipped)
+        XCTAssertTrue(recorder.steps.isEmpty)
+    }
+
+    func testVisualInteractionChoreographerStaysSilentWhenVisualCursorIsDisabled() {
+        for disabled in ["0", "false", "no", "off"] {
+            XCTAssertFalse(
+                visualCursorEnabled(environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR": disabled]),
+                disabled
+            )
+
+            let recorder = VisualStepRecorder()
+            let choreographer = VisualInteractionChoreographer(
+                environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR": disabled],
+                moveCursor: { _ in recorder.record("move-cursor") },
+                settleCursorArrival: { _ in recorder.record("settle-arrival") }
+            )
+
+            let outcome = choreographer.approach(
+                VisualCursorTarget(point: CGPoint(x: 120, y: 240), window: nil)
+            )
+
+            XCTAssertEqual(outcome, .skipped, disabled)
+            XCTAssertTrue(recorder.steps.isEmpty, disabled)
+        }
+    }
+
+    func testVisualCursorArrivalSettleStaysShortButVisible() {
+        let duration = visualCursorArrivalSettleDuration()
+
+        XCTAssertGreaterThanOrEqual(duration, 0.1)
+        XCTAssertLessThanOrEqual(duration, 0.3)
+    }
+
+    // MARK: - Visual cursor debounce / coalescing (P5)
+
+    func testVisualCursorCoalesceWindowDefaultsTo400msAndStaysTunable() {
+        XCTAssertEqual(visualCursorCoalesceWindow(environment: [:]), 0.4, accuracy: 0.0001)
+        XCTAssertEqual(
+            visualCursorCoalesceWindow(environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR_COALESCE_MS": "750"]),
+            0.75,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            visualCursorCoalesceWindow(environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR_COALESCE_MS": " 250 "]),
+            0.25,
+            accuracy: 0.0001
+        )
+
+        // 0 is the documented escape hatch back to one animation per action.
+        XCTAssertEqual(
+            visualCursorCoalesceWindow(environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR_COALESCE_MS": "0"]),
+            0
+        )
+
+        // Garbage and negatives fall back to the default instead of silently
+        // disabling the debounce.
+        for invalid in ["soon", "-5", "  "] {
+            XCTAssertEqual(
+                visualCursorCoalesceWindow(environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR_COALESCE_MS": invalid]),
+                0.4,
+                accuracy: 0.0001,
+                invalid
+            )
+        }
+    }
+
+    func testVisualCursorMoveCoalescerAnchorsItsWindowToTheLastAnimation() {
+        let coalescer = VisualCursorMoveCoalescer()
+        let window: TimeInterval = 0.4
+        let epsilon: CGFloat = 2
+
+        XCTAssertEqual(
+            coalescer.decide(target: CGPoint(x: 0, y: 0), now: 0, coalesceWindow: window, moveEpsilon: epsilon),
+            .animated
+        )
+        XCTAssertEqual(
+            coalescer.decide(target: CGPoint(x: 60, y: 0), now: 0.1, coalesceWindow: window, moveEpsilon: epsilon),
+            .repositioned
+        )
+
+        // Coalesced placements must not push the window forward, otherwise a
+        // continuous burst would never animate again.
+        XCTAssertEqual(coalescer.lastAnimatedAt ?? -1, 0, accuracy: 0.0001)
+        XCTAssertEqual(coalescer.lastTarget, CGPoint(x: 60, y: 0))
+
+        XCTAssertEqual(
+            coalescer.decide(target: CGPoint(x: 120, y: 0), now: 0.41, coalesceWindow: window, moveEpsilon: epsilon),
+            .animated
+        )
+        XCTAssertEqual(coalescer.lastAnimatedAt ?? -1, 0.41, accuracy: 0.0001)
+
+        coalescer.reset()
+        XCTAssertNil(coalescer.lastTarget)
+        XCTAssertNil(coalescer.lastAnimatedAt)
+    }
+
+    func testVisualInteractionChoreographerMovesOnceForRepeatedActionsOnTheSameTarget() {
+        let recorder = VisualStepRecorder()
+        var clock: TimeInterval = 1_000
+        let choreographer = VisualInteractionChoreographer(
+            environment: [:],
+            moveCursor: { _ in recorder.record("move-cursor") },
+            repositionCursor: { _ in recorder.record("reposition-cursor") },
+            settleCursorArrival: { _ in recorder.record("settle-arrival") },
+            now: { clock }
+        )
+        let target = VisualCursorTarget(point: CGPoint(x: 120, y: 240), window: nil)
+
+        XCTAssertEqual(choreographer.approach(target), .animated)
+
+        clock += 0.1
+        XCTAssertEqual(choreographer.approach(target), .held)
+
+        // One travel animation for two actions; the held step adds nothing.
+        XCTAssertEqual(recorder.steps, ["move-cursor", "settle-arrival"])
+    }
+
+    func testVisualInteractionChoreographerCoalescesAdjacentTargetsIntoOneAnimation() {
+        let recorder = VisualStepRecorder()
+        var clock: TimeInterval = 1_000
+        let choreographer = VisualInteractionChoreographer(
+            environment: [:],
+            moveCursor: { _ in recorder.record("move-cursor") },
+            repositionCursor: { _ in recorder.record("reposition-cursor") },
+            settleCursorArrival: { _ in recorder.record("settle-arrival") },
+            now: { clock }
+        )
+
+        XCTAssertEqual(
+            choreographer.approach(VisualCursorTarget(point: CGPoint(x: 120, y: 240), window: nil)),
+            .animated
+        )
+
+        for point in [CGPoint(x: 320, y: 240), CGPoint(x: 520, y: 240)] {
+            clock += 0.1
+            XCTAssertEqual(
+                choreographer.approach(VisualCursorTarget(point: point, window: nil)),
+                .repositioned
+            )
+        }
+
+        // At most one Bezier animation and one arrival beat for the burst, and
+        // every coalesced step is still placed on its target.
+        XCTAssertEqual(
+            recorder.steps,
+            ["move-cursor", "settle-arrival", "reposition-cursor", "reposition-cursor"]
+        )
+    }
+
+    func testVisualInteractionChoreographerAnimatesAgainAfterTheCoalescingWindow() {
+        let recorder = VisualStepRecorder()
+        var clock: TimeInterval = 1_000
+        let choreographer = VisualInteractionChoreographer(
+            environment: [:],
+            moveCursor: { _ in recorder.record("move-cursor") },
+            repositionCursor: { _ in recorder.record("reposition-cursor") },
+            settleCursorArrival: { _ in recorder.record("settle-arrival") },
+            now: { clock }
+        )
+
+        _ = choreographer.approach(VisualCursorTarget(point: CGPoint(x: 120, y: 240), window: nil))
+
+        // Outside the 400ms window the next target gets the full animation.
+        clock += 0.5
+        XCTAssertEqual(
+            choreographer.approach(VisualCursorTarget(point: CGPoint(x: 320, y: 240), window: nil)),
+            .animated
+        )
+
+        XCTAssertEqual(
+            recorder.steps,
+            ["move-cursor", "settle-arrival", "move-cursor", "settle-arrival"]
+        )
+    }
+
+    func testVisualInteractionChoreographerCoalescingCanBeDisabledWithZeroMilliseconds() {
+        let recorder = VisualStepRecorder()
+        var clock: TimeInterval = 1_000
+        let choreographer = VisualInteractionChoreographer(
+            environment: ["OPEN_COMPUTER_USE_VISUAL_CURSOR_COALESCE_MS": "0"],
+            moveCursor: { _ in recorder.record("move-cursor") },
+            repositionCursor: { _ in recorder.record("reposition-cursor") },
+            settleCursorArrival: { _ in recorder.record("settle-arrival") },
+            now: { clock }
+        )
+
+        _ = choreographer.approach(VisualCursorTarget(point: CGPoint(x: 120, y: 240), window: nil))
+        clock += 0.01
+        XCTAssertEqual(
+            choreographer.approach(VisualCursorTarget(point: CGPoint(x: 320, y: 240), window: nil)),
+            .animated
+        )
+
+        XCTAssertEqual(recorder.steps.filter { $0 == "move-cursor" }.count, 2)
+        XCTAssertTrue(recorder.steps.allSatisfy { $0 != "reposition-cursor" })
+    }
+
+    func testVisualInteractionChoreographerTreatsSubEpsilonTargetsAsUnchanged() {
+        let recorder = VisualStepRecorder()
+        var clock: TimeInterval = 1_000
+        let choreographer = VisualInteractionChoreographer(
+            environment: [:],
+            moveCursor: { _ in recorder.record("move-cursor") },
+            repositionCursor: { _ in recorder.record("reposition-cursor") },
+            settleCursorArrival: { _ in recorder.record("settle-arrival") },
+            now: { clock }
+        )
+
+        _ = choreographer.approach(VisualCursorTarget(point: CGPoint(x: 120, y: 240), window: nil))
+
+        clock += 0.01
+        XCTAssertEqual(
+            choreographer.approach(VisualCursorTarget(point: CGPoint(x: 121.5, y: 240.5), window: nil)),
+            .held
+        )
+
+        // The held step must not re-anchor on the drifted point: 3pt away from
+        // the original target is still a real move.
+        clock += 0.01
+        XCTAssertEqual(
+            choreographer.approach(VisualCursorTarget(point: CGPoint(x: 123, y: 240), window: nil)),
+            .repositioned
+        )
+    }
+
+    // MARK: - Automatic sky_click (P3)
+
+    func testAutomaticSkyClickIsOptInAndRequiresADispatchableTarget() {
+        let windowBounds = CGRect(x: 10, y: 20, width: 800, height: 600)
+        let optIn = ["OPEN_COMPUTER_USE_AUTO_SKY_CLICK": "1"]
+
+        XCTAssertFalse(
+            automaticSkyClickEligible(
+                environment: [:],
+                button: .left,
+                clickCount: 1,
+                windowBounds: windowBounds,
+                windowID: 42,
+                spiAvailable: true
+            )
+        )
+        XCTAssertTrue(
+            automaticSkyClickEligible(
+                environment: optIn,
+                button: .left,
+                clickCount: 1,
+                windowBounds: windowBounds,
+                windowID: 42,
+                spiAvailable: true
+            )
+        )
+
+        // Every gate that would make SkyLight dispatch invalid must fail closed.
+        let ineligible: [(String, MouseButtonKind, Int, CGRect?, CGWindowID?, Bool)] = [
+            ("right button", .right, 1, windowBounds, 42, true),
+            ("triple click", .left, 3, windowBounds, 42, true),
+            ("missing bounds", .left, 1, nil, 42, true),
+            ("zero bounds", .left, 1, CGRect(x: 0, y: 0, width: 0, height: 10), 42, true),
+            ("missing window id", .left, 1, windowBounds, nil, true),
+            ("spi unavailable", .left, 1, windowBounds, 42, false),
+        ]
+        for (name, button, clickCount, bounds, windowID, spiAvailable) in ineligible {
+            XCTAssertFalse(
+                automaticSkyClickEligible(
+                    environment: optIn,
+                    button: button,
+                    clickCount: clickCount,
+                    windowBounds: bounds,
+                    windowID: windowID,
+                    spiAvailable: spiAvailable
+                ),
+                name
+            )
+        }
+    }
+
     private func makeSnapshot(treeLines: [String], focusedSummary: String?, selectedText: String? = nil) -> AppSnapshot {
         AppSnapshot(
             app: RunningAppDescriptor(
@@ -2321,6 +3093,7 @@ final class OpenComputerUseKitTests: XCTestCase {
             windowBounds: nil,
             targetWindowID: nil,
             targetWindowLayer: nil,
+            windowElement: nil,
             screenshotPNGData: nil,
             mode: .accessibility,
             treeLines: treeLines,
@@ -2433,5 +3206,42 @@ final class OpenComputerUseKitTests: XCTestCase {
         let width = try XCTUnwrap(properties[kCGImagePropertyPixelWidth] as? Int)
         let height = try XCTUnwrap(properties[kCGImagePropertyPixelHeight] as? Int)
         return (width, height)
+    }
+
+}
+
+/// Ordered recorder used by the advisory overlay tests instead of the live
+/// AppKit overlays.
+private final class VisualStepRecorder {
+    private(set) var steps: [String] = []
+
+    func record(_ step: String) {
+        steps.append(step)
+    }
+}
+
+/// Mirrors `Timer`: an invalidated timer never fires again, which is what makes
+/// the "no leaked 60 Hz writers" contract testable.
+@MainActor
+private final class FakeCursorIdleTimer: CursorIdleTimerHandling {
+    private let tick: @MainActor () -> Void
+    private(set) var isRunning = true
+    private(set) var invalidateCount = 0
+
+    init(tick: @escaping @MainActor () -> Void) {
+        self.tick = tick
+    }
+
+    func invalidate() {
+        invalidateCount += 1
+        isRunning = false
+    }
+
+    func fire() {
+        guard isRunning else {
+            return
+        }
+
+        tick()
     }
 }

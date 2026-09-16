@@ -49,6 +49,7 @@ public struct FixtureAppState: Codable, Sendable {
     public let isKeyWindow: Bool?
     public let activationLossCount: Int?
     public let keyWindowLossCount: Int?
+    public let selectedText: String?
 
     public init(
         processIdentifier: pid_t? = nil,
@@ -59,7 +60,8 @@ public struct FixtureAppState: Codable, Sendable {
         isActive: Bool? = nil,
         isKeyWindow: Bool? = nil,
         activationLossCount: Int? = nil,
-        keyWindowLossCount: Int? = nil
+        keyWindowLossCount: Int? = nil,
+        selectedText: String? = nil
     ) {
         self.processIdentifier = processIdentifier
         self.windowTitle = windowTitle
@@ -70,6 +72,7 @@ public struct FixtureAppState: Codable, Sendable {
         self.isKeyWindow = isKeyWindow
         self.activationLossCount = activationLossCount
         self.keyWindowLossCount = keyWindowLossCount
+        self.selectedText = selectedText
     }
 }
 
@@ -83,6 +86,9 @@ public struct FixtureCommand: Codable, Sendable {
     public let toY: Double?
     public let direction: String?
     public let pages: Double?
+    public let selection: String?
+    public let prefix: String?
+    public let suffix: String?
 
     public init(
         kind: String,
@@ -93,7 +99,10 @@ public struct FixtureCommand: Codable, Sendable {
         toX: Double? = nil,
         toY: Double? = nil,
         direction: String? = nil,
-        pages: Double? = nil
+        pages: Double? = nil,
+        selection: String? = nil,
+        prefix: String? = nil,
+        suffix: String? = nil
     ) {
         self.kind = kind
         self.identifier = identifier
@@ -104,6 +113,9 @@ public struct FixtureCommand: Codable, Sendable {
         self.toY = toY
         self.direction = direction
         self.pages = pages
+        self.selection = selection
+        self.prefix = prefix
+        self.suffix = suffix
     }
 }
 

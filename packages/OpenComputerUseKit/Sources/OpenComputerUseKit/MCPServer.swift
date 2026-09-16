@@ -7,12 +7,12 @@ Some apps might have a separate dedicated plugin or skill. You may want to use t
 
 Begin by calling `get_app_state` every turn you want to use Computer Use to get the latest state before acting. Codex will automatically stop the session after each assistant turn, so this step is required before interacting with apps in a new assistant turn.
 
-The available tools are list_apps, get_app_state, click, perform_secondary_action, scroll, drag, type_text, press_key, and set_value. If any of these are not available in your environment, use tool_search to surface one before calling any Computer Use action tools.
+The available tools are list_apps, get_app_state, click, perform_secondary_action, scroll, drag, type_text, press_key, set_value, and select_text. If any of these are not available in your environment, use tool_search to surface one before calling any Computer Use action tools.
 
 Computer Use tools allow you to use the user's apps in the background, so while you're using an app, the user can continue to use other apps on their computer. Avoid doing anything that would disrupt the user's active session, such as overwriting the contents of their clipboard, unless they asked you to!
 
 After each action, use the action result or fetch the latest state to verify the UI changed as expected.
-Prefer element-targeted interactions over coordinate clicks when an index for the targeted element is available. Note that element indices are the sequential integers from the app state's accessibility tree.
+Prefer element-targeted interactions over coordinate clicks when an index for the targeted element is available. Note that element indices are the sequential integers from the app state's accessibility tree, and they only describe the snapshot they came from: after any action the tree is re-rendered and an index can point somewhere else. When the target has a stable name, pass selector (for example "button[name=检查变更]" or "textbox[name=用途]") to click and set_value instead of reading the tree again. In get_app_state output, a "--- popup ---" section appends an open popup that the app rendered in its own subtree, and a "--- popup note ---" means the app itself is hiding the content behind the popup: finish the popup interaction, then use selector for the content behind it.
 Avoid falling back to AppleScript during a computer use session. Prefer Computer Use tools as much as possible to complete tasks.
 Ask the user before taking destructive or externally visible actions such as sending, deleting, or purchasing. If helpful, you can ask follow-up questions before taking action to make sure you’re understanding the user’s request correctly.
 """

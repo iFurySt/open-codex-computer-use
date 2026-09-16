@@ -2,10 +2,33 @@ import AppKit
 import ApplicationServices
 import Foundation
 import ImageIO
+import QuartzCore
 
 struct VisualCursorTarget: Equatable {
     let point: CGPoint
     let window: CursorTargetWindow?
+    /// The same target in screen-state (top-left origin) space, plus the window
+    /// frame it was derived from. The overlay keeps this so a window move or a
+    /// display change can re-derive the point instead of reusing a global
+    /// coordinate that belonged to the screen the window used to be on.
+    var screenStatePoint: CGPoint? = nil
+    var screenStateWindowBounds: CGRect? = nil
+
+    var restingAnchor: CursorRestingAnchor? {
+        guard let window, let screenStatePoint, let screenStateWindowBounds else {
+            return nil
+        }
+
+        return CursorRestingAnchor(
+            windowID: window.windowID,
+            layer: window.layer,
+            windowLocalPoint: CGPoint(
+                x: screenStatePoint.x - screenStateWindowBounds.minX,
+                y: screenStatePoint.y - screenStateWindowBounds.minY
+            ),
+            windowBounds: screenStateWindowBounds
+        )
+    }
 }
 
 public enum ClickMethod: String, CaseIterable, Sendable {
@@ -16,8 +39,63 @@ public enum ClickMethod: String, CaseIterable, Sendable {
     case global
 }
 
-func clickActionSnapshotRecoveryPolicy(for method: ClickMethod) -> SnapshotRecoveryPolicy {
-    method == .skyClick ? .readOnly : .allowActivation
+func clickActionSnapshotRecoveryPolicy(
+    for method: ClickMethod,
+    allowWindowRecovery: Bool? = nil,
+    environment: [String: String] = ProcessInfo.processInfo.environment
+) -> SnapshotRecoveryPolicy {
+    // `sky_click` never changes foreground focus, so its action-result refresh
+    // must stay read-only even when the caller opted in to window recovery.
+    guard method != .skyClick else {
+        return .readOnly
+    }
+
+    return snapshotRecoveryPolicy(allowWindowRecovery: allowWindowRecovery, environment: environment)
+}
+
+/// `click` with `click_method=auto` may try the SkyLight background path before
+/// falling back to a plain `postToPid` mouse event. It is opt-in because
+/// `SkyLightSPI` is a private SPI and a partially delivered dispatch followed by
+/// the `postToPid` fallback could double-click the target.
+func autoSkyClickEnabled(environment: [String: String]) -> Bool {
+    guard let rawValue = environment["OPEN_COMPUTER_USE_AUTO_SKY_CLICK"]?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+    else {
+        return false
+    }
+
+    return ["1", "true", "yes", "on"].contains(rawValue)
+}
+
+/// Pure eligibility gate for the automatic SkyLight attempt. Everything the
+/// dispatcher itself requires (left button, 1-2 clicks, a live on-screen window)
+/// is checked here, so an ineligible call never touches the private SPI.
+func automaticSkyClickEligible(
+    environment: [String: String],
+    button: MouseButtonKind,
+    clickCount: Int,
+    windowBounds: CGRect?,
+    windowID: CGWindowID?,
+    spiAvailable: Bool
+) -> Bool {
+    guard autoSkyClickEnabled(environment: environment), spiAvailable else {
+        return false
+    }
+
+    guard button == .left, (1...2).contains(clickCount) else {
+        return false
+    }
+
+    guard let windowBounds,
+          windowBounds.width > 0,
+          windowBounds.height > 0,
+          windowID != nil
+    else {
+        return false
+    }
+
+    return true
 }
 
 func parseClickMethod(_ rawValue: String?) throws -> ClickMethod {
@@ -41,7 +119,7 @@ func validateClickMethod(
     environment: [String: String]
 ) throws {
     if method == .accessibility, !hasElementIndex {
-        throw ComputerUseError.message("click_method 'accessibility' requires element_index")
+        throw ComputerUseError.message("click_method 'accessibility' requires element_index or selector")
     }
 
     if method == .global, !globalPointerFallbacksEnabled(environment: environment) {
@@ -125,18 +203,59 @@ func inputEventPoint(
     point
 }
 
+/// True when the point lies inside one of the currently active displays. A point outside every screen
+/// cannot be mapped to AppKit coordinates, so callers should treat it as "no drawable target" instead
+/// of drawing at a raw coordinate that belongs to another display's space.
+func isPointOnActiveDisplay(
+    _ point: CGPoint,
+    screenMappings: [VisualCursorScreenMapping] = currentVisualCursorScreenMappings()
+) -> Bool {
+    screenMappings.contains { $0.screenStateFrame.contains(point) }
+}
+
+/// True when the rectangle intersects at least one active display.
+func windowIntersectsActiveDisplay(
+    _ frame: CGRect,
+    screenMappings: [VisualCursorScreenMapping] = currentVisualCursorScreenMappings()
+) -> Bool {
+    screenMappings.contains { $0.screenStateFrame.intersects(frame) }
+}
+
+/// Non-sensitive note for a target window parked outside every active display. macOS serves a
+/// chrome-only tree in that state (no web area), and any cursor point drawn from it is meaningless, so
+/// both the snapshot and the action path say so rather than failing silently.
+func offDisplayWindowNote(
+    windowBounds: CGRect?,
+    screenMappings: [VisualCursorScreenMapping] = currentVisualCursorScreenMappings()
+) -> String? {
+    guard let windowBounds, !screenMappings.isEmpty else {
+        return nil
+    }
+
+    return windowIntersectsActiveDisplay(windowBounds, screenMappings: screenMappings)
+        ? nil
+        : "window is off all active displays: only the window chrome is available and cursor points cannot be mapped; move the window onto a display before acting."
+}
+
 func makeVisualCursorTarget(
     at point: CGPoint,
+    windowBounds: CGRect? = nil,
     targetWindowID: CGWindowID?,
     targetWindowLayer: Int?,
     screenMappings: [VisualCursorScreenMapping] = currentVisualCursorScreenMappings()
-) -> VisualCursorTarget {
-    VisualCursorTarget(
+) -> VisualCursorTarget? {
+    guard isPointOnActiveDisplay(point, screenMappings: screenMappings) else {
+        return nil
+    }
+
+    return VisualCursorTarget(
         point: screenStatePointToAppKitGlobalPoint(
             fromScreenStatePoint: point,
             screenMappings: screenMappings
         ),
-        window: targetWindowID.map { CursorTargetWindow(windowID: $0, layer: targetWindowLayer ?? 0) }
+        window: targetWindowID.map { CursorTargetWindow(windowID: $0, layer: targetWindowLayer ?? 0) },
+        screenStatePoint: point,
+        screenStateWindowBounds: windowBounds
     )
 }
 
@@ -157,6 +276,7 @@ func makeVisualCursorTarget(
     )
     return makeVisualCursorTarget(
         at: point,
+        windowBounds: windowBounds,
         targetWindowID: targetWindowID,
         targetWindowLayer: targetWindowLayer,
         screenMappings: screenMappings
@@ -201,6 +321,74 @@ func dragDeliveryPath(environment: [String: String]) -> DragDeliveryPath {
     globalPointerFallbacksEnabled(environment: environment) ? .global : .appPost
 }
 
+/// The visible region of the target window expressed in the same
+/// window-relative, top-left-origin space that element frames use.
+func windowLocalVisibleRect(windowBounds: CGRect?) -> CGRect? {
+    guard let windowBounds,
+          windowBounds.width > 0,
+          windowBounds.height > 0,
+          windowBounds.width.isFinite,
+          windowBounds.height.isFinite
+    else {
+        return nil
+    }
+
+    return CGRect(origin: .zero, size: windowBounds.size)
+}
+
+/// True when the element's click anchor sits outside the window's visible rect, or
+/// when its reported geometry is a degenerate sliver.
+///
+/// Chromium clips the accessibility frame of content that a scroll container has
+/// pushed out of view: an off-screen control is reported at a valid position with a
+/// 0-1 pt size (measured on the console at 127.0.0.1:8790: the "配置类型" trigger
+/// read back as x=344 y=87 w=42 h=1 while clipped). Treating that sliver as
+/// "already visible" silently disabled scroll-into-view for every long web form, so
+/// a degenerate but *positioned* frame now counts as needing a scroll. Attempting
+/// the scroll is harmless when nothing is scrollable (ensureElementVisible falls
+/// back to the unchanged record), while skipping it leaves the operator staring at
+/// a viewport that never follows the action.
+///
+/// Only geometry that cannot be trusted at all - no frame, non-finite values, or no
+/// usable window rect - still returns false.
+func elementNeedsScrollIntoView(localFrame: CGRect?, windowBounds: CGRect?) -> Bool {
+    guard
+        let localFrame,
+        localFrame.width.isFinite,
+        localFrame.height.isFinite,
+        localFrame.origin.x.isFinite,
+        localFrame.origin.y.isFinite,
+        let visibleRect = windowLocalVisibleRect(windowBounds: windowBounds)
+    else {
+        return false
+    }
+
+    // Degenerate sliver: Chromium's clipped-out-of-view signature (see above).
+    if localFrame.width <= degenerateSliverThreshold || localFrame.height <= degenerateSliverThreshold {
+        return true
+    }
+
+    return !visibleRect.contains(CGPoint(x: localFrame.midX, y: localFrame.midY))
+}
+
+/// Sizes at or below this many points are treated as a clipped-off-view sliver
+/// rather than a usable control: no interactive control renders that thin.
+let degenerateSliverThreshold: CGFloat = 1
+
+/// `click` / `set_value` / `select_text` scroll their target into view by
+/// default; `OPEN_COMPUTER_USE_SCROLL_TARGET_INTO_VIEW=0` (or `false`/`no`/`off`)
+/// restores the legacy "act on whatever geometry the snapshot returned" path.
+func scrollTargetIntoViewEnabled(environment: [String: String]) -> Bool {
+    guard let rawValue = environment["OPEN_COMPUTER_USE_SCROLL_TARGET_INTO_VIEW"]?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+    else {
+        return true
+    }
+
+    return !["0", "false", "no", "off"].contains(rawValue)
+}
+
 func dragDeliveryNote(for path: DragDeliveryPath) -> String {
     switch path {
     case .appPost:
@@ -216,6 +404,34 @@ func appendingDragDeliveryNote(to result: ToolCallResult, path: DragDeliveryPath
     var content = result.content
     let insertIndex = content.firstIndex { $0.dictionary["type"] as? String == "image" } ?? content.endIndex
     content.insert(.text(dragDeliveryNote(for: path)), at: insertIndex)
+    return ToolCallResult(content: content, isError: result.isError)
+}
+
+func selectTextErrorMessage(_ error: TextSelectionResolverError, elementIndex: String) -> String {
+    switch error {
+    case .emptyText:
+        return "select_text requires non-empty text"
+    case .notFound:
+        return "select_text could not find the requested text in element \(elementIndex); pass text exactly as it appears in the accessibility tree"
+    case .ambiguous(let occurrenceCount):
+        return "select_text found \(occurrenceCount) matches in element \(elementIndex); provide prefix or suffix to disambiguate the target"
+    }
+}
+
+func selectTextUnreadableValueErrorMessage(elementIndex: String) -> String {
+    return "element \(elementIndex) has no readable accessibility text value, so select_text cannot locate the requested text"
+}
+
+func selectTextVerificationNote(target: TextSelectionTarget, applied: CFRange) -> String {
+    return "select_text requested range (\(target.location), \(target.length)) but the element reported (\(applied.location), \(applied.length)); the app may not support accessibility range selection."
+}
+
+/// Inserts a verification note after the snapshot text and before any screenshot, matching
+/// `appendingDragDeliveryNote` so `primaryText` stays the snapshot for existing consumers.
+func appendingSelectionNote(_ note: String, to result: ToolCallResult) -> ToolCallResult {
+    var content = result.content
+    let insertIndex = content.firstIndex { $0.dictionary["type"] as? String == "image" } ?? content.endIndex
+    content.insert(.text(note), at: insertIndex)
     return ToolCallResult(content: content, isError: result.isError)
 }
 
@@ -381,6 +597,23 @@ func canUseActivationOnlyClickFallback(role: String?) -> Bool {
     return role == kAXWindowRole as String
 }
 
+/// The AX activation-only fallback (`AXRaise` / `AXMain` / `AXFocused`) is the
+/// only click path that can move the user's foreground focus, so it is opt-in
+/// through the same switch as window recovery: an explicit
+/// `allow_window_recovery=true` tool argument, or the process-level
+/// `OPEN_COMPUTER_USE_ALLOW_WINDOW_RECOVERY=1`.
+///
+/// Everything else stays available by default and never raises, mains or
+/// focuses the target window: `AXPress` / `AXConfirm` / `AXOpen` /
+/// `AXShowMenu`, the descendant and hit-test click candidates, the automatic
+/// scroll-into-view, and the pid-targeted / sky_click mouse paths.
+func activationOnlyClickFallbackAllowed(
+    allowWindowRecovery: Bool?,
+    environment: [String: String] = ProcessInfo.processInfo.environment
+) -> Bool {
+    snapshotRecoveryPolicy(allowWindowRecovery: allowWindowRecovery, environment: environment) == .allowActivation
+}
+
 func canUseKeyboardTextFallback(role: String?, roleDescription: String?, isValueSettable: Bool) -> Bool {
     if isValueSettable {
         return true
@@ -448,6 +681,10 @@ func shouldPreferContainingWebRowAXClickCandidate(
 
 public final class ComputerUseService {
     private var snapshotsByApp: [String: AppSnapshot] = [:]
+    /// Advisory overlay order for element-scoped actions: the software cursor
+    /// flies to the element and settles before the real action runs. See
+    /// `VisualInteractionChoreographer` for the Codex evidence.
+    private let visualChoreographer = VisualInteractionChoreographer.live()
 
     public init() {}
 
@@ -462,23 +699,35 @@ public final class ComputerUseService {
     public func getAppState(
         app query: String,
         textLimit: SnapshotTextLimit = .defaults,
-        treeLimits: AccessibilityTreeLimits = .defaults
+        treeLimits: AccessibilityTreeLimits = .defaults,
+        allowWindowRecovery: Bool? = nil
     ) throws -> ToolCallResult {
-        snapshotResult(for: try refreshSnapshot(for: query, textLimit: textLimit, treeLimits: treeLimits), style: .fullState)
+        snapshotResult(
+            for: try refreshSnapshot(
+                for: query,
+                textLimit: textLimit,
+                treeLimits: treeLimits,
+                allowWindowRecovery: allowWindowRecovery
+            ),
+            style: .fullState
+        )
     }
 
     public func click(
         app query: String,
         elementIndex: String?,
+        selector: String? = nil,
         x: Double?,
         y: Double?,
         clickCount: Int,
         mouseButton: String,
-        clickMethod: ClickMethod = .auto
+        clickMethod: ClickMethod = .auto,
+        allowWindowRecovery: Bool? = nil
     ) throws -> ToolCallResult {
+        let parsedSelector = try elementSelector(elementIndex: elementIndex, selector: selector, tool: "click")
         try validateClickMethod(
             clickMethod,
-            hasElementIndex: elementIndex != nil,
+            hasElementIndex: elementIndex != nil || parsedSelector != nil,
             environment: ProcessInfo.processInfo.environment
         )
         try validateSkyClickArguments(
@@ -487,7 +736,21 @@ public final class ComputerUseService {
             clickCount: clickCount
         )
 
-        let snapshot = try currentSnapshot(for: query)
+        // A selector is resolved against a tree rendered at action time, so it
+        // never depends on the indices of an earlier snapshot. element_index
+        // keeps its snapshot-scoped semantics (and its cached snapshot).
+        let snapshot: AppSnapshot
+        let targetElementIndex: String?
+        if let parsedSelector {
+            snapshot = try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery)
+            targetElementIndex = try resolveSelectorIndex(parsedSelector, in: snapshot)
+        } else {
+            snapshot = try currentSnapshot(for: query, allowWindowRecovery: allowWindowRecovery)
+            targetElementIndex = elementIndex
+        }
+
+        let targetDescription = parsedSelector.map { "selector=\($0.raw)" }
+            ?? "element_index=\(targetElementIndex ?? "")"
         let button = MouseButtonKind(rawValue: mouseButton.lowercased()) ?? .left
         if snapshot.mode == .fixture {
             guard clickMethod == .auto else {
@@ -497,41 +760,52 @@ public final class ComputerUseService {
             }
 
             let cursorTarget: VisualCursorTarget?
-            if let elementIndex {
-                let record = try lookupElement(snapshot: snapshot, index: elementIndex)
+            var moveApproach: VisualCursorApproach = .skipped
+            if let targetElementIndex {
+                let record = try lookupElement(snapshot: snapshot, index: targetElementIndex)
                 guard let identifier = record.identifier else {
                     throw ComputerUseError.invalidArguments("fixture click requires an identifier-backed element")
                 }
                 cursorTarget = visualCursorTarget(for: record, snapshot: snapshot)
-                moveVisualCursor(to: cursorTarget)
+                moveApproach = moveVisualCursor(to: cursorTarget)
                 try FixtureBridge.post(FixtureCommand(kind: "click", identifier: identifier))
             } else if let x, let y {
                 let identifier = try fixtureIdentifier(at: CGPoint(x: x, y: y), snapshot: snapshot)
                 cursorTarget = fixtureVisualCursorTarget(identifier: identifier, snapshot: snapshot)
-                moveVisualCursor(to: cursorTarget)
+                moveApproach = moveVisualCursor(to: cursorTarget)
                 try FixtureBridge.post(FixtureCommand(kind: "click", identifier: identifier, x: x, y: y))
             } else {
                 throw ComputerUseError.invalidArguments("click requires either element_index or x/y")
             }
 
             Thread.sleep(forTimeInterval: 0.15)
-            pulseVisualCursor(at: cursorTarget, clickCount: clickCount, mouseButton: button)
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+            pulseVisualCursor(
+                at: cursorTarget,
+                approach: moveApproach,
+                clickCount: clickCount,
+                mouseButton: button
+            )
+            return snapshotResult(for: try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery), style: .actionResult)
         }
 
-        if let elementIndex {
-            let record = try lookupElement(snapshot: snapshot, index: elementIndex)
+        if let targetElementIndex {
+            let record = try ensureElementVisible(
+                try lookupElement(snapshot: snapshot, index: targetElementIndex),
+                index: targetElementIndex,
+                snapshot: snapshot
+            )
             guard let windowPoint = clickPoint(for: record, snapshot: snapshot) else {
-                throw ComputerUseError.stateUnavailable("element \(elementIndex) has no clickable frame")
+                throw ComputerUseError.stateUnavailable("element \(targetElementIndex) has no clickable frame")
             }
             let targetPoint = try windowPointToGlobalPoint(snapshot: snapshot, point: windowPoint)
             let cursorTarget = makeVisualCursorTarget(
                 at: targetPoint,
+                windowBounds: snapshot.windowBounds,
                 targetWindowID: snapshot.targetWindowID,
                 targetWindowLayer: snapshot.targetWindowLayer
             )
 
-            moveVisualCursor(to: cursorTarget)
+            let approach = approachVisualTarget(cursorTarget)
 
             do {
                 switch clickMethod {
@@ -542,13 +816,16 @@ public final class ComputerUseService {
                         button: button,
                         clickCount: clickCount,
                         includeNearbyHitTesting: true,
-                        allowActivationFallback: true
+                        allowActivationFallback: activationOnlyClickFallbackAllowed(
+                            allowWindowRecovery: allowWindowRecovery
+                        )
                     )) {
                         try performNonAXClickFallback(
                             at: targetPoint,
+                            windowPoint: windowPoint,
                             button: button,
                             clickCount: clickCount,
-                            targetDescription: "element_index=\(elementIndex)",
+                            targetDescription: targetDescription,
                             snapshot: snapshot
                         )
                     }
@@ -559,10 +836,12 @@ public final class ComputerUseService {
                         button: button,
                         clickCount: clickCount,
                         includeNearbyHitTesting: true,
-                        allowActivationFallback: true
+                        allowActivationFallback: activationOnlyClickFallbackAllowed(
+                            allowWindowRecovery: allowWindowRecovery
+                        )
                     ) else {
                         throw ComputerUseError.message(
-                            "click_method 'accessibility' could not click element_index=\(elementIndex)"
+                            "click_method 'accessibility' could not click \(targetDescription)"
                         )
                     }
                 case .appPost, .skyClick, .global:
@@ -572,7 +851,7 @@ public final class ComputerUseService {
                         windowPoint: windowPoint,
                         button: button,
                         clickCount: clickCount,
-                        targetDescription: "element_index=\(elementIndex)",
+                        targetDescription: targetDescription,
                         snapshot: snapshot
                     )
                 }
@@ -581,18 +860,24 @@ public final class ComputerUseService {
                 throw error
             }
 
-            pulseVisualCursor(at: cursorTarget, clickCount: clickCount, mouseButton: button)
+            pulseVisualCursor(
+                at: cursorTarget,
+                approach: approach,
+                clickCount: clickCount,
+                mouseButton: button
+            )
         } else if let x, let y {
             let screenshotPoint = CGPoint(x: x, y: y)
             let point = screenshotPixelToWindowPointInSnapshot(snapshot: snapshot, point: screenshotPoint)
             let targetPoint = try windowPointToGlobalPoint(snapshot: snapshot, point: point)
             let cursorTarget = makeVisualCursorTarget(
                 at: targetPoint,
+                windowBounds: snapshot.windowBounds,
                 targetWindowID: snapshot.targetWindowID,
                 targetWindowLayer: snapshot.targetWindowLayer
             )
 
-            moveVisualCursor(to: cursorTarget)
+            let approach = moveVisualCursor(to: cursorTarget)
 
             do {
                 switch clickMethod {
@@ -600,6 +885,8 @@ public final class ComputerUseService {
                     let candidates = try clickCandidates(at: point, in: snapshot)
                     var handled = false
                     for record in candidates {
+                        // A coordinate click never activates: the hit-tested
+                        // element is only used for its primary AX action.
                         if try performAXClickSequence(
                             on: record,
                             snapshot: snapshot,
@@ -616,6 +903,7 @@ public final class ComputerUseService {
                     if !handled {
                         try performNonAXClickFallback(
                             at: targetPoint,
+                            windowPoint: point,
                             button: button,
                             clickCount: clickCount,
                             targetDescription: "x=\(Int(screenshotPoint.x)) y=\(Int(screenshotPoint.y))",
@@ -623,7 +911,7 @@ public final class ComputerUseService {
                         )
                     }
                 case .accessibility:
-                    throw ComputerUseError.message("click_method 'accessibility' requires element_index")
+                    throw ComputerUseError.message("click_method 'accessibility' requires element_index or selector")
                 case .appPost, .skyClick, .global:
                     try performExplicitMouseClick(
                         method: clickMethod,
@@ -640,22 +928,35 @@ public final class ComputerUseService {
                 throw error
             }
 
-            pulseVisualCursor(at: cursorTarget, clickCount: clickCount, mouseButton: button)
+            pulseVisualCursor(
+                at: cursorTarget,
+                approach: approach,
+                clickCount: clickCount,
+                mouseButton: button
+            )
         } else {
-            throw ComputerUseError.invalidArguments("click requires either element_index or x/y")
+            throw ComputerUseError.invalidArguments("click requires either element_index, selector or x/y")
         }
 
         return snapshotResult(
             for: try refreshSnapshot(
                 for: query,
-                recoveryPolicy: clickActionSnapshotRecoveryPolicy(for: clickMethod)
+                recoveryPolicy: clickActionSnapshotRecoveryPolicy(
+                    for: clickMethod,
+                    allowWindowRecovery: allowWindowRecovery
+                )
             ),
             style: .actionResult
         )
     }
 
-    public func performSecondaryAction(app query: String, elementIndex: String, action: String) throws -> ToolCallResult {
-        let snapshot = try currentSnapshot(for: query)
+    public func performSecondaryAction(
+        app query: String,
+        elementIndex: String,
+        action: String,
+        allowWindowRecovery: Bool? = nil
+    ) throws -> ToolCallResult {
+        let snapshot = try currentSnapshot(for: query, allowWindowRecovery: allowWindowRecovery)
         let record = try lookupElement(snapshot: snapshot, index: elementIndex)
 
         if snapshot.mode == .fixture {
@@ -663,7 +964,7 @@ public final class ComputerUseService {
                 throw ComputerUseError.message(invalidSecondaryActionMessage(action: action, record: record))
             }
 
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+            return snapshotResult(for: try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery), style: .actionResult)
         }
 
         guard let rawAction = matchingAction(requested: action, record: record) else {
@@ -674,16 +975,24 @@ public final class ComputerUseService {
             throw ComputerUseError.stateUnavailable("element \(elementIndex) has no backing accessibility object")
         }
 
+        approachVisualTarget(visualCursorTarget(for: record, snapshot: snapshot))
+
         let result = AXUIElementPerformAction(element, rawAction as CFString)
         guard result == .success else {
             throw ComputerUseError.message("AXUIElementPerformAction failed with \(result.rawValue)")
         }
 
         Thread.sleep(forTimeInterval: 0.15)
-        return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+        return snapshotResult(for: try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery), style: .actionResult)
     }
 
-    public func scroll(app query: String, direction: String, elementIndex: String, pages: Double) throws -> ToolCallResult {
+    public func scroll(
+        app query: String,
+        direction: String,
+        elementIndex: String,
+        pages: Double,
+        allowWindowRecovery: Bool? = nil
+    ) throws -> ToolCallResult {
         let normalized = direction.lowercased()
         guard ["up", "down", "left", "right"].contains(normalized) else {
             throw ComputerUseError.message("Invalid scroll direction: \(direction)")
@@ -692,7 +1001,7 @@ public final class ComputerUseService {
             throw ComputerUseError.message("pages must be > 0")
         }
 
-        let snapshot = try currentSnapshot(for: query)
+        let snapshot = try currentSnapshot(for: query, allowWindowRecovery: allowWindowRecovery)
         let record = try lookupElement(snapshot: snapshot, index: elementIndex)
 
         if snapshot.mode == .fixture {
@@ -701,8 +1010,10 @@ public final class ComputerUseService {
             }
             try FixtureBridge.post(FixtureCommand(kind: "scroll", identifier: identifier, direction: normalized, pages: pages))
             Thread.sleep(forTimeInterval: 0.15)
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+            return snapshotResult(for: try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery), style: .actionResult)
         }
+
+        approachVisualTarget(visualCursorTarget(for: record, snapshot: snapshot))
 
         if let repeatCount = integralScrollPageCount(pages),
            let rawAction = record.rawActions.first(where: { $0.caseInsensitiveCompare("AXScroll\(normalized.capitalized)ByPage") == .orderedSame }),
@@ -723,15 +1034,22 @@ public final class ComputerUseService {
             throw ComputerUseError.stateUnavailable("element \(elementIndex) has no scrollable frame")
         }
 
-        return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+        return snapshotResult(for: try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery), style: .actionResult)
     }
 
-    public func drag(app query: String, fromX: Double, fromY: Double, toX: Double, toY: Double) throws -> ToolCallResult {
-        let snapshot = try currentSnapshot(for: query)
+    public func drag(
+        app query: String,
+        fromX: Double,
+        fromY: Double,
+        toX: Double,
+        toY: Double,
+        allowWindowRecovery: Bool? = nil
+    ) throws -> ToolCallResult {
+        let snapshot = try currentSnapshot(for: query, allowWindowRecovery: allowWindowRecovery)
         if snapshot.mode == .fixture {
             try FixtureBridge.post(FixtureCommand(kind: "drag", identifier: "fixture-drag-pad", x: fromX, y: fromY, toX: toX, toY: toY))
             Thread.sleep(forTimeInterval: 0.15)
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+            return snapshotResult(for: try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery), style: .actionResult)
         }
 
         let start = try screenshotToGlobalPoint(snapshot: snapshot, x: fromX, y: fromY)
@@ -743,22 +1061,22 @@ public final class ComputerUseService {
             snapshot: snapshot
         )
         return appendingDragDeliveryNote(
-            to: snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult),
+            to: snapshotResult(for: try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery), style: .actionResult),
             path: path
         )
     }
 
-    public func typeText(app query: String, text: String) throws -> ToolCallResult {
-        let snapshot = try currentSnapshot(for: query)
+    public func typeText(app query: String, text: String, allowWindowRecovery: Bool? = nil) throws -> ToolCallResult {
+        let snapshot = try currentSnapshot(for: query, allowWindowRecovery: allowWindowRecovery)
         if snapshot.mode == .fixture {
             try FixtureBridge.post(FixtureCommand(kind: "type_text", identifier: "fixture-input", value: text))
             Thread.sleep(forTimeInterval: 0.15)
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+            return snapshotResult(for: try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery), style: .actionResult)
         }
 
         if try typeTextBySettingFocusedValueIfAvailable(text, in: snapshot) {
             Thread.sleep(forTimeInterval: 0.1)
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+            return snapshotResult(for: try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery), style: .actionResult)
         }
 
         guard try canTypeTextUsingKeyboardFallback(in: snapshot) else {
@@ -766,24 +1084,50 @@ public final class ComputerUseService {
         }
 
         try InputSimulation.typeText(text, pid: snapshot.app.pid)
-        return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+        return snapshotResult(for: try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery), style: .actionResult)
     }
 
-    public func pressKey(app query: String, key: String) throws -> ToolCallResult {
-        let snapshot = try currentSnapshot(for: query)
+    public func pressKey(app query: String, key: String, allowWindowRecovery: Bool? = nil) throws -> ToolCallResult {
+        let snapshot = try currentSnapshot(for: query, allowWindowRecovery: allowWindowRecovery)
         if snapshot.mode == .fixture {
             try FixtureBridge.post(FixtureCommand(kind: "press_key", identifier: "fixture-key-capture", value: key))
             Thread.sleep(forTimeInterval: 0.15)
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+            return snapshotResult(for: try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery), style: .actionResult)
         }
 
         try InputSimulation.pressKey(key, pid: snapshot.app.pid)
-        return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+        return snapshotResult(for: try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery), style: .actionResult)
     }
 
-    public func setValue(app query: String, elementIndex: String, value: String) throws -> ToolCallResult {
-        let snapshot = try currentSnapshot(for: query)
-        let record = try lookupElement(snapshot: snapshot, index: elementIndex)
+    public func setValue(
+        app query: String,
+        elementIndex: String?,
+        selector: String? = nil,
+        value: String,
+        allowWindowRecovery: Bool? = nil
+    ) throws -> ToolCallResult {
+        let parsedSelector = try elementSelector(elementIndex: elementIndex, selector: selector, tool: "set_value")
+        guard elementIndex != nil || parsedSelector != nil else {
+            throw ComputerUseError.missingArgument("element_index or selector")
+        }
+
+        // Same rule as click: a selector is resolved against a tree rendered at
+        // action time, an element_index keeps its snapshot-scoped semantics.
+        let snapshot: AppSnapshot
+        let targetElementIndex: String
+        if let parsedSelector {
+            snapshot = try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery)
+            targetElementIndex = try resolveSelectorIndex(parsedSelector, in: snapshot)
+        } else {
+            snapshot = try currentSnapshot(for: query, allowWindowRecovery: allowWindowRecovery)
+            targetElementIndex = elementIndex ?? ""
+        }
+
+        let record = try ensureElementVisible(
+            try lookupElement(snapshot: snapshot, index: targetElementIndex),
+            index: targetElementIndex,
+            snapshot: snapshot
+        )
 
         if snapshot.mode == .fixture {
             guard let identifier = record.identifier else {
@@ -795,11 +1139,11 @@ public final class ComputerUseService {
             try FixtureBridge.post(FixtureCommand(kind: "set_value", identifier: identifier, value: value))
             Thread.sleep(forTimeInterval: 0.15)
             settleVisualCursor(at: cursorTarget)
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+            return snapshotResult(for: try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery), style: .actionResult)
         }
 
         guard let element = record.element else {
-            throw ComputerUseError.stateUnavailable("element \(elementIndex) has no backing accessibility object")
+            throw ComputerUseError.stateUnavailable("element \(targetElementIndex) has no backing accessibility object")
         }
 
         guard try isSettableForSetValue(element: element, attribute: kAXValueAttribute) else {
@@ -807,7 +1151,7 @@ public final class ComputerUseService {
         }
 
         let cursorTarget = visualCursorTarget(for: record, snapshot: snapshot)
-        moveVisualCursor(to: cursorTarget)
+        approachVisualTarget(cursorTarget)
 
         do {
             let result = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, value as CFString)
@@ -822,15 +1166,195 @@ public final class ComputerUseService {
         }
 
         settleVisualCursor(at: cursorTarget)
-        return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+        return snapshotResult(for: try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery), style: .actionResult)
     }
 
-    private func currentSnapshot(for query: String) throws -> AppSnapshot {
-        if let snapshot = snapshotsByApp[query.lowercased()] {
-            return snapshot
+    public func selectText(
+        app query: String,
+        elementIndex: String,
+        text: String,
+        prefix: String?,
+        suffix: String?,
+        selection: TextSelectionMode,
+        allowWindowRecovery: Bool? = nil
+    ) throws -> ToolCallResult {
+        let snapshot = try currentSnapshot(for: query, allowWindowRecovery: allowWindowRecovery)
+        let record = try ensureElementVisible(
+            try lookupElement(snapshot: snapshot, index: elementIndex),
+            index: elementIndex,
+            snapshot: snapshot
+        )
+
+        if snapshot.mode == .fixture {
+            guard let identifier = record.identifier else {
+                throw ComputerUseError.invalidArguments("fixture select_text requires a known element identifier")
+            }
+
+            let cursorTarget = visualCursorTarget(for: record, snapshot: snapshot)
+            moveVisualCursor(to: cursorTarget)
+            try FixtureBridge.post(
+                FixtureCommand(
+                    kind: "select_text",
+                    identifier: identifier,
+                    value: text,
+                    selection: selection.rawValue,
+                    prefix: prefix,
+                    suffix: suffix
+                )
+            )
+            Thread.sleep(forTimeInterval: 0.15)
+            settleVisualCursor(at: cursorTarget)
+            return snapshotResult(for: try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery), style: .actionResult)
         }
 
-        return try refreshSnapshot(for: query)
+        guard let element = record.element else {
+            throw ComputerUseError.stateUnavailable("element \(elementIndex) has no backing accessibility object")
+        }
+
+        guard let value = stringValue(of: element, attribute: kAXValueAttribute) else {
+            throw ComputerUseError.message(selectTextUnreadableValueErrorMessage(elementIndex: elementIndex))
+        }
+
+        let target: TextSelectionTarget
+        do {
+            target = try TextSelectionResolver.resolve(
+                value: value,
+                text: text,
+                prefix: prefix,
+                suffix: suffix,
+                selection: selection
+            )
+        } catch let error as TextSelectionResolverError {
+            throw ComputerUseError.message(selectTextErrorMessage(error, elementIndex: elementIndex))
+        }
+
+        var range = CFRange(location: target.location, length: target.length)
+        guard let rangeValue = AXValueCreate(.cfRange, &range) else {
+            throw ComputerUseError.message("failed to build an accessibility range value for select_text")
+        }
+
+        let cursorTarget = visualCursorTarget(for: record, snapshot: snapshot)
+        approachVisualTarget(cursorTarget)
+
+        do {
+            let result = AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, rangeValue)
+            guard result == .success else {
+                throw ComputerUseError.message("AXUIElementSetAttributeValue failed with \(result.rawValue)")
+            }
+
+            Thread.sleep(forTimeInterval: 0.1)
+        } catch {
+            settleVisualCursor(at: cursorTarget)
+            throw error
+        }
+
+        settleVisualCursor(at: cursorTarget)
+
+        let actionResult = snapshotResult(for: try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery), style: .actionResult)
+        guard let applied = selectedTextRange(of: element),
+              applied.location != target.location || applied.length != target.length
+        else {
+            return actionResult
+        }
+
+        return appendingSelectionNote(selectTextVerificationNote(target: target, applied: applied), to: actionResult)
+    }
+
+    private func selectedTextRange(of element: AXUIElement) -> CFRange? {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &value)
+        guard result == .success, let value, CFGetTypeID(value) == AXValueGetTypeID() else {
+            return nil
+        }
+
+        var range = CFRange()
+        guard AXValueGetValue(value as! AXValue, .cfRange, &range) else {
+            return nil
+        }
+
+        return range
+    }
+
+    /// The snapshot an action runs against.
+    ///
+    /// A cached snapshot is only current until the user moves or resizes the
+    /// target window: every global point (cursor tip, coordinate click,
+    /// screenshot pixel mapping) is derived from `windowBounds`, so a drag to
+    /// another display used to keep the overlay on the screen the window just
+    /// left. The window frame is therefore re-read here, before the action.
+    private func currentSnapshot(for query: String, allowWindowRecovery: Bool? = nil) throws -> AppSnapshot {
+        let snapshot: AppSnapshot
+        if let cached = snapshotsByApp[query.lowercased()] {
+            snapshot = try reanchoredSnapshot(
+                cached,
+                query: query,
+                allowWindowRecovery: allowWindowRecovery
+            )
+        } else {
+            snapshot = try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery)
+        }
+
+        observeTargetWindowMotionIfNeeded(for: snapshot)
+        return snapshot
+    }
+
+    /// Patches a moved window into the cached snapshot, or re-reads the whole
+    /// tree when the cached element frames cannot be trusted any more.
+    private func reanchoredSnapshot(
+        _ cached: AppSnapshot,
+        query: String,
+        allowWindowRecovery: Bool?
+    ) throws -> AppSnapshot {
+        guard cached.mode == .accessibility else {
+            return cached
+        }
+
+        let live = currentWindowGeometry(
+            for: cached.app,
+            windowID: cached.targetWindowID,
+            windowTitle: cached.windowTitle
+        )
+
+        switch snapshotWindowReanchorAction(
+            cachedWindowID: cached.targetWindowID,
+            cachedBounds: cached.windowBounds,
+            live: live
+        ) {
+        case .none:
+            return cached
+        case .patchGeometry:
+            guard let live else {
+                return cached
+            }
+
+            let reanchored = cached.reanchored(to: live)
+            store(reanchored, for: query)
+            return reanchored
+        case .fullRefresh:
+            return try refreshSnapshot(for: query, allowWindowRecovery: allowWindowRecovery)
+        }
+    }
+
+    /// Read-only move watch for the window this action targets. It exists so the
+    /// overlay can follow the window across displays between two actions; it
+    /// never activates, raises, unhides or focuses anything.
+    private func observeTargetWindowMotionIfNeeded(for snapshot: AppSnapshot) {
+        guard snapshot.mode == .accessibility,
+              let windowID = snapshot.targetWindowID,
+              let windowElement = snapshot.windowElement
+        else {
+            return
+        }
+
+        let observed = CursorObservedWindow(
+            pid: snapshot.app.pid,
+            windowID: windowID,
+            layer: snapshot.targetWindowLayer ?? 0,
+            element: windowElement
+        )
+        VisualCursorSupport.performOnMain {
+            SoftwareCursorOverlay.observeTargetWindow(observed)
+        }
     }
 
     @discardableResult
@@ -838,27 +1362,33 @@ public final class ComputerUseService {
         for query: String,
         textLimit: SnapshotTextLimit = .defaults,
         treeLimits: AccessibilityTreeLimits = .defaults,
-        recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation
+        recoveryPolicy: SnapshotRecoveryPolicy? = nil,
+        allowWindowRecovery: Bool? = nil
     ) throws -> AppSnapshot {
         let app = try AppDiscovery.resolve(query)
         let snapshot = try SnapshotBuilder.build(
             for: app,
             textLimit: textLimit,
             treeLimits: treeLimits,
-            recoveryPolicy: recoveryPolicy
+            recoveryPolicy: recoveryPolicy ?? snapshotRecoveryPolicy(allowWindowRecovery: allowWindowRecovery)
         )
 
+        store(snapshot, for: query)
+        return snapshot
+    }
+
+    /// One snapshot is reachable under the query, the app name and the bundle
+    /// id, so any later action resolves to the same cached entry.
+    private func store(_ snapshot: AppSnapshot, for query: String) {
         let keys = Set([
             query.lowercased(),
-            app.name.lowercased(),
-            (app.bundleIdentifier ?? "").lowercased(),
+            snapshot.app.name.lowercased(),
+            (snapshot.app.bundleIdentifier ?? "").lowercased(),
         ].filter { !$0.isEmpty })
 
         for key in keys {
             snapshotsByApp[key] = snapshot
         }
-
-        return snapshot
     }
 
     private func lookupElement(snapshot: AppSnapshot, index: String) throws -> ElementRecord {
@@ -867,6 +1397,40 @@ public final class ComputerUseService {
         }
 
         return record
+    }
+
+    /// Validates the element-targeting arguments shared by `click` and
+    /// `set_value`: an index and a selector are two ways to address the same
+    /// element, so passing both is a caller bug rather than a preference.
+    private func elementSelector(elementIndex: String?, selector: String?, tool: String) throws -> ElementSelector? {
+        guard let selector, !selector.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+
+        if elementIndex != nil {
+            throw ComputerUseError.invalidArguments("\(tool) accepts either element_index or selector, not both")
+        }
+
+        do {
+            return try ElementSelector.parse(selector)
+        } catch let error as ElementSelectorParseError {
+            throw ComputerUseError.invalidArguments(error.errorDescription ?? "invalid selector")
+        }
+    }
+
+    /// Resolves a selector against one rendered tree and fails closed with the
+    /// candidate list when the match is missing or ambiguous.
+    private func resolveSelectorIndex(_ selector: ElementSelector, in snapshot: AppSnapshot) throws -> String {
+        let candidates = snapshot.elements.values
+            .sorted { $0.index < $1.index }
+            .map { ElementSelectorCandidate(record: $0) }
+
+        switch resolveElementSelector(selector, candidates: candidates) {
+        case .matched(let index):
+            return String(index)
+        case .notFound(let message), .ambiguous(let message):
+            throw ComputerUseError.message(message)
+        }
     }
 
     func matchingAction(requested: String, record: ElementRecord) -> String? {
@@ -1553,6 +2117,218 @@ public final class ComputerUseService {
         return nil
     }
 
+    /// Makes a target element reachable before acting on it.
+    ///
+    /// Strategy, in order: `AXScrollToVisible` on the element itself, then on its
+    /// nearest ancestor that exposes it, then `AXScroll<Direction>ByPage` on the
+    /// nearest `AXScrollArea` ancestor. Every scroll step re-reads the element
+    /// frame, because a successful `AXUIElementPerformAction` does not guarantee
+    /// the page actually moved.
+    ///
+    /// Chromium/Electron can swap accessibility handles when the page scrolls, so
+    /// the returned record is re-read from the live element and must be used for
+    /// the following action. When placement cannot be verified after a scroll the
+    /// call fails closed instead of clicking an unknown element.
+    private func ensureElementVisible(
+        _ record: ElementRecord,
+        index: String,
+        snapshot: AppSnapshot
+    ) throws -> ElementRecord {
+        let needsScroll = elementNeedsScrollIntoView(
+            localFrame: record.localFrame,
+            windowBounds: snapshot.windowBounds
+        )
+        debugClickDecision(
+            "scroll-into-view probe needsScroll=\(needsScroll) mode=\(snapshot.mode) localFrame="
+                + (record.localFrame.map { String(describing: $0) } ?? "nil")
+        )
+
+        guard
+            scrollTargetIntoViewEnabled(environment: ProcessInfo.processInfo.environment),
+            snapshot.mode == .accessibility,
+            needsScroll,
+            let element = record.element
+        else {
+            return record
+        }
+
+        debugClickDecision("scroll-into-view requested \(clickDebugDescription(record))")
+
+        guard performSelfOrAncestorScrollToVisible(from: element)
+            || performScrollAreaPaging(from: element, windowBounds: snapshot.windowBounds)
+        else {
+            debugClickDecision("scroll-into-view found no scrollable target \(clickDebugDescription(record))")
+            return record
+        }
+
+        let refreshed = refreshedRecord(record, windowBounds: snapshot.windowBounds)
+        guard let refreshedFrame = refreshed.localFrame else {
+            throw ComputerUseError.stateUnavailable(
+                "element \(index) was scrolled into view but its accessibility element could no longer be read; run get_app_state again before acting on it"
+            )
+        }
+
+        debugClickDecision("scroll-into-view result \(clickDebugDescription(refreshed))")
+
+        if elementNeedsScrollIntoView(localFrame: refreshedFrame, windowBounds: snapshot.windowBounds) {
+            throw ComputerUseError.stateUnavailable(
+                "element \(index) is outside the visible window and could not be scrolled into view; run get_app_state again after scrolling the app manually"
+            )
+        }
+
+        return refreshed
+    }
+
+    private func refreshedRecord(_ record: ElementRecord, windowBounds: CGRect?) -> ElementRecord {
+        guard let element = record.element else {
+            return record
+        }
+
+        return ElementRecord(
+            index: record.index,
+            identifier: record.identifier,
+            element: element,
+            localFrame: localFrame(of: element, windowBounds: windowBounds),
+            role: stringValue(of: element, attribute: kAXRoleAttribute) ?? record.role,
+            rawActions: copyActions(for: element) ?? record.rawActions,
+            prettyActions: record.prettyActions,
+            isSyntheticText: record.isSyntheticText,
+            title: record.title,
+            label: record.label,
+            value: record.value,
+            roleText: record.roleText,
+            placeholder: record.placeholder,
+            parentIndex: record.parentIndex
+        )
+    }
+
+    private func performSelfOrAncestorScrollToVisible(from element: AXUIElement) -> Bool {
+        if performScrollToVisible(on: element) {
+            return true
+        }
+
+        var current = element
+        for _ in 0..<6 {
+            guard let parent = copyParent(of: current) else {
+                return false
+            }
+
+            if performScrollToVisible(on: parent) {
+                return true
+            }
+
+            current = parent
+        }
+
+        return false
+    }
+
+    private func performScrollToVisible(on element: AXUIElement) -> Bool {
+        guard let actions = copyActions(for: element),
+              actions.contains(where: { $0.caseInsensitiveCompare("AXScrollToVisible") == .orderedSame })
+        else {
+            return false
+        }
+
+        guard AXUIElementPerformAction(element, "AXScrollToVisible" as CFString) == .success else {
+            return false
+        }
+
+        Thread.sleep(forTimeInterval: 0.15)
+        return true
+    }
+
+    private func performScrollAreaPaging(from element: AXUIElement, windowBounds: CGRect?) -> Bool {
+        guard let visibleRect = windowLocalVisibleRect(windowBounds: windowBounds),
+              let scrollArea = nearestScrollAreaAncestor(of: element),
+              let actions = copyActions(for: scrollArea)
+        else {
+            return false
+        }
+
+        var didScroll = false
+        var previousFrame: CGRect?
+
+        for _ in 0..<8 {
+            guard let frame = localFrame(of: element, windowBounds: windowBounds) else {
+                break
+            }
+
+            guard elementNeedsScrollIntoView(localFrame: frame, windowBounds: windowBounds) else {
+                break
+            }
+
+            if let previousFrame, framesApproximatelyEqual(previousFrame, frame) {
+                // The scroll area is not responding; stop paging instead of
+                // hammering it eight times.
+                break
+            }
+
+            guard let action = scrollPageAction(
+                for: frame,
+                visibleRect: visibleRect,
+                availableActions: actions
+            ) else {
+                break
+            }
+
+            previousFrame = frame
+            guard AXUIElementPerformAction(scrollArea, action as CFString) == .success else {
+                break
+            }
+
+            didScroll = true
+            Thread.sleep(forTimeInterval: 0.08)
+        }
+
+        return didScroll
+    }
+
+    private func scrollPageAction(
+        for frame: CGRect,
+        visibleRect: CGRect,
+        availableActions: [String]
+    ) -> String? {
+        let preferred: String
+        if frame.midY < visibleRect.minY {
+            preferred = "AXScrollUpByPage"
+        } else if frame.midY > visibleRect.maxY {
+            preferred = "AXScrollDownByPage"
+        } else if frame.midX < visibleRect.minX {
+            preferred = "AXScrollLeftByPage"
+        } else if frame.midX > visibleRect.maxX {
+            preferred = "AXScrollRightByPage"
+        } else {
+            return nil
+        }
+
+        return availableActions.first { $0.caseInsensitiveCompare(preferred) == .orderedSame }
+    }
+
+    private func nearestScrollAreaAncestor(of element: AXUIElement) -> AXUIElement? {
+        var current = element
+        for _ in 0..<10 {
+            if stringValue(of: current, attribute: kAXRoleAttribute) == kAXScrollAreaRole as String {
+                return current
+            }
+
+            guard let parent = copyParent(of: current) else {
+                return nil
+            }
+
+            current = parent
+        }
+
+        return nil
+    }
+
+    private func framesApproximatelyEqual(_ lhs: CGRect, _ rhs: CGRect, tolerance: CGFloat = 0.5) -> Bool {
+        abs(lhs.minX - rhs.minX) <= tolerance
+            && abs(lhs.minY - rhs.minY) <= tolerance
+            && abs(lhs.width - rhs.width) <= tolerance
+            && abs(lhs.height - rhs.height) <= tolerance
+    }
+
     private func copyActions(for element: AXUIElement) -> [String]? {
         var actions: CFArray?
         let result = AXUIElementCopyActionNames(element, &actions)
@@ -1698,6 +2474,10 @@ public final class ComputerUseService {
         return identifier
     }
 
+    /// Element actions that can scroll pass a record that already went through
+    /// `ensureElementVisible`; `scroll` / `perform_secondary_action` do not.
+    /// For those the overlay clamps the tip to the screen and the ring silently
+    /// stays hidden when the frame misses the visible rect.
     private func visualCursorTarget(for record: ElementRecord, snapshot: AppSnapshot) -> VisualCursorTarget? {
         makeVisualCursorTarget(
             localFrame: record.localFrame,
@@ -1712,14 +2492,59 @@ public final class ComputerUseService {
         return record.flatMap { visualCursorTarget(for: $0, snapshot: snapshot) }
     }
 
-    private func moveVisualCursor(to target: VisualCursorTarget?) {
+    /// Element-scoped actions drive the software cursor through one shared
+    /// order: it flies to the target and settles before the real action runs.
+    /// Advisory only, so the choreographer's steps are silent no-ops whenever
+    /// the visual cursor is disabled.
+    ///
+    /// Returns what the coalescer decided so the caller can keep the click
+    /// pulse in step with the debounced cursor.
+    @discardableResult
+    private func approachVisualTarget(_ target: VisualCursorTarget?) -> VisualCursorApproach {
+        visualChoreographer.approach(target)
+    }
+
+    /// Direct cursor moves (coordinate clicks, fixture paths) share the
+    /// choreographer's coalescer, so a burst of actions cannot animate the
+    /// cursor twice inside one `OPEN_COMPUTER_USE_VISUAL_CURSOR_COALESCE_MS`
+    /// window.
+    @discardableResult
+    private func moveVisualCursor(to target: VisualCursorTarget?) -> VisualCursorApproach {
         guard let target else {
-            return
+            return .skipped
         }
 
-        VisualCursorSupport.performOnMain {
-            SoftwareCursorOverlay.moveCursor(to: target.point, in: target.window)
+        guard visualCursorEnabled(environment: ProcessInfo.processInfo.environment) else {
+            return .skipped
         }
+
+        let decision = VisualCursorMoveCoalescer.shared.decide(
+            target: target.point,
+            now: CACurrentMediaTime()
+        )
+
+        switch decision {
+        case .animated:
+            VisualCursorSupport.performOnMain {
+                SoftwareCursorOverlay.moveCursor(
+                    to: target.point,
+                    in: target.window,
+                    anchor: target.restingAnchor
+                )
+            }
+        case .repositioned:
+            VisualCursorSupport.performOnMain {
+                SoftwareCursorOverlay.repositionCursor(
+                    to: target.point,
+                    in: target.window,
+                    anchor: target.restingAnchor
+                )
+            }
+        case .held, .skipped:
+            break
+        }
+
+        return decision
     }
 
     private func settleVisualCursor(at target: VisualCursorTarget?) {
@@ -1728,8 +2553,27 @@ public final class ComputerUseService {
         }
 
         VisualCursorSupport.performOnMain {
-            SoftwareCursorOverlay.settle(at: target.point, in: target.window)
+            SoftwareCursorOverlay.settle(
+                at: target.point,
+                in: target.window,
+                anchor: target.restingAnchor
+            )
         }
+    }
+
+    /// Coalesced bursts stay animation-free, pulse included; a `held` cursor
+    /// still pulses because the pulse marks the click itself.
+    private func pulseVisualCursor(
+        at target: VisualCursorTarget?,
+        approach: VisualCursorApproach,
+        clickCount: Int,
+        mouseButton: MouseButtonKind
+    ) {
+        guard approach.playsClickPulse else {
+            return
+        }
+
+        pulseVisualCursor(at: target, clickCount: clickCount, mouseButton: mouseButton)
     }
 
     private func pulseVisualCursor(at target: VisualCursorTarget?, clickCount: Int, mouseButton: MouseButtonKind) {
@@ -1742,7 +2586,8 @@ public final class ComputerUseService {
                 at: target.point,
                 clickCount: clickCount,
                 mouseButton: mouseButton,
-                in: target.window
+                in: target.window,
+                anchor: target.restingAnchor
             )
         }
     }
@@ -1833,6 +2678,7 @@ public final class ComputerUseService {
 
     private func performNonAXClickFallback(
         at point: CGPoint,
+        windowPoint: CGPoint,
         button: MouseButtonKind,
         clickCount: Int,
         targetDescription: String,
@@ -1849,6 +2695,32 @@ public final class ComputerUseService {
             InputSimulation.prepareAppForGlobalPointerInput(snapshot.app)
             try InputSimulation.clickGlobally(at: eventPoint, button: button, clickCount: clickCount)
             return
+        }
+
+        // Opt-in SkyLight attempt. This branch fails closed: a SkyLight failure
+        // falls through to postToPid and never escalates to the global HID path.
+        if automaticSkyClickEligible(
+            environment: ProcessInfo.processInfo.environment,
+            button: button,
+            clickCount: clickCount,
+            windowBounds: snapshot.windowBounds,
+            windowID: snapshot.targetWindowID,
+            spiAvailable: SkyLightSPI.shared.capability.isAvailable
+        ), let windowBounds = snapshot.windowBounds, let windowID = snapshot.targetWindowID {
+            do {
+                debugClickDecision("requested=auto executed=skylight_pid_post target=\(targetDescription)")
+                try InputSimulation.clickWithSkyLight(
+                    at: eventPoint,
+                    windowPoint: windowPoint,
+                    windowBounds: windowBounds,
+                    windowID: windowID,
+                    clickCount: clickCount,
+                    pid: snapshot.app.pid
+                )
+                return
+            } catch {
+                debugClickDecision("auto sky_click failed, falling back to pid_post: \(error)")
+            }
         }
 
         do {
