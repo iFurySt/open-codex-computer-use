@@ -253,7 +253,13 @@ final class OpenComputerUseKitTests: XCTestCase {
     }
 
     func testToolDefinitionCount() {
-        XCTAssertEqual(ToolDefinitions.all.count, 9)
+        XCTAssertEqual(ToolDefinitions.all.count, 11)
+    }
+
+    func testJavaScriptToolsAreExposed() {
+        let names = Set(ToolDefinitions.all.map(\.name))
+        XCTAssertTrue(names.contains("js"))
+        XCTAssertTrue(names.contains("js_reset"))
     }
 
     func testReadToolArgumentsAcceptsJSONObject() throws {

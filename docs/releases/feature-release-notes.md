@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-09-15 | macOS js 组合调用 | 多步流程可以在一次 tool call 里写完，不必每个动作往返一次；循环、重试和条件判断直接写在代码里。 | macOS 新增 `js` / `js_reset` tool：常驻 JavaScriptCore runtime 把既有 action 暴露成同步 `cua` API，`write(...)` 产出文本、`emitImage(...)` 产出图片，每次调用有独立函数作用域，跨调用状态挂在 `globalThis` 上；原有 9 个 tool 不变。 |
 | 2026-09-10 | macOS 拖拽修复 | 显式开启全局指针路径后，窗口移动、文本拖选与 Finder 拖放可收到启动真实拖拽所需的事件；默认路径的限制也会明确呈现。 | 发布 `0.3.5`：补齐拖拽位移、手势事件编号与 HID 投递时序，增加投递路径说明；同步升级 Go MCP SDK 到 `v1.4.1`。 |
 | 2026-09-08 | drag 投递路径可见性 | 在默认安全配置下调用 `drag` 做窗口移动、文本拖选或 Finder 拖放时，结果会明确说明事件只投递给目标进程、为何没有效果，以及需要设置哪个环境变量，不再表现为“成功但无效果”。 | `drag` 结果新增一条 `Drag delivered via app_post` / `Drag delivered via global pointer path` 文本项；tool description 补充默认路径限制与 `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` 说明；skill 文档新增 Drag Delivery 章节；默认行为与安全门本身不变。 |
 | 2026-09-08 | macOS 应用定位与 secondary action | 按名称定位应用时减少误选后台 helper，执行 secondary action 时避免动作错配。 | 发布 `0.3.4`：优先匹配普通应用；支持 Safari custom action 短名称，并修复过滤后的动作映射和名称冲突。 |

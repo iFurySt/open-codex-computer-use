@@ -152,8 +152,56 @@ public enum ToolDefinitions {
                 required: ["app", "text"]
             )
         ),
+        ToolDefinition(
+            name: "js",
+            description: jsToolDescription,
+            annotations: defaultAnnotations(),
+            inputSchema: objectSchema(
+                properties: [
+                    "code": stringProperty(description: "JavaScript to run against the initialized `cua` runtime."),
+                    "timeout_ms": positiveIntegerProperty(description: "Execution timeout in milliseconds. Defaults to 30000."),
+                    "title": stringProperty(description: "Short user-facing description of what the code does."),
+                ],
+                required: ["code"]
+            )
+        ),
+        ToolDefinition(
+            name: "js_reset",
+            description: "Reset the `js` runtime, clearing all globalThis bindings and re-initializing the `cua` API. This tool is part of plugin `Computer Use`.",
+            annotations: defaultAnnotations(),
+            inputSchema: objectSchema(properties: [:], required: [])
+        ),
     ]
 }
+
+private let jsToolDescription = """
+Run JavaScript that drives Computer Use through a single tool, so a whole flow \
+(snapshot, find an element, act, verify, loop, retry) happens in one call instead \
+of one tool call per action. The runtime is synchronous: no promises, no await. \
+Print results with write(value); surface an image with emitImage(base64). Each call \
+runs in its own scope, so let/const never collide across calls; assign to globalThis \
+to persist a value to the next call (js_reset clears them). Default timeout 30000 ms.
+
+The `cua` object mirrors the other tools and throws on a tool error:
+  cua.listApps()
+  cua.getAppState(app, opts?)            // returns the accessibility tree text
+  cua.click(app, {element_index?, x?, y?, click_method?})
+  cua.type(app, text, {key_method?})
+  cua.pressKey(app, key, {key_method?})
+  cua.scroll(app, direction, element_index, pages?)
+  cua.drag(app, from_x, from_y, to_x, to_y)
+  cua.setValue(app, element_index, value)
+  cua.secondaryAction(app, element_index, action)
+  cua.screenshot(app, opts?)            // returns tree text and emits the screenshot
+  cua.call(tool, args)                  // low-level: returns {text, images}
+
+Example:
+  const tree = cua.getAppState("Notes");
+  write(tree);
+  cua.type("Notes", "Hello from one round trip");
+
+This tool is part of plugin `Computer Use`.
+"""
 
 private func objectSchema(properties: [String: Any], required: [String]) -> [String: Any] {
     var schema: [String: Any] = [

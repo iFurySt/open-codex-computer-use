@@ -35,8 +35,20 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "OpenComputerUseJavaScriptShim",
+            path: "packages/OpenComputerUseJavaScriptShim",
+            publicHeadersPath: "include",
+            linkerSettings: [
+                .linkedFramework("JavaScriptCore"),
+            ]
+        ),
+        .target(
             name: "OpenComputerUseKit",
-            path: "packages/OpenComputerUseKit/Sources/OpenComputerUseKit"
+            dependencies: ["OpenComputerUseJavaScriptShim"],
+            path: "packages/OpenComputerUseKit/Sources/OpenComputerUseKit",
+            linkerSettings: [
+                .linkedFramework("JavaScriptCore"),
+            ]
         ),
         .executableTarget(
             name: "OpenComputerUse",

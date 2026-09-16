@@ -41,6 +41,14 @@ press_key
 set_value
 ```
 
+## Composing Actions with `js`
+
+`js` runs JavaScript that drives the actions through a synchronous `cua` API, so a whole flow happens in one call. Use `write(value)` for output; assign to `globalThis` to persist across calls; `js_reset` clears them. macOS only. See `docs/references/js-code-tool.md`.
+
+```bash
+open-computer-use call js --args '{"code":"const t = cua.getAppState(\"TextEdit\"); write(t); cua.type(\"TextEdit\", \"hi\");"}'
+```
+
 ## Direct CLI Tool Calls
 
 Use `call` for one-off checks:
