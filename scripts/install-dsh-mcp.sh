@@ -22,6 +22,9 @@ Install the open-computer-use stdio MCP server into a DeepSeek Harness (DSH)
 profile, and register the turn-boundary hook that keeps the software cursor from
 sticking on screen.
 
+This is a compatibility integration through DSH's generic MCP client. It does
+not register a first-class DSH computer-use provider.
+
 The managed block in the profile patch is delimited by markers and replaced in
 place, so re-running updates it and leaves the rest of the file untouched.
 
@@ -103,15 +106,32 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 
-# DSH spawns this path directly (no shell), so it must be an executable file.
+# Keep a stable absolute path in the profile. DSH can resolve PATH commands, but
+# GUI and background launches do not necessarily inherit the installer's PATH.
 resolve_command() {
   local -a candidates=()
+  local explicit_command=""
+  local explicit_source=""
 
   if [[ -n "${command_override}" ]]; then
-    candidates+=("${command_override}")
+    explicit_command="${command_override}"
+    explicit_source="--command"
+  elif [[ -n "${OPEN_COMPUTER_USE_COMMAND:-}" ]]; then
+    explicit_command="${OPEN_COMPUTER_USE_COMMAND}"
+    explicit_source="OPEN_COMPUTER_USE_COMMAND"
   fi
-  if [[ -n "${OPEN_COMPUTER_USE_COMMAND:-}" ]]; then
-    candidates+=("${OPEN_COMPUTER_USE_COMMAND}")
+
+  if [[ -n "${explicit_command}" ]]; then
+    if [[ "${explicit_command}" != /* ]]; then
+      echo "${explicit_source} must be an absolute executable path: ${explicit_command}" >&2
+      return 2
+    fi
+    if [[ ! -f "${explicit_command}" || ! -x "${explicit_command}" ]]; then
+      echo "${explicit_source} is not an executable file: ${explicit_command}" >&2
+      return 2
+    fi
+    printf '%s\n' "${explicit_command}"
+    return 0
   fi
 
   candidates+=(
@@ -140,7 +160,7 @@ resolve_command() {
 
   local candidate=""
   for candidate in "${candidates[@]}"; do
-    if [[ -x "${candidate}" ]]; then
+    if [[ "${candidate}" == /* && -f "${candidate}" && -x "${candidate}" ]]; then
       printf '%s\n' "${candidate}"
       return 0
     fi
@@ -150,7 +170,14 @@ resolve_command() {
 }
 
 command_path=""
-if ! command_path="$(resolve_command)"; then
+set +e
+command_path="$(resolve_command)"
+resolve_status=$?
+set -e
+if [[ "${resolve_status}" -ne 0 ]]; then
+  if [[ "${resolve_status}" -eq 2 ]]; then
+    exit 1
+  fi
   cat >&2 <<'EOF'
 Could not find an Open Computer Use executable to register.
 
@@ -166,6 +193,9 @@ EOF
   exit 1
 fi
 
+# Fail before changing profile files if the executable is not an OCU MCP server.
+node "${config_helper}" probe-stdio-mcp "${command_path}" mcp
+
 profile_dir="${dsh_home}/profiles/${profile_name}"
 patch_path="${profile_dir}/cordis.patch.yml"
 hooks_path="${dsh_home}/ocu-hooks.json"
@@ -179,40 +209,52 @@ if [[ "${with_hook}" -eq 0 ]]; then
 fi
 
 skill_target="${dsh_home}/skills/open-computer-use"
+skill_summary="not installed (--no-skill)"
 
 if [[ "${with_skill}" -eq 1 ]]; then
   if [[ ! -d "${skill_source}" ]]; then
     echo "Skill source not found at ${skill_source}; skipping the skill copy." >&2
+    skill_summary="not installed (source missing)"
   elif [[ ! -e "${skill_target}" ]]; then
     node "${config_helper}" copy-into-dir "${dsh_home}/skills" "${skill_source}"
+    skill_summary="installed at ${skill_target}"
   elif diff -rq "${skill_source}" "${skill_target}" >/dev/null 2>&1; then
     echo "Skill already current at ${skill_target}"
+    skill_summary="already current at ${skill_target}"
   elif [[ "${force_skill}" -eq 1 ]]; then
     skill_backup="${skill_target}.bak-$(date +%Y%m%d-%H%M%S)"
     mv "${skill_target}" "${skill_backup}"
     echo "Existing skill moved to ${skill_backup}" >&2
     node "${config_helper}" copy-into-dir "${dsh_home}/skills" "${skill_source}"
+    skill_summary="replaced at ${skill_target} (backup: ${skill_backup})"
   else
     cat >&2 <<EOF
 Skill at ${skill_target} differs from this checkout; leaving it untouched so a
 local copy is never overwritten silently. Re-run with --force-skill to replace it
 (a timestamped backup is kept).
 EOF
+    skill_summary="left existing copy untouched at ${skill_target}"
   fi
+fi
+
+cursor_summary="not installed (--no-hook)"
+if [[ "${with_hook}" -eq 1 ]]; then
+  cursor_summary="hidden automatically at each turn boundary via ${hooks_path}"
 fi
 
 cat <<EOF
 
 Installed into DSH profile "${profile_name}".
 
-  tools      mcp__ocu__list_apps / get_app_state / click / perform_secondary_action
-             scroll / drag / type_text / press_key / set_value / select_text
-  cursor     hidden automatically at each turn boundary via ${hooks_path}
-  skill      ${dsh_home}/skills/open-computer-use (visible in every new conversation)
+  tools      mcp__ocu__* (discovered from the installed Open Computer Use server)
+  cursor     ${cursor_summary}
+  skill      ${skill_summary}
 
-DSH reloads this profile when the patch file changes, so a running instance picks
-the server up without a restart. On macOS, grant Accessibility and Screen
-Recording to the app bundle once; verify with:
+This installs Open Computer Use through DSH's generic MCP compatibility path; it
+does not reserve DSH's first-class computer-use provider slot. DSH reloads the
+web profile when the patch changes. Other profiles may require a restart. On
+macOS, grant Accessibility and Screen Recording to the app bundle once; verify
+with:
 
   "${command_path}" doctor
 EOF

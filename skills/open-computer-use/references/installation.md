@@ -84,7 +84,18 @@ ocu install-dsh-mcp
 DSH profiles are composed from patch layers, so the installer writes a delimited
 block into `<dsh-home>/profiles/<profile>/cordis.patch.yml` (default profile
 `web`, default home `~/.dsh`). The block is replaced in place on every run, so
-re-running is idempotent and the rest of the file is untouched.
+re-running is idempotent and the rest of the file is untouched. Before writing,
+the installer performs an MCP `initialize` plus `tools/list` exchange and
+requires the Open Computer Use server identity and a non-empty, valid tool
+catalog. It deliberately does not pin a tool count, so compatible OCU releases
+can add or reshape tools. An unrelated or broken executable therefore fails
+without changing the profile.
+
+This is a compatibility integration through DSH's generic MCP client. It does
+not register a first-class DSH computer-use provider or reserve DSH's exclusive
+computer-use provider slot. Do not enable another desktop provider in the same
+profile unless you deliberately want both independent tool sets to operate the
+same desktop.
 
 It also installs two things a DSH host needs beyond the MCP entry:
 
@@ -106,10 +117,13 @@ It also installs two things a DSH host needs beyond the MCP entry:
   backup.
 
 Options: `--profile <name>`, `--dsh-home <dir>`, `--command <path>`, `--no-hook`,
-`--no-skill`, `--force-skill`. DSH spawns the registered command directly rather
-than through a shell, so `--command` must be an absolute path to an executable;
-when it is omitted the installer probes the usual install locations and the npm
-global layout, and fails with guidance if it finds nothing.
+`--no-skill`, `--force-skill`. `--command` must be an absolute executable path.
+DSH can resolve a bare PATH command, but an absolute path remains stable when a
+GUI or background launch receives a different PATH. When the option is omitted,
+the installer resolves the current PATH shim and common app/npm locations to an
+absolute path, then fails with guidance if it finds nothing. Explicit DSH
+installation treats MCP startup failure as a profile activation error rather
+than silently starting without the requested tools.
 
 For any other MCP client, add a stdio server manually:
 

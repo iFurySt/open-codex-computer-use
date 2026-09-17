@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { spawn } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -15,6 +16,7 @@ function usage() {
   node ./scripts/install-config-helper.mjs gemini-mcp <config-path> <server-name> <command-name>
   node ./scripts/install-config-helper.mjs opencode-mcp <primary-config-path> <secondary-config-path> <server-name> <command-name>
   node ./scripts/install-config-helper.mjs dsh-mcp <profile-patch-path> <hooks-path> <command-path> <with-turn-ended-hook>
+  node ./scripts/install-config-helper.mjs probe-stdio-mcp <command-path> [<arg> ...]
   node ./scripts/install-config-helper.mjs codex-plugin-version <plugin-manifest-path>
   node ./scripts/install-config-helper.mjs codex-plugin-config <config-path> <repo-root> <marketplace-name> <plugin-name>
   node ./scripts/install-config-helper.mjs copy-into-dir <target-dir> <source-path> [<source-path> ...]
@@ -534,7 +536,7 @@ function renderDshPatchBlock(commandPath, hooksPath, withHook) {
     "        args:",
     "          - mcp",
     "        toolCallTimeoutMs: 300000",
-    "        failOnStartupError: false",
+    "        failOnStartupError: true",
   ];
 
   if (withHook) {
@@ -600,8 +602,119 @@ function findUnmanagedDshRows(existingText, ids) {
         conflicts.push({ id, line: index + 1 });
       }
     }
+    if (/^serverName:\s*(?:ocu|"ocu"|'ocu')\s*(?:#.*)?$/.test(line.trim())) {
+      conflicts.push({ id: "serverName: ocu", line: index + 1 });
+    }
   });
   return conflicts;
+}
+
+/** Verify the selected executable is an Open Computer Use MCP server. */
+async function probeStdioMcp(commandPath, args) {
+  if (!path.isAbsolute(commandPath)) {
+    fail(`MCP command must be an absolute path: ${commandPath}`);
+  }
+  if (!existsSync(commandPath)) {
+    fail(`MCP command does not exist: ${commandPath}`);
+  }
+
+  const child = spawn(commandPath, args, { stdio: ["pipe", "pipe", "pipe"] });
+  let stdout = "";
+  let stderr = "";
+  let settled = false;
+  let nextID = 1;
+  const pending = new Map();
+
+  const cleanup = () => {
+    if (!child.killed) child.kill("SIGTERM");
+  };
+  const rejectPending = (error) => {
+    for (const { reject } of pending.values()) reject(error);
+    pending.clear();
+  };
+  child.stderr.on("data", (chunk) => {
+    if (stderr.length < 4096) stderr += chunk.toString();
+  });
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk.toString();
+    while (stdout.includes("\n")) {
+      const newline = stdout.indexOf("\n");
+      const line = stdout.slice(0, newline).trim();
+      stdout = stdout.slice(newline + 1);
+      if (line.length === 0) continue;
+      let message;
+      try {
+        message = JSON.parse(line);
+      } catch {
+        rejectPending(new Error(`MCP server wrote non-JSON stdout: ${line.slice(0, 200)}`));
+        continue;
+      }
+      const request = pending.get(message.id);
+      if (request) {
+        pending.delete(message.id);
+        request.resolve(message);
+      }
+    }
+  });
+
+  const exited = new Promise((_, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (!settled) {
+        reject(new Error(`MCP server exited before discovery (code=${code ?? "null"}, signal=${signal ?? "none"})${stderr.trim() ? `: ${stderr.trim()}` : ""}`));
+      }
+    });
+  });
+  const request = (method, params = {}) => {
+    const id = nextID++;
+    return new Promise((resolve, reject) => {
+      pending.set(id, { resolve, reject });
+      child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`, (error) => {
+        if (!error) return;
+        pending.delete(id);
+        reject(error);
+      });
+    });
+  };
+  const timeout = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error("MCP discovery timed out after 10 seconds")), 10_000).unref();
+  });
+
+  try {
+    const verify = async () => {
+      const initialized = await request("initialize", {
+        protocolVersion: "2025-03-26",
+        capabilities: {},
+        clientInfo: { name: "open-computer-use-installer", version: "1" },
+      });
+      if (initialized.error) throw new Error(`MCP initialize failed: ${JSON.stringify(initialized.error)}`);
+      if (initialized.result?.serverInfo?.name !== "open-computer-use") {
+        throw new Error(`unexpected MCP server identity: ${JSON.stringify(initialized.result?.serverInfo?.name)}`);
+      }
+      child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} })}\n`);
+      const listed = await request("tools/list");
+      if (listed.error) throw new Error(`MCP tools/list failed: ${JSON.stringify(listed.error)}`);
+      const tools = listed.result?.tools;
+      if (!Array.isArray(tools)) throw new Error("MCP tools/list did not return a tools array");
+      if (tools.length === 0) throw new Error("MCP tools/list returned an empty tool catalog");
+      const names = tools.map((tool) => tool?.name);
+      if (names.some((name) => typeof name !== "string" || name.trim().length === 0)) {
+        throw new Error("MCP tools/list returned a tool without a valid name");
+      }
+      if (new Set(names).size !== names.length) {
+        throw new Error("MCP tools/list returned duplicate tool names");
+      }
+      return names;
+    };
+    const names = await Promise.race([verify(), timeout, exited]);
+    settled = true;
+    process.stdout.write(`Verified Open Computer Use MCP server (${names.length} tools): ${commandPath}\n`);
+  } catch (error) {
+    settled = true;
+    throw new Error(`Could not verify Open Computer Use MCP server at ${commandPath}: ${error.message}`);
+  } finally {
+    cleanup();
+  }
 }
 
 /**
@@ -647,7 +760,7 @@ function installDshMcp(patchPath, hooksPath, commandPath, withHookValue) {
   }
 }
 
-function main(argv) {
+async function main(argv) {
   const [command, ...args] = argv;
   switch (command) {
     case "claude-mcp":
@@ -685,6 +798,13 @@ function main(argv) {
       }
       installDshMcp(...args);
       return;
+    case "probe-stdio-mcp":
+      if (args.length < 1) {
+        usage();
+        process.exit(1);
+      }
+      await probeStdioMcp(args[0], args.slice(1));
+      return;
     case "codex-plugin-version":
       if (args.length !== 1) {
         usage();
@@ -712,4 +832,8 @@ function main(argv) {
   }
 }
 
-main(process.argv.slice(2));
+try {
+  await main(process.argv.slice(2));
+} catch (error) {
+  fail(error instanceof Error ? error.message : String(error));
+}

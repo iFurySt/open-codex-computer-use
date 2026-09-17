@@ -24,9 +24,10 @@ pass() {
   echo "ok - $1"
 }
 
+fixture="${repo_root}/scripts/tests/fixtures/open-computer-use-mcp.mjs"
 fake_command="${work_dir}/Open Computer Use (Dev).app/Contents/MacOS/OpenComputerUse"
 mkdir -p "$(dirname "${fake_command}")"
-printf '#!/bin/sh\nexit 0\n' > "${fake_command}"
+cp "${fixture}" "${fake_command}"
 chmod +x "${fake_command}"
 
 dsh_home="${work_dir}/dsh"
@@ -34,7 +35,7 @@ profile_dir="${dsh_home}/profiles/web"
 mkdir -p "${profile_dir}"
 printf -- "- id: web-runtime\n  config:\n    trustedHosts:\n      - 1.2.3.4\n" > "${profile_dir}/cordis.patch.yml"
 
-"${installer}" --dsh-home "${dsh_home}" --command "${fake_command}" >/dev/null
+install_output="$("${installer}" --dsh-home "${dsh_home}" --command "${fake_command}")"
 
 patch="${profile_dir}/cordis.patch.yml"
 hooks="${dsh_home}/ocu-hooks.json"
@@ -44,6 +45,18 @@ grep -q "id: ocu-turn-ended-hook" "${patch}" || fail "patch is missing the turn-
 grep -q "id: web-runtime" "${patch}" || fail "the installer dropped the user's existing rows"
 grep -q "trustedHosts" "${patch}" || fail "the installer dropped the user's existing config"
 pass "patch keeps the user's rows and adds both managed rows"
+
+grep -q "failOnStartupError: true" "${patch}" || fail "MCP startup failures are not fatal"
+grep -q "Verified Open Computer Use MCP server (9 tools)" <<<"${install_output}" || fail "installer did not probe the MCP server"
+if grep -q "select_text" <<<"${install_output}"; then
+  fail "installer advertised a tool that the verified server did not expose"
+fi
+pass "installer verifies MCP discovery and reports the discovered namespace"
+
+future_home="${work_dir}/dsh-future-tool-surface"
+OCU_TEST_TOOL_NAMES=js,js_reset "${installer}" --dsh-home "${future_home}" --command "${fake_command}" --no-hook --no-skill >/dev/null
+grep -q "id: mcp-open-computer-use" "${future_home}/profiles/web/cordis.patch.yml" || fail "installer rejected a valid changed OCU tool surface"
+pass "installer accepts OCU tool-surface evolution without pinning a tool count"
 
 grep -q "${fake_command}" "${patch}" || fail "patch does not reference the installed command"
 grep -q "${fake_command}" "${hooks}" || fail "hook config does not reference the installed command"
@@ -64,7 +77,7 @@ before="$(cksum < "${patch}")"
 pass "re-running is idempotent"
 
 no_hook_home="${work_dir}/dsh-no-hook"
-"${installer}" --dsh-home "${no_hook_home}" --command "${fake_command}" --no-hook --no-skill >/dev/null
+no_hook_output="$("${installer}" --dsh-home "${no_hook_home}" --command "${fake_command}" --no-hook --no-skill)"
 if grep -q "id: ocu-turn-ended-hook" "${no_hook_home}/profiles/web/cordis.patch.yml"; then
   fail "--no-hook still wrote the hook row"
 fi
@@ -74,6 +87,8 @@ fi
 if [[ -d "${no_hook_home}/skills" ]]; then
   fail "--no-skill still copied the skill"
 fi
+grep -q "cursor     not installed (--no-hook)" <<<"${no_hook_output}" || fail "summary claimed the skipped hook was installed"
+grep -q "skill      not installed (--no-skill)" <<<"${no_hook_output}" || fail "summary claimed the skipped skill was installed"
 pass "--no-hook and --no-skill are honoured"
 
 conflict_home="${work_dir}/dsh-conflict"
@@ -87,6 +102,37 @@ if [[ -f "${conflict_home}/ocu-hooks.json" ]]; then
   fail "installer wrote hook config before refusing the conflicting patch"
 fi
 pass "a hand-written duplicate row is refused instead of duplicated"
+
+server_name_home="${work_dir}/dsh-server-name-conflict"
+server_name_profile="${server_name_home}/profiles/web"
+mkdir -p "${server_name_profile}"
+printf -- "- insert:\n    - id: another-mcp-row\n      name: '@deepseek-ai/dsh-mcp-client'\n      config:\n        serverName: ocu\n" > "${server_name_profile}/cordis.patch.yml"
+if "${installer}" --dsh-home "${server_name_home}" --command "${fake_command}" >/dev/null 2>&1; then
+  fail "installer accepted a duplicate ocu serverName under a different row id"
+fi
+pass "an existing ocu serverName is refused even under a different row id"
+
+invalid_home="${work_dir}/dsh-invalid-server"
+if OCU_TEST_SERVER_NAME=not-open-computer-use "${installer}" --dsh-home "${invalid_home}" --command "${fake_command}" >/dev/null 2>&1; then
+  fail "installer accepted an executable that is not an Open Computer Use MCP server"
+fi
+[[ ! -e "${invalid_home}/profiles/web/cordis.patch.yml" ]] || fail "failed MCP verification modified the profile"
+pass "a non-OCU executable fails before profile files are changed"
+
+missing_home="${work_dir}/dsh-missing-command"
+missing_command="${work_dir}/missing/OpenComputerUse"
+if "${installer}" --dsh-home "${missing_home}" --command "${missing_command}" >/dev/null 2>&1; then
+  fail "installer fell back to auto-detection after an invalid explicit command"
+fi
+[[ ! -e "${missing_home}/profiles/web/cordis.patch.yml" ]] || fail "missing command rejection modified the profile"
+pass "an invalid explicit command fails instead of falling back to another install"
+
+relative_home="${work_dir}/dsh-relative-command"
+if "${installer}" --dsh-home "${relative_home}" --command open-computer-use >/dev/null 2>&1; then
+  fail "installer accepted a relative command override"
+fi
+[[ ! -e "${relative_home}/profiles/web/cordis.patch.yml" ]] || fail "relative command rejection modified the profile"
+pass "an explicit relative command is rejected before profile files are changed"
 
 printf 'local edit\n' >> "${dsh_home}/skills/open-computer-use/SKILL.md"
 "${installer}" --dsh-home "${dsh_home}" --command "${fake_command}" >/dev/null 2>&1
