@@ -39,6 +39,7 @@ drag
 type_text
 press_key
 set_value
+select_text   (macOS runtime only)
 ```
 
 ## Direct CLI Tool Calls
@@ -104,6 +105,136 @@ open-computer-use snapshot --max-tree-nodes 3000 --max-tree-depth 96 "Google Chr
 - Run `get_app_state` immediately before element-targeted actions.
 - Re-run `get_app_state` after navigation, modal changes, page reloads, or failed actions.
 - Use coordinate actions only when the rendered tree does not expose the target as an element.
+
+### Stable selectors
+
+`element_index` only describes the snapshot it came from: every action re-renders the tree and
+the indices move. When a target has a stable name, pass `selector` to `click` or `set_value`
+instead of reading the tree again:
+
+```sh
+open-computer-use call set_value --args '{"app":"Google Chrome","selector":"textbox[name=用途]","value":"draft"}'
+open-computer-use call click --args '{"app":"Google Chrome","selector":"button[name=检查变更]"}'
+```
+
+Accepted forms: `role[name=NAME]`, `[name=NAME]`, `[role=ROLE][name=NAME]` or a bare `NAME`.
+Role aliases (`button`, `textfield`, `textbox`, `combobox`, `text`, `link`, `listbox`,
+`checkbox`, …), exact AX roles and the localized role text shown in the tree all match. The name
+is matched against the element title, description, value, identifier and placeholder: exact
+matches win, a unique prefix match is accepted, and two unrelated matches fail closed with the
+candidate list instead of guessing. `selector` cannot be combined with `element_index`.
+
+A fail-closed message is authoritative, not a transient glitch: if the candidates it lists are all
+popup items while your target lives behind an open overlay, the background is hidden from the
+accessibility tree and no retry will find it. Finish the overlay interaction first (verified against
+Chromium + Radix: a background heading stays unresolvable until the popup closes).
+
+### Popups and overlays
+
+`get_app_state` renders the focused window and, when the app has opened an overlay that lives in
+its own subtree (native popover, sheet, menu, floating/dialog window), appends it after a
+`--- popup ---` marker. One read then covers both the window content and the popup options; a
+snapshot without an open popup is unchanged.
+
+A trailing `--- popup note ---` means something different: the app itself is hiding the content
+behind the popup from the accessibility tree (Chromium does this for the document around an open
+Radix/ARIA popup), so the background `element_index` values are temporarily unavailable. Finish
+the popup interaction (choose an option, or press Escape) and then act on the content behind it
+with `selector` — repeatedly re-reading the tree will not bring it back.
+
+The two markers are independent, and both may be absent while an overlay is open: a Chromium
+listbox whose options are reachable inside the web area renders as the web area's only child, so the
+options are complete (selected item included) even though every background field is gone. Treat
+"options present" as the success signal for this shape; a missing `--- popup ---`/`note` does not
+mean the read failed.
+
+### Pre-flight: the target window must be on an active display
+
+Reading and acting are geometry-dependent even on pure accessibility paths:
+
+- A window parked at coordinates no current display covers (a window plan that remembered a second
+  monitor which has since been rearranged, or a harness log line like `readback differs, not retried`)
+  gets an incomplete tree: the browser chrome still renders while the web area (`HTML 内容`) is
+  simply absent. Fixing the window position is the fix; retrying the action is not.
+- The software cursor is drawn at the mapped target point. It is ON by default (set
+  `OPEN_COMPUTER_USE_VISUAL_CURSOR=0` to disable) and the screen mapping returns the raw point when it
+  falls inside no screen, so an off-display window makes the cursor appear on an unrelated screen.
+  Treat a cursor on the wrong screen as a geometry warning, not a rendering quirk.
+- The physical pointer does NOT move unless the process sets
+  `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1`; the default accessibility/app-post paths leave
+  the user's cursor where it is.
+
+Order of operations before the first action: check geometry, move the window onto an active display,
+then require the target subtree in a fresh `get_app_state`.
+
+```sh
+# 1. where is the window, and does any active display cover it?
+osascript -e 'tell application "System Events" to tell process "Google Chrome" to get {position, size} of window 1'
+
+# 2. if it is outside every screen, move it onto one
+osascript -e 'tell application "Google Chrome" to set bounds of front window to {120, 120, 1350, 940}'
+
+# 3. only then read, and require the target subtree (for a page: `HTML 内容`) to be present
+```
+
+A snapshot that exposes only chrome (toolbar, tabs) is a geometry/frontmost signal, not a snapshot to
+act on.
+
+When the window really does lie outside every active display, `get_app_state` now says so itself with a
+trailing `--- display note --- window is off all active displays …` line, and coordinate/cursor helpers
+skip drawing points they cannot map. Note that macOS (and Chromium) clamp window moves so a window
+cannot be parked off every screen by dragging: the state arises from a display being removed, asleep
+or rearranged while the window keeps its old coordinates, which is exactly how the harness window plan
+went stale. A window on a secondary display is still "on a display" and must not produce the note.
+
+A window dragged to another display *while the cursor is travelling* aborts that travel: the cursor is
+re-placed on the window's live frame instead of finishing the path towards the screen the window just
+left. The `settle` and click pulse that follow the travel re-derive their point from the same live frame,
+so the cursor is not put back on the old display afterwards. Both use the window's accessibility element
+for that frame, because `CGWindowListCopyWindowInfo` can keep reporting the pre-move frame for about a
+second (measured: 83 identical travel frames). Reading no frame at all (window minimized, hidden, or moved to another Space) is not a change, so
+the accessibility action paths keep working.
+
+## Focus Behaviour
+
+The default action path does not take focus away from whatever the user is working in:
+
+- `click` with the default `click_method` (`auto`) uses the element's accessibility action and then `app_post`; both are delivered to the target process.
+- `type_text` writes the focused element's `AXValue` when that attribute is settable and only falls back to PID-directed keyboard events when it is not.
+- `set_value` writes the attribute directly.
+
+Three code paths *do* raise or activate the target app, and all three are opt-in:
+
+| Path | Enabled by |
+|---|---|
+| `activateClickTarget` (`AXRaise`, then `kAXMain` / `kAXFocused`) | `allow_window_recovery: true` |
+| `AccessibilitySnapshot.recoverVisibleWindow` | `allow_window_recovery: true` |
+| `InputSimulation.prepareAppForGlobalPointerInput` (`AXRaise`, then `NSRunningApplication.activate`) | `click_method: "global"` with `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` |
+
+Keep them off while the user is working on the same machine: otherwise the target app is raised and the app they were typing in loses focus. A target app can also raise *itself* in response to an accessibility action — Chromium does — which no client-side setting can prevent.
+
+`click_method: "sky_click"` is the one pointer path built specifically to avoid this: it synthesizes focus for the target process only and never deactivates the real frontmost app (see [macos-skylight-background-click.md](../../../docs/references/macos-skylight-background-click.md)).
+
+### Verifying focus behaviour on a two-display machine
+
+Measure it, do not assume it:
+
+```sh
+# 1. sample the frontmost app while the agent works; log only changes.
+#    Any small helper that prints NSWorkspace.shared.frontmostApplication works.
+<frontmost-sampler> 45 > /tmp/frontmost.log 2>&1 &
+
+# 2. drive the action from the CLI, so it runs in parallel with the human.
+open-computer-use call type_text --args '{"app":"Google Chrome for Testing","text":"PROBE-STRING"}'
+```
+
+The check passes when the frontmost app never changes, the target field contains exactly the probe
+string, and the person typing reports no lost characters.
+
+**Never synthesize the "user is typing" side of this test.** Injected key events go to whatever is
+frontmost at that instant — the real desktop — so an emulation harness that guesses the wrong window
+types into the user's own applications. On a machine someone is using, only a human types and the
+agent only measures.
 
 ## Choosing a Click Method
 

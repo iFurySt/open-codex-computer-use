@@ -32,6 +32,39 @@ func visualCursorEnabled(environment: [String: String]) -> Bool {
     return !["0", "false", "no", "off"].contains(rawValue)
 }
 
+/// Default window in which a burst of actions is merged into at most one
+/// cursor travel animation. `OPEN_COMPUTER_USE_VISUAL_CURSOR_COALESCE_MS=0`
+/// restores one animation per action.
+func visualCursorCoalesceWindowMilliseconds(environment: [String: String]) -> Double {
+    let defaultMilliseconds = 400.0
+
+    guard
+        let rawValue = environment["OPEN_COMPUTER_USE_VISUAL_CURSOR_COALESCE_MS"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+        !rawValue.isEmpty
+    else {
+        return defaultMilliseconds
+    }
+
+    guard let milliseconds = Double(rawValue), milliseconds.isFinite, milliseconds >= 0 else {
+        return defaultMilliseconds
+    }
+
+    return milliseconds
+}
+
+func visualCursorCoalesceWindow(
+    environment: [String: String] = ProcessInfo.processInfo.environment
+) -> TimeInterval {
+    visualCursorCoalesceWindowMilliseconds(environment: environment) / 1000
+}
+
+/// Two points is inside the glyph's own tip noise, so a target that lands that
+/// close to the previous one counts as "the cursor is already there".
+func visualCursorMoveEpsilonPoints() -> CGFloat {
+    2
+}
+
 func defaultVisualCursorInitialTipPosition(
     windowOrigin: CGPoint = .zero,
     tipAnchor: CGPoint = SoftwareCursorGlyphMetrics.tipAnchor
@@ -68,12 +101,17 @@ func visualCursorScreenStateVelocity(
     CGVector(dx: velocity.dx, dy: velocity.dy * yAxisMultiplier)
 }
 
-func visualCursorPostInteractionIdleTimeout() -> TimeInterval {
-    30
-}
-
 func visualCursorIdleRotationAmplitude() -> CGFloat {
     0.09
+}
+
+/// Short beat between the software cursor reaching its target and the next
+/// advisory overlay (the target highlight ring) appearing. Codex Computer Use
+/// signals cursor movement completion before the real interaction, so the ring
+/// must only light up after the pointer visibly lands; the beat stays small
+/// enough not to read as tool latency.
+func visualCursorArrivalSettleDuration() -> TimeInterval {
+    0.12
 }
 
 public struct VisualCursorObservationPoint: Codable, Sendable {
@@ -153,6 +191,28 @@ struct CursorTargetWindow: Equatable, Sendable {
     let layer: Int
 }
 
+/// Where the resting cursor sits inside its target window.
+///
+/// The global tip is only valid for the window frame it was derived from. The
+/// overlay keeps the window-local offset instead, so a window that moves or
+/// changes display can be followed by re-deriving the point from the live
+/// frame rather than from the screen the cursor happened to be drawn on.
+struct CursorRestingAnchor: Equatable, Sendable {
+    let windowID: CGWindowID
+    let layer: Int
+    /// Screen-state (top-left origin) offset of the tip inside the window.
+    let windowLocalPoint: CGPoint
+    /// Screen-state window frame the offset was resolved against.
+    let windowBounds: CGRect
+}
+
+/// The window the overlay currently subscribes to for move notifications.
+@MainActor
+private struct CursorWindowMotionObservation {
+    let window: CursorTargetWindow
+    let observer: CursorWindowMotionObserving
+}
+
 struct CursorWindowGeometry {
     let windowSize: CGSize
     let tipAnchor: CGPoint
@@ -185,36 +245,67 @@ private struct CursorArtwork {
 @MainActor
 enum SoftwareCursorOverlay {
     private static let artwork = CursorArtwork.active
+
+    /// Window size and glyph tip anchor; the real panel host sizes its panel
+    /// from this, and the injected host in tests never needs it.
+    static var artworkGeometry: CursorWindowGeometry { artwork.geometry }
     private static let renderBaseHeading = visualCursorRenderBaseHeading()
     private static let renderYAxisMultiplier = visualCursorRuntimeRenderYAxisMultiplier()
-    private static var panel: CursorPanel?
-    private static var cursorView: SoftwareCursorView?
+    /// Injected window-server seam. Production talks to a real `NSPanel`;
+    /// tests inject a fake so the "visible for the whole turn" contract runs
+    /// without a window server.
+    private static var environment = CursorOverlayEnvironment.live
+    private static var panelHost: CursorOverlayPanelHosting?
+    private static var activationObserver: NSObjectProtocol?
     private static var restingTipPosition: CGPoint?
     private static var displayedTipPosition: CGPoint?
-    private static var activeTargetWindow: CursorTargetWindow?
+    /// Window-local anchor of the resting cursor, kept in step with every
+    /// placement so a window move can re-derive the tip.
+    private static var restingAnchor: CursorRestingAnchor?
+    /// Read-only move watch requested for the action about to run. Armed once
+    /// the cursor is actually presented.
+    private static var pendingWindowObservation: CursorObservedWindow?
+    private static var windowMotionObservation: CursorWindowMotionObservation?
+    /// Guards the re-anchor fallback against re-entering the placement it calls.
+    private static var isReanchoringFromWindowMotion = false
     private static var visualDynamicsState: CursorVisualDynamicsState?
-    private static var idleTimer: Timer?
-    private static var hideTimer: Timer?
     private static var idlePhase: CGFloat = 0
     private static var observationPhase = "hidden"
+    /// Last render state actually handed to the view. An idle tick keeps
+    /// producing the same state once the spring has converged, and redrawing
+    /// that is pure churn.
+    private static var lastAppliedRenderState: CursorVisualRenderState?
+    private static var lastAppliedClickProgress: CGFloat?
+    /// Every frame / level / ordering write goes through this gate: equal values
+    /// never reach the window server.
+    private static let panelWriteGate = CursorPanelWriteGate()
+    /// Sole owner of the idle 60 Hz timer. It invalidates the previous timer
+    /// before starting a new one, so an action can never leak a second writer.
+    private static let idleDriver = CursorIdleDriver()
 
-    static func moveCursor(to targetPoint: CGPoint, in targetWindow: CursorTargetWindow?) {
-        guard VisualCursorSupport.isEnabled, canPresentOverlay else {
+    static func moveCursor(
+        to targetPoint: CGPoint,
+        in targetWindow: CursorTargetWindow?,
+        anchor: CursorRestingAnchor? = nil
+    ) {
+        guard environment.isVisualCursorEnabled, canPresentOverlay else {
             return
         }
 
         prepareWindowIfNeeded()
         stopIdleAnimation()
-        cancelPendingHide()
+        refreshTargetWindowAnchorIfScreenChanged()
         configureOrdering(relativeTo: targetWindow)
+        rememberRestingAnchor(anchor, for: targetWindow)
 
         let constrainedTarget = clampTipPosition(targetPoint)
         let isFreshStart = displayedTipPosition == nil
         let startPoint = displayedTipPosition ?? defaultInitialTipPosition()
         let now = CACurrentMediaTime()
+        idleDriver.markInteraction(at: now)
 
         observationPhase = "moving"
-        panel?.alphaValue = 1
+        panelHost?.alphaValue = 1
         if isFreshStart {
             visualDynamicsState = CursorVisualDynamicsAnimator.state(at: startPoint, time: CGFloat(now))
             placeCursor(using: initialRenderState(at: startPoint), clickProgress: 0)
@@ -234,29 +325,81 @@ enum SoftwareCursorOverlay {
         }
     }
 
-    static func pulseClick(at targetPoint: CGPoint, clickCount: Int, mouseButton: MouseButtonKind, in targetWindow: CursorTargetWindow?) {
-        guard VisualCursorSupport.isEnabled, canPresentOverlay else {
+    /// Places the cursor on `targetPoint` without the Bezier travel.
+    ///
+    /// Used when consecutive actions are coalesced: the cursor has to be on the
+    /// new target before the highlight ring appears, but replaying the travel
+    /// animation for every step is what makes a long form look like the cursor
+    /// is drifting everywhere. The visual-dynamics state is re-seeded on the
+    /// target so the glyph cannot spring-glide in from its previous position.
+    static func repositionCursor(
+        to targetPoint: CGPoint,
+        in targetWindow: CursorTargetWindow?,
+        anchor: CursorRestingAnchor? = nil
+    ) {
+        guard environment.isVisualCursorEnabled, canPresentOverlay else {
             return
         }
 
+        prepareWindowIfNeeded()
+        stopIdleAnimation()
+        refreshTargetWindowAnchorIfScreenChanged()
         configureOrdering(relativeTo: targetWindow)
+        rememberRestingAnchor(anchor, for: targetWindow)
+
         let constrainedTarget = clampTipPosition(targetPoint)
         let now = CACurrentMediaTime()
+        idleDriver.markInteraction(at: now)
+        visualDynamicsState = CursorVisualDynamicsAnimator.state(at: constrainedTarget, time: CGFloat(now))
+        restingTipPosition = constrainedTarget
+        observationPhase = "repositioned"
+        panelHost?.alphaValue = 1
+        placeCursor(using: initialRenderState(at: constrainedTarget), clickProgress: 0)
+        startIdleAnimation()
+    }
+
+    static func pulseClick(
+        at targetPoint: CGPoint,
+        clickCount: Int,
+        mouseButton: MouseButtonKind,
+        in targetWindow: CursorTargetWindow?,
+        anchor: CursorRestingAnchor? = nil
+    ) {
+        guard environment.isVisualCursorEnabled, canPresentOverlay else {
+            return
+        }
+
+        prepareWindowIfNeeded()
+        configureOrdering(relativeTo: targetWindow)
+        rememberRestingAnchor(anchor, for: targetWindow)
+        let constrainedTarget = clampTipPosition(
+            liveTargetPoint(targetPoint, window: targetWindow, anchor: anchor)
+        )
+        let now = CACurrentMediaTime()
+        idleDriver.markInteraction(at: now)
         seedVisualDynamicsIfNeeded(at: constrainedTarget, time: now)
         restingTipPosition = constrainedTarget
         observationPhase = "pulse"
         animateClickPulse(at: constrainedTarget, clickCount: max(clickCount, 1), mouseButton: mouseButton)
         startIdleAnimation()
-        scheduleHide(after: visualCursorPostInteractionIdleTimeout())
     }
 
-    static func settle(at targetPoint: CGPoint, in targetWindow: CursorTargetWindow?) {
-        guard VisualCursorSupport.isEnabled, canPresentOverlay else {
+    static func settle(
+        at targetPoint: CGPoint,
+        in targetWindow: CursorTargetWindow?,
+        anchor: CursorRestingAnchor? = nil
+    ) {
+        guard environment.isVisualCursorEnabled, canPresentOverlay else {
             return
         }
 
+        prepareWindowIfNeeded()
         configureOrdering(relativeTo: targetWindow)
-        let constrainedTarget = clampTipPosition(targetPoint)
+        rememberRestingAnchor(anchor, for: targetWindow)
+        let constrainedTarget = clampTipPosition(
+            liveTargetPoint(targetPoint, window: targetWindow, anchor: anchor)
+        )
+        idleDriver.markInteraction(at: CACurrentMediaTime())
         restingTipPosition = constrainedTarget
         observationPhase = "settling"
         placeCursor(
@@ -267,81 +410,434 @@ enum SoftwareCursorOverlay {
             clickProgress: 0
         )
         startIdleAnimation()
-        scheduleHide(after: visualCursorPostInteractionIdleTimeout())
     }
 
+    /// Pumps the main run loop for a short beat after `moveCursor` so the
+    /// arrival frame renders before the next overlay appears. Callers must
+    /// already be on the main thread, matching `moveCursor` / `settle`.
+    static func waitForArrivalSettle(duration: TimeInterval = visualCursorArrivalSettleDuration()) {
+        guard environment.isVisualCursorEnabled, canPresentOverlay else {
+            return
+        }
+
+        let deadline = CACurrentMediaTime() + max(duration, 0)
+        while CACurrentMediaTime() < deadline {
+            pumpFrame()
+        }
+    }
+
+    /// The only place the cursor leaves the screen besides
+    /// `OPEN_COMPUTER_USE_VISUAL_CURSOR=0`: the turn boundary (`turn-ended`) or
+    /// an explicit reset. There is deliberately no inactivity timer — a turn
+    /// routinely idles for minutes between tool calls, and a cursor that fades
+    /// out mid-turn reads as a lost cursor.
     static func reset() {
         stopIdleAnimation()
-        cancelPendingHide()
+        // The gate remembers where the cursor last travelled; a reset hides the
+        // cursor, so the next action must animate again.
+        VisualCursorMoveCoalescer.shared.reset()
+        forgetPresentationState()
+        writeObservationSnapshot(tipPosition: nil, rotation: nil)
+        dumpDebugStatsIfEnabled()
+        panelHost?.orderOut()
+    }
+
+    /// Test seam: installs `environment` and drops any previously installed
+    /// panel host, so a fake can never leak into the live window-server path.
+    static func installEnvironmentForTesting(_ environment: CursorOverlayEnvironment) {
+        reset()
+        panelHost = nil
+        Self.environment = environment
+    }
+
+    /// A hidden cursor owns no presentation state: the next show must write the
+    /// frame, the level and the ordering again instead of trusting stale values.
+    private static func forgetPresentationState() {
         displayedTipPosition = nil
         restingTipPosition = nil
-        activeTargetWindow = nil
+        restingAnchor = nil
         visualDynamicsState = nil
+        lastAppliedRenderState = nil
+        lastAppliedClickProgress = nil
+        isReanchoringFromWindowMotion = false
+        stopWindowMotionObservation()
+        panelWriteGate.reset()
         observationPhase = "hidden"
-        writeObservationSnapshot(tipPosition: nil, rotation: nil)
-        panel?.orderOut(nil)
+    }
+
+    /// Optional field diagnosis: the counters are the only outside proof that an
+    /// idle overlay stopped touching the panel.
+    private static func dumpDebugStatsIfEnabled() {
+        guard visualCursorDebugStatsEnabled() else {
+            return
+        }
+
+        let stats = CursorOverlayDebugStats(
+            frameWrites: panelWriteGate.frameWriteCount,
+            skippedFrameWrites: panelWriteGate.skippedFrameWriteCount,
+            levelWrites: panelWriteGate.levelWriteCount,
+            reorders: panelWriteGate.reorderCount,
+            skippedReorders: panelWriteGate.skippedReorderCount,
+            idleTicks: idleDriver.idleTickCount,
+            suppressedIdleTicks: idleDriver.suppressedIdleTickCount,
+            invalidatedIdleTimers: idleDriver.invalidatedTimerCount
+        )
+        fputs("\(cursorOverlayDebugStatsLine(stats))\n", stderr)
     }
 
     private static var canPresentOverlay: Bool {
-        !NSScreen.screens.isEmpty
+        environment.canPresentOverlay
     }
 
     private static func prepareWindowIfNeeded() {
-        guard panel == nil else {
+        guard panelHost == nil else {
             return
         }
 
-        let panel = CursorPanel(
-            contentRect: CGRect(origin: .zero, size: artwork.geometry.windowSize),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
+        panelHost = environment.makePanelHost()
+        installActivationObserverIfNeeded()
+    }
+
+    /// Another app becoming active is the moment the window server re-stacks
+    /// every window at the cursor's level. The cursor must survive it, so the
+    /// panel is re-asserted front — without touching its frame and without
+    /// waiting for the next tool call.
+    private static func installActivationObserverIfNeeded() {
+        guard environment.installsActivationObserver, activationObserver == nil else {
+            return
+        }
+
+        activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                workspaceDidActivateApplication()
+            }
+        }
+    }
+
+    /// Internal rather than private so the contract is unit-testable without
+    /// posting a real workspace notification.
+    static func workspaceDidActivateApplication() {
+        reassertCursorVisibility()
+    }
+
+    /// Unconditional re-assert of "the cursor is on screen right now". It never
+    /// writes a frame and never changes the level; it only re-orders the panel
+    /// so a system-level restack cannot leave it behind another app's windows.
+    private static func reassertCursorVisibility() {
+        guard let panelHost, panelHost.isVisible, displayedTipPosition != nil else {
+            return
+        }
+
+        if let anchor = panelWriteGate.activeTargetWindow,
+           environment.isWindowPresent(anchor.windowID)
+        {
+            panelHost.orderAbove(windowID: anchor.windowID)
+            return
+        }
+
+        panelHost.orderFront()
+    }
+
+    // MARK: - Window move / display change
+
+    /// Read-only move watch for the window the next action targets.
+    ///
+    /// Called from the service with the accessibility element the snapshot was
+    /// rendered from. It is only a request: the watch is armed once a cursor is
+    /// actually presented, and dropped with the presentation state.
+    static func observeTargetWindow(_ observed: CursorObservedWindow) {
+        guard environment.isVisualCursorEnabled, canPresentOverlay, observed.windowID != 0 else {
+            return
+        }
+
+        pendingWindowObservation = observed
+        armWindowMotionObservationIfNeeded(for: CursorTargetWindow(windowID: observed.windowID, layer: observed.layer))
+    }
+
+    private static func armWindowMotionObservationIfNeeded(for targetWindow: CursorTargetWindow?) {
+        guard panelHost != nil,
+              let pending = pendingWindowObservation,
+              pending.windowID == targetWindow?.windowID
+        else {
+            return
+        }
+
+        if let active = windowMotionObservation, active.window.windowID == pending.windowID {
+            return
+        }
+
+        windowMotionObservation?.observer.stop()
+        windowMotionObservation = nil
+
+        guard let observer = environment.makeWindowMotionObserver() else {
+            return
+        }
+
+        observer.observe(pid: pending.pid, window: pending.element) {
+            targetWindowDidMove()
+        }
+        windowMotionObservation = CursorWindowMotionObservation(
+            window: CursorTargetWindow(windowID: pending.windowID, layer: pending.layer),
+            observer: observer
         )
-        panel.level = .normal
-        panel.backgroundColor = .clear
-        panel.isOpaque = false
-        panel.hasShadow = false
-        panel.ignoresMouseEvents = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        panel.animationBehavior = .none
-
-        let view = SoftwareCursorView(frame: CGRect(origin: .zero, size: artwork.geometry.windowSize))
-        panel.contentView = view
-
-        self.panel = panel
-        self.cursorView = view
     }
 
-    private static func configureOrdering(relativeTo targetWindow: CursorTargetWindow?) {
-        configureOrdering(relativeTo: targetWindow, forceReorder: false)
+    private static func stopWindowMotionObservation() {
+        windowMotionObservation?.observer.stop()
+        windowMotionObservation = nil
+        pendingWindowObservation = nil
     }
 
-    private static func configureOrdering(relativeTo targetWindow: CursorTargetWindow?, forceReorder: Bool) {
-        guard let panel else {
+    /// Internal rather than private so the follow-the-window contract is
+    /// unit-testable without a real accessibility observer.
+    static func targetWindowDidMove() {
+        // Bumped before the guards below: a travel has to be able to abort even
+        // when the resting anchor no longer matches.
+        windowMotionGeneration &+= 1
+
+        // `applyLiveWindowAnchor` re-checks that the resting anchor belongs to
+        // this window, so a placement for another target can never drag the
+        // cursor to a stale window.
+        guard let window = windowMotionObservation?.window,
+              restingAnchor?.windowID == window.windowID,
+              panelHost?.isVisible == true
+        else {
             return
         }
+
+        guard let liveBounds = environment.windowBounds(window.windowID) else {
+            return
+        }
+
+        guard liveBounds != restingAnchor?.windowBounds else {
+            return
+        }
+
+        applyLiveWindowAnchor(liveBounds, window: window)
+    }
+
+    /// Counts accessibility move notifications, so a travel that is already
+    /// running can tell that the window moved under it.
+    private static var windowMotionGeneration = 0
+
+    /// Screen-state frame of the observed window, read from its accessibility
+    /// element instead of the window list.
+    private static func observedWindowFrameFromAccessibility() -> CGRect? {
+        guard let element = pendingWindowObservation?.element else {
+            return nil
+        }
+
+        var positionValue: CFTypeRef?
+        var sizeValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionValue) == .success,
+              AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeValue) == .success,
+              let positionValue,
+              let sizeValue
+        else {
+            return nil
+        }
+
+        var position = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),
+              AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
+        else {
+            return nil
+        }
+
+        return CGRect(origin: position, size: size)
+    }
+
+    /// The window's current frame, preferring the accessibility element (which
+    /// reflects a move immediately) over the window list (measured lagging by
+    /// about a second).
+    private static func liveWindowFrame(for windowID: CGWindowID) -> CGRect? {
+        observedWindowFrameFromAccessibility() ?? environment.windowBounds(windowID)
+    }
+
+    /// Re-derive a cursor point that was computed from a snapshot taken before
+    /// the target window moved.
+    private static func liveTargetPoint(
+        _ targetPoint: CGPoint,
+        window: CursorTargetWindow?,
+        anchor: CursorRestingAnchor?
+    ) -> CGPoint {
+        guard let window,
+              let anchor,
+              anchor.windowID == window.windowID,
+              let liveFrame = liveWindowFrame(for: window.windowID),
+              liveFrame != anchor.windowBounds,
+              liveFrame.width > 0,
+              liveFrame.height > 0
+        else {
+            return targetPoint
+        }
+
+        let localPoint = CGPoint(
+            x: anchor.windowLocalPoint.x.clamped(to: 0...liveFrame.width),
+            y: anchor.windowLocalPoint.y.clamped(to: 0...liveFrame.height)
+        )
+        let screenStatePoint = CGPoint(x: liveFrame.minX + localPoint.x, y: liveFrame.minY + localPoint.y)
+        return environment.screenStateToAppKitPoint(screenStatePoint)
+    }
+
+    /// Stop a travel whose window moved under it, and land the cursor on the
+    /// window instead of finishing the path towards the screen it just left.
+    private static func abortTravelOntoObservedWindow(_ targetWindow: CursorTargetWindow?) {
+        guard let window = targetWindow,
+              let frame = liveWindowFrame(for: window.windowID),
+              frame.width > 0,
+              frame.height > 0
+        else {
+            return
+        }
+
+        let localPoint: CGPoint
+        if let anchor = restingAnchor, anchor.windowID == window.windowID {
+            localPoint = CGPoint(
+                x: anchor.windowLocalPoint.x.clamped(to: 0...frame.width),
+                y: anchor.windowLocalPoint.y.clamped(to: 0...frame.height)
+            )
+        } else {
+            localPoint = CGPoint(x: frame.width / 2, y: frame.height / 2)
+        }
+
+        isReanchoringFromWindowMotion = true
+        defer { isReanchoringFromWindowMotion = false }
+
+        repositionCursor(
+            to: environment.screenStateToAppKitPoint(
+                CGPoint(x: frame.minX + localPoint.x, y: frame.minY + localPoint.y)
+            ),
+            in: window,
+            anchor: CursorRestingAnchor(
+                windowID: window.windowID,
+                layer: window.layer,
+                windowLocalPoint: localPoint,
+                windowBounds: frame
+            )
+        )
+    }
+
+    /// Fallback for a move no notification ever reported.
+    ///
+    /// Apps are free not to post `AXWindowMoved`, so before every action the
+    /// overlay re-checks the one invariant the user actually sees: the cursor
+    /// has to be on the display that owns the target window. A mismatch
+    /// re-derives the tip from the live frame and re-places the panel.
+    static func refreshTargetWindowAnchorIfScreenChanged() {
+        guard !isReanchoringFromWindowMotion,
+              let anchor = restingAnchor,
+              let window = windowMotionObservation?.window,
+              window.windowID == anchor.windowID,
+              panelHost?.isVisible == true,
+              let displayedTipPosition
+        else {
+            return
+        }
+
+        guard let liveBounds = environment.windowBounds(anchor.windowID) else {
+            return
+        }
+
+        guard cursorOverlayScreenMismatch(
+            panelTip: displayedTipPosition,
+            targetWindowOrigin: environment.screenStateToAppKitPoint(liveBounds.origin),
+            screenIndexContaining: environment.screenIndex
+        ) else {
+            return
+        }
+
+        applyLiveWindowAnchor(liveBounds, window: window)
+    }
+
+    /// Re-derives the resting tip from the live window frame and re-places the
+    /// cursor on the window own display. Never hides the overlay: a window that
+    /// crossed displays keeps its cursor, just on the right screen.
+    private static func applyLiveWindowAnchor(_ liveBounds: CGRect, window: CursorTargetWindow) {
+        guard let anchor = restingAnchor, anchor.windowID == window.windowID else {
+            return
+        }
+
+        // A resize can leave the old window-local offset outside the window;
+        // keep the cursor on the window instead of pointing at nothing.
+        let windowLocalPoint = CGPoint(
+            x: anchor.windowLocalPoint.x.clamped(to: 0...max(liveBounds.width, 0)),
+            y: anchor.windowLocalPoint.y.clamped(to: 0...max(liveBounds.height, 0))
+        )
+        let screenStatePoint = CGPoint(
+            x: liveBounds.minX + windowLocalPoint.x,
+            y: liveBounds.minY + windowLocalPoint.y
+        )
+        let appKitPoint = environment.screenStateToAppKitPoint(screenStatePoint)
+
+        isReanchoringFromWindowMotion = true
+        defer { isReanchoringFromWindowMotion = false }
+        repositionCursor(
+            to: appKitPoint,
+            in: window,
+            anchor: CursorRestingAnchor(
+                windowID: window.windowID,
+                layer: window.layer,
+                windowLocalPoint: windowLocalPoint,
+                windowBounds: liveBounds
+            )
+        )
+    }
+
+    /// A placement that carries no anchor (debug entry, fixture path) must not
+    /// erase the anchor an action already established.
+    private static func rememberRestingAnchor(
+        _ anchor: CursorRestingAnchor?,
+        for targetWindow: CursorTargetWindow?
+    ) {
+        guard let anchor, anchor.windowID == targetWindow?.windowID else {
+            return
+        }
+
+        restingAnchor = anchor
+    }
+
+    /// Levels and restacks the panel for an explicit show or target-window
+    /// change.
+    ///
+    /// None of this may happen on an idle tick: the write gate turns both the
+    /// level write and the restack into no-ops while the target window is
+    /// unchanged, and `refreshActiveOrderingIfNeeded` no longer forces one.
+    private static func configureOrdering(relativeTo targetWindow: CursorTargetWindow?) {
+        guard let panelHost else {
+            return
+        }
+
+        armWindowMotionObservationIfNeeded(for: targetWindow)
 
         let effectiveTargetWindow = targetWindow.flatMap { targetWindow in
-            isWindowPresent(targetWindow.windowID) ? targetWindow : nil
+            environment.isWindowPresent(targetWindow.windowID) ? targetWindow : nil
+        }
+        let ordering = cursorPanelOrdering(
+            targetWindow: effectiveTargetWindow,
+            baseLevel: cursorOverlayBaseLevel
+        )
+
+        if panelWriteGate.levelWrite(for: ordering.level) {
+            panelHost.setLevel(ordering.level)
         }
 
-        let desiredLevel = NSWindow.Level(rawValue: effectiveTargetWindow?.layer ?? 0)
-        if panel.level != desiredLevel {
-            panel.level = desiredLevel
+        guard panelWriteGate.markOrdering(
+            activeTargetWindow: ordering.anchorWindow,
+            panelIsVisible: panelHost.isVisible
+        ) else {
+            return
         }
 
-        if shouldReorderCursorPanel(
-            activeTargetWindow: activeTargetWindow,
-            effectiveTargetWindow: effectiveTargetWindow,
-            panelIsVisible: panel.isVisible,
-            forceReorder: forceReorder
-        ) {
-            if let effectiveTargetWindow {
-                panel.order(.above, relativeTo: Int(effectiveTargetWindow.windowID))
-            } else {
-                panel.orderFront(nil)
-            }
-            activeTargetWindow = effectiveTargetWindow
+        if let anchorWindow = ordering.anchorWindow {
+            panelHost.orderAbove(windowID: anchorWindow.windowID)
+        } else {
+            panelHost.orderFront()
         }
     }
 
@@ -359,9 +855,29 @@ enum SoftwareCursorOverlay {
         let startTime = CACurrentMediaTime()
         var progress: CGFloat = 0
         var springState = CursorMotionSpringState()
+        let startFrame = targetWindow.flatMap { environment.windowBounds($0.windowID) }
+        let startGeneration = windowMotionGeneration
 
         while true {
             refreshActiveOrderingIfNeeded()
+
+            if windowMotionGeneration != startGeneration {
+                abortTravelOntoObservedWindow(targetWindow)
+                return
+            }
+
+            // The travel holds the main thread, so the move notification that
+            // already re-anchored the resting cursor cannot stop it: the next
+            // frame would write the stale sample back. Detect the frame change
+            // here, land on the live frame and abandon the rest of the path.
+            if let window = targetWindow {
+                let liveFrame = environment.windowBounds(window.windowID)
+                if cursorTravelMustAbort(startFrame: startFrame, liveFrame: liveFrame), let liveFrame {
+                    applyLiveWindowAnchor(liveFrame, window: window)
+                    refreshTargetWindowAnchorIfScreenChanged()
+                    return
+                }
+            }
 
             let elapsed = CGFloat(CACurrentMediaTime() - startTime)
             let normalizedElapsed = (elapsed / max(duration, 0.001)).clamped(to: 0...1)
@@ -422,7 +938,7 @@ enum SoftwareCursorOverlay {
             return defaultCandidate
         }
 
-        let excludingWindowNumber = max(panel?.windowNumber ?? 0, 0)
+        let excludingWindowNumber = max(panelHost?.windowNumber ?? 0, 0)
         let evaluations = candidates.map { candidate in
             (
                 candidate: candidate,
@@ -457,7 +973,7 @@ enum SoftwareCursorOverlay {
     }
 
     private static func currentForwardVector() -> CGVector {
-        let renderRotation = cursorView?.rotation ?? 0
+        let renderRotation = panelHost?.cursorRotation ?? 0
         return forwardVector(renderRotation: renderRotation)
     }
 
@@ -521,7 +1037,8 @@ enum SoftwareCursorOverlay {
         return CGWindowID(windowNumber)
     }
 
-    private static func isWindowPresent(_ windowID: CGWindowID) -> Bool {
+    /// Whether the window the cursor wants to float above still exists.
+    static func isWindowPresent(_ windowID: CGWindowID) -> Bool {
         guard windowID != 0,
               let windowInfo = CGWindowListCopyWindowInfo([.optionIncludingWindow], windowID) as? [[String: Any]]
         else {
@@ -531,13 +1048,16 @@ enum SoftwareCursorOverlay {
         return !windowInfo.isEmpty
     }
 
+    /// Only reacts to the target window going away. It deliberately does not
+    /// restack the panel above a live target window: doing that once per frame
+    /// is what reads as the arrow twitching, and it would re-order the overlay
+    /// on every idle tick.
     private static func refreshActiveOrderingIfNeeded() {
-        guard let activeTargetWindow else {
+        guard let activeTargetWindow = panelWriteGate.activeTargetWindow else {
             return
         }
 
-        if isWindowPresent(activeTargetWindow.windowID) {
-            configureOrdering(relativeTo: activeTargetWindow, forceReorder: true)
+        guard !isWindowPresent(activeTargetWindow.windowID) else {
             return
         }
 
@@ -585,96 +1105,62 @@ enum SoftwareCursorOverlay {
         )
     }
 
+    /// Starts the bounded post-action idle beat.
+    ///
+    /// The tick is a no-op outside the beat: no ordering refresh, no level
+    /// change, and the frame write disappears as soon as the resting origin stops
+    /// changing. `CursorIdleDriver` invalidates the timer the moment the beat
+    /// ends and guarantees only one timer can ever be alive.
     private static func startIdleAnimation() {
+        // Stop first: the guard below can bail out, and a driver left running
+        // after that would keep writing the panel forever.
+        stopIdleAnimation()
+
         guard canPresentOverlay, let restingTipPosition else {
             return
         }
 
         observationPhase = "idle"
         idlePhase = 0
-        let timer = Timer(timeInterval: 1 / 60, repeats: true) { _ in
-            MainActor.assumeIsolated {
-                guard panel != nil, cursorView != nil else {
-                    return
-                }
 
-                refreshActiveOrderingIfNeeded()
-
-                observationPhase = "idle"
-                idlePhase += 0.05
-                let idlePose = visualCursorIdlePose(
-                    restingTipPosition: restingTipPosition,
-                    phase: idlePhase
-                )
-
-                placeCursor(
-                    using: advanceVisualDynamics(
-                        toward: idlePose.tipPosition,
-                        idleAngleOffset: idlePose.angleOffset,
-                        at: CACurrentMediaTime()
-                    ),
-                    clickProgress: 0
-                )
+        let now = CACurrentMediaTime()
+        idleDriver.startIdleAnimation(now: now, window: visualCursorIdleSwayWindow()) {
+            guard panelHost != nil else {
+                return
             }
-        }
 
-        RunLoop.main.add(timer, forMode: .common)
-        idleTimer = timer
+            guard let restingTipPosition = SoftwareCursorOverlay.restingTipPosition else {
+                return
+            }
+
+            observationPhase = "idle"
+            idlePhase += 0.05
+            let idlePose = visualCursorIdlePose(
+                restingTipPosition: restingTipPosition,
+                phase: idlePhase
+            )
+
+            placeCursor(
+                using: advanceVisualDynamics(
+                    toward: idlePose.tipPosition,
+                    idleAngleOffset: idlePose.angleOffset,
+                    at: CACurrentMediaTime()
+                ),
+                clickProgress: 0
+            )
+        }
 
         placeCursor(
             using: advanceVisualDynamics(
                 toward: restingTipPosition,
-                at: CACurrentMediaTime()
+                at: now
             ),
             clickProgress: 0
         )
     }
 
     private static func stopIdleAnimation() {
-        idleTimer?.invalidate()
-        idleTimer = nil
-    }
-
-    private static func scheduleHide(after delay: TimeInterval) {
-        cancelPendingHide()
-        let timer = Timer(timeInterval: delay, repeats: false) { _ in
-            MainActor.assumeIsolated {
-                hideOverlay()
-            }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        hideTimer = timer
-    }
-
-    private static func cancelPendingHide() {
-        hideTimer?.invalidate()
-        hideTimer = nil
-    }
-
-    private static func hideOverlay() {
-        guard let panel else {
-            return
-        }
-
-        stopIdleAnimation()
-        cancelPendingHide()
-
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.12
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            panel.animator().alphaValue = 0
-        } completionHandler: {
-            MainActor.assumeIsolated {
-                panel.orderOut(nil)
-                panel.alphaValue = 1
-                displayedTipPosition = nil
-                restingTipPosition = nil
-                activeTargetWindow = nil
-                visualDynamicsState = nil
-                observationPhase = "hidden"
-                writeObservationSnapshot(tipPosition: nil, rotation: nil)
-            }
-        }
+        idleDriver.stopIdleAnimation()
     }
 
     private static func defaultInitialTipPosition() -> CGPoint {
@@ -726,19 +1212,32 @@ enum SoftwareCursorOverlay {
         return result.renderState
     }
 
+    /// The only place the overlay writes a frame.
+    ///
+    /// The origin is aligned to whole points and skipped when it did not change,
+    /// and the view is only re-rasterised when the render state itself changed —
+    /// moving the panel is enough to move the glyph, because the drawing is
+    /// bounds-relative. Together those make a converged idle cursor perform zero
+    /// window-server work per tick.
     private static func placeCursor(using renderState: CursorVisualRenderState, clickProgress: CGFloat) {
-        guard let panel, let cursorView else {
+        guard let panelHost else {
             return
         }
 
-        panel.setFrameOrigin(artwork.geometry.origin(forTipPosition: renderState.tipPosition))
-        cursorView.rotation = renderState.rotation
-        cursorView.cursorBodyOffset = renderState.cursorBodyOffset
-        cursorView.fogOffset = renderState.fogOffset
-        cursorView.fogOpacity = renderState.fogOpacity
-        cursorView.fogScale = renderState.fogScale
-        cursorView.clickProgress = clickProgress
-        cursorView.needsDisplay = true
+        let frameWrite = panelWriteGate.frameWrite(
+            forTipPosition: renderState.tipPosition,
+            tipAnchor: artwork.geometry.tipAnchor
+        )
+        if frameWrite.didChange {
+            panelHost.setFrameOrigin(frameWrite.origin)
+        }
+
+        if renderState != lastAppliedRenderState || clickProgress != lastAppliedClickProgress {
+            panelHost.apply(renderState: renderState, clickProgress: clickProgress)
+            lastAppliedRenderState = renderState
+            lastAppliedClickProgress = clickProgress
+        }
+
         displayedTipPosition = renderState.tipPosition
         writeObservationSnapshot(
             tipPosition: renderState.tipPosition,
@@ -808,13 +1307,154 @@ enum SoftwareCursorOverlay {
     }
 }
 
-func shouldReorderCursorPanel(
-    activeTargetWindow: CursorTargetWindow?,
-    effectiveTargetWindow: CursorTargetWindow?,
-    panelIsVisible: Bool,
-    forceReorder: Bool
-) -> Bool {
-    forceReorder || activeTargetWindow != effectiveTargetWindow || panelIsVisible == false
+// MARK: - Window-server seam
+
+/// Everything SoftwareCursorOverlay needs from the window server.
+///
+/// The overlay owns *when* the cursor is on screen; the host only performs the
+/// AppKit call. Keeping that boundary explicit is what lets the "visible for the
+/// whole turn" contract run in unit tests without a real panel.
+@MainActor
+protocol CursorOverlayPanelHosting: AnyObject {
+    var isVisible: Bool { get }
+    var alphaValue: CGFloat { get set }
+    var windowNumber: Int { get }
+    var cursorRotation: CGFloat { get }
+
+    func setLevel(_ level: NSWindow.Level)
+    func setFrameOrigin(_ origin: CGPoint)
+    func orderFront()
+    func orderAbove(windowID: CGWindowID)
+    func orderOut()
+    func apply(renderState: CursorVisualRenderState, clickProgress: CGFloat)
+}
+
+/// The real host: one borderless, click-through, never-key panel.
+@MainActor
+final class CursorPanelHost: CursorOverlayPanelHosting {
+    private let panel: CursorPanel
+    private let cursorView: SoftwareCursorView
+
+    init(windowSize: CGSize) {
+        let panel = CursorPanel(
+            contentRect: CGRect(origin: .zero, size: windowSize),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.level = .normal
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = false
+        panel.ignoresMouseEvents = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        panel.animationBehavior = .none
+
+        let view = SoftwareCursorView(frame: CGRect(origin: .zero, size: windowSize))
+        panel.contentView = view
+
+        self.panel = panel
+        self.cursorView = view
+    }
+
+    var isVisible: Bool { panel.isVisible }
+    var windowNumber: Int { panel.windowNumber }
+    var cursorRotation: CGFloat { cursorView.rotation }
+
+    var alphaValue: CGFloat {
+        get { panel.alphaValue }
+        set { panel.alphaValue = newValue }
+    }
+
+    func setLevel(_ level: NSWindow.Level) { panel.level = level }
+    func setFrameOrigin(_ origin: CGPoint) { panel.setFrameOrigin(origin) }
+    func orderFront() { panel.orderFront(nil) }
+    func orderAbove(windowID: CGWindowID) { panel.order(.above, relativeTo: Int(windowID)) }
+    func orderOut() { panel.orderOut(nil) }
+
+    func apply(renderState: CursorVisualRenderState, clickProgress: CGFloat) {
+        cursorView.rotation = renderState.rotation
+        cursorView.cursorBodyOffset = renderState.cursorBodyOffset
+        cursorView.fogOffset = renderState.fogOffset
+        cursorView.fogOpacity = renderState.fogOpacity
+        cursorView.fogScale = renderState.fogScale
+        cursorView.clickProgress = clickProgress
+        cursorView.needsDisplay = true
+    }
+}
+
+/// Injected inputs of the overlay. Production uses the live environment; tests
+/// replace the panel host and the window-presence probe to drive activation /
+/// target-window loss without a window server.
+@MainActor
+struct CursorOverlayEnvironment {
+    var isVisualCursorEnabled: Bool
+    var canPresentOverlay: Bool
+    var installsActivationObserver: Bool
+    var isWindowPresent: (CGWindowID) -> Bool
+    var makePanelHost: () -> CursorOverlayPanelHosting
+    /// Live frame of the target window, on screen or not. Injected so a window
+    /// move can be driven in tests without a window server.
+    var windowBounds: (CGWindowID) -> CGRect? = { _ in nil }
+    /// Screen-state point to AppKit global point, the same conversion the
+    /// service uses to place the cursor.
+    var screenStateToAppKitPoint: (CGPoint) -> CGPoint = { $0 }
+    /// Which display contains a point, or nil when none does.
+    var screenIndex: (CGPoint) -> Int? = { _ in nil }
+    /// Nil when the read-only move watch is switched off.
+    var makeWindowMotionObserver: () -> CursorWindowMotionObserving? = { nil }
+
+    static var live: CursorOverlayEnvironment {
+        CursorOverlayEnvironment(
+            isVisualCursorEnabled: VisualCursorSupport.isEnabled,
+            canPresentOverlay: !NSScreen.screens.isEmpty,
+            installsActivationObserver: true,
+            isWindowPresent: { SoftwareCursorOverlay.isWindowPresent($0) },
+            makePanelHost: { CursorPanelHost(windowSize: SoftwareCursorOverlay.artworkGeometry.windowSize) },
+            windowBounds: { currentWindowBounds(for: $0) },
+            screenStateToAppKitPoint: { screenStatePointToAppKitGlobalPoint(fromScreenStatePoint: $0) },
+            screenIndex: { point in NSScreen.screens.firstIndex { $0.frame.contains(point) } },
+            makeWindowMotionObserver: {
+                cursorWindowMoveWatchEnabled() ? AXWindowMotionObserver() : nil
+            }
+        )
+    }
+}
+
+// MARK: - Panel level / ordering policy
+
+/// Base level of the cursor panel.
+///
+/// The overlay must never sit at .normal: this process is an accessory app that
+/// is never active, so a normal-level panel belongs to the inactive window group
+/// — the window server puts the frontmost app's windows above it on the first
+/// activation change — and it also inherits the fate of any foreign window it was
+/// ordered above. .floating keeps the cursor above every normal window of every
+/// app while staying below the system menu levels (mainMenu 24 / popUpMenu 101),
+/// which still draw in front.
+let cursorOverlayBaseLevel = NSWindow.Level.floating
+
+/// Where the cursor panel has to sit for one show / target-window change.
+struct CursorPanelOrdering: Equatable {
+    let level: NSWindow.Level
+    /// Non-nil only when the target window itself floats at or above the base
+    /// level (menus, popovers, panels). Ordering relative to a window in a
+    /// *lower* level would make the cursor's visibility depend on that window.
+    let anchorWindow: CursorTargetWindow?
+}
+
+func cursorPanelOrdering(
+    targetWindow: CursorTargetWindow?,
+    baseLevel: NSWindow.Level = cursorOverlayBaseLevel
+) -> CursorPanelOrdering {
+    guard let targetWindow, targetWindow.layer >= baseLevel.rawValue else {
+        return CursorPanelOrdering(level: baseLevel, anchorWindow: nil)
+    }
+
+    return CursorPanelOrdering(
+        level: NSWindow.Level(rawValue: targetWindow.layer),
+        anchorWindow: targetWindow
+    )
 }
 
 private final class CursorPanel: NSPanel {
