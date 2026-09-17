@@ -39,6 +39,7 @@ drag
 type_text
 press_key
 set_value
+select_text   (macOS runtime only)
 ```
 
 ## Direct CLI Tool Calls
