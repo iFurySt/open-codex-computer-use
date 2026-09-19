@@ -336,6 +336,274 @@ Reinstall with:
   return executablePath;
 }
 
+function normalizeToolArgs(toolName, argsObj, resolveNativeExecutable) {
+  if (!argsObj || typeof argsObj !== "object") return argsObj;
+
+  if (toolName === "click" || toolName === "scroll" || toolName === "set_value" || toolName === "perform_secondary_action") {
+    if (argsObj.index !== undefined && argsObj.element_index === undefined) {
+      argsObj.element_index = argsObj.index;
+      delete argsObj.index;
+    }
+  }
+
+  if (toolName === "click") {
+    if (argsObj.button !== undefined && argsObj.mouse_button === undefined) {
+      argsObj.mouse_button = argsObj.button;
+      delete argsObj.button;
+    }
+  }
+
+  if (toolName === "scroll") {
+    if (argsObj.amount !== undefined && argsObj.pages === undefined) {
+      argsObj.pages = argsObj.amount;
+      delete argsObj.amount;
+    }
+  }
+
+  if (toolName === "drag") {
+    if (argsObj.start_x !== undefined && argsObj.from_x === undefined) {
+      argsObj.from_x = argsObj.start_x;
+      delete argsObj.start_x;
+    }
+    if (argsObj.start_y !== undefined && argsObj.from_y === undefined) {
+      argsObj.from_y = argsObj.start_y;
+      delete argsObj.start_y;
+    }
+    if (argsObj.end_x !== undefined && argsObj.to_x === undefined) {
+      argsObj.to_x = argsObj.end_x;
+      delete argsObj.end_x;
+    }
+    if (argsObj.end_y !== undefined && argsObj.to_y === undefined) {
+      argsObj.to_y = argsObj.end_y;
+      delete argsObj.end_y;
+    }
+  }
+
+  if (
+    toolName === "click" &&
+    argsObj.element_index === undefined &&
+    argsObj.x === undefined &&
+    argsObj.y === undefined &&
+    argsObj.app &&
+    (argsObj.title || argsObj.text || argsObj.selector)
+  ) {
+    const targetText = String(argsObj.title || argsObj.text || argsObj.selector).trim().toLowerCase();
+    const targetRole = argsObj.role ? String(argsObj.role).trim().toLowerCase() : null;
+    try {
+      const { execFileSync } = require("node:child_process");
+      const nativeBin = resolveNativeExecutable();
+      const snapshotOut = execFileSync(nativeBin, ["snapshot", argsObj.app], {
+        encoding: "utf8",
+        timeout: 5000,
+      });
+
+      const lines = snapshotOut.split("\\n");
+      const candidates = [];
+      for (const line of lines) {
+        const trimmed = line.trim();
+        const m = trimmed.match(/^(\\d+)\\s+([^\\s]+)\\s*(.*)$/);
+        if (m) {
+          const idx = parseInt(m[1], 10);
+          const role = m[2];
+          const rest = m[3] || "";
+          const fullLine = role + " " + rest;
+          if (fullLine.toLowerCase().includes(targetText)) {
+            let score = 10;
+            const roleLower = role.toLowerCase();
+            if (roleLower.includes("按钮") || roleLower.includes("button")) score += 30;
+            if (roleLower.includes("单元格") || roleLower.includes("cell")) score += 20;
+            if (roleLower.includes("文本") || roleLower.includes("text")) score += 15;
+            if (roleLower.includes("row") || roleLower.includes("outline")) score -= 10;
+            if (targetRole && roleLower.includes(targetRole)) score += 50;
+
+            candidates.push({ idx, score });
+          }
+        }
+      }
+
+      if (candidates.length > 0) {
+        candidates.sort((a, b) => b.score - a.score);
+        argsObj.element_index = candidates[0].idx;
+      }
+    } catch (err) {}
+
+    delete argsObj.title;
+    delete argsObj.text;
+    delete argsObj.selector;
+    delete argsObj.role;
+  }
+
+  return argsObj;
+}
+
+function processOutputJson(data, rawImage) {
+  if (rawImage || !data) return data;
+
+  function handleContentItem(item) {
+    if (item && item.type === "image" && typeof item.data === "string") {
+      try {
+        const savePath = "/tmp/ocu_last_screenshot.png";
+        const buf = Buffer.from(item.data, "base64");
+        fs.writeFileSync(savePath, buf);
+        return {
+          type: "image_saved",
+          path: savePath,
+          mimeType: item.mimeType || "image/png",
+          size_bytes: buf.length,
+          note: "Base64 image decoupled to prevent token explosion. Image saved to /tmp/ocu_last_screenshot.png"
+        };
+      } catch (e) {
+        return item;
+      }
+    }
+    return item;
+  }
+
+  if (Array.isArray(data)) {
+    return data.map((d) => processOutputJson(d, rawImage));
+  }
+
+  if (data && typeof data === "object") {
+    if (Array.isArray(data.content)) {
+      data.content = data.content.map(handleContentItem);
+    }
+    if (data.result && Array.isArray(data.result.content)) {
+      data.result.content = data.result.content.map(handleContentItem);
+    }
+  }
+
+  return data;
+}
+
+function runEnhancedCall(resolveNativeExecutable, rawArgs) {
+  const args = [...rawArgs];
+  let rawImage = process.env.OCU_RAW_IMAGE === "1";
+
+  const rawImageIdx = args.indexOf("--raw-image");
+  if (rawImageIdx !== -1) {
+    rawImage = true;
+    args.splice(rawImageIdx, 1);
+  }
+
+  const toolName = args[1];
+
+  const argsIdx = args.indexOf("--args");
+  if (argsIdx !== -1 && args[argsIdx + 1]) {
+    try {
+      const parsed = JSON.parse(args[argsIdx + 1]);
+      const normalized = normalizeToolArgs(toolName, parsed, resolveNativeExecutable);
+      args[argsIdx + 1] = JSON.stringify(normalized);
+    } catch (e) {}
+  }
+
+  const callsIdx = args.indexOf("--calls");
+  if (callsIdx !== -1 && args[callsIdx + 1]) {
+    try {
+      const parsedCalls = JSON.parse(args[callsIdx + 1]);
+      if (Array.isArray(parsedCalls)) {
+        for (const callItem of parsedCalls) {
+          if (callItem && callItem.tool && callItem.args) {
+            callItem.args = normalizeToolArgs(callItem.tool, callItem.args, resolveNativeExecutable);
+          }
+        }
+        args[callsIdx + 1] = JSON.stringify(parsedCalls);
+      }
+    } catch (e) {}
+  }
+
+  const executable = resolveNativeExecutable();
+  const needsImageProcessing = !rawImage;
+
+  if (needsImageProcessing) {
+    const child = spawn(executable, args, {
+      stdio: ["inherit", "pipe", "inherit"],
+      windowsHide: false,
+    });
+
+    let stdoutData = "";
+    child.stdout.on("data", (chunk) => {
+      stdoutData += chunk.toString("utf8");
+    });
+
+    child.on("error", (error) => {
+      console.error(\`Failed to start \${executable}: \${error.message}\`);
+      process.exit(1);
+    });
+
+    for (const signal of ["SIGINT", "SIGTERM"]) {
+      process.on(signal, () => {
+        child.kill(signal);
+      });
+    }
+
+    child.on("exit", (code, signal) => {
+      if (stdoutData) {
+        try {
+          const parsed = JSON.parse(stdoutData.trim());
+          const processed = processOutputJson(parsed, rawImage);
+          console.log(JSON.stringify(processed, null, 2));
+        } catch (e) {
+          process.stdout.write(stdoutData);
+        }
+      }
+      if (signal) process.exit(1);
+      process.exit(code ?? 0);
+    });
+  } else {
+    spawnAndExit(executable, args);
+  }
+}
+
+function runEnhancedMcp(resolveNativeExecutable, rawArgs) {
+  const executable = resolveNativeExecutable();
+  const child = spawn(executable, rawArgs, {
+    stdio: ["pipe", "pipe", "inherit"],
+    windowsHide: false,
+  });
+
+  child.on("error", (error) => {
+    console.error(\`Failed to start \${executable}: \${error.message}\`);
+    process.exit(1);
+  });
+
+  for (const signal of ["SIGINT", "SIGTERM"]) {
+    process.on(signal, () => {
+      child.kill(signal);
+    });
+  }
+
+  child.on("exit", (code, signal) => {
+    if (signal) process.exit(1);
+    process.exit(code ?? 0);
+  });
+
+  let stdinBuffer = "";
+  process.stdin.on("data", (chunk) => {
+    stdinBuffer += chunk.toString("utf8");
+    let newlineIdx;
+    while ((newlineIdx = stdinBuffer.indexOf("\\n")) !== -1) {
+      const line = stdinBuffer.slice(0, newlineIdx).trim();
+      stdinBuffer = stdinBuffer.slice(newlineIdx + 1);
+      if (line) {
+        try {
+          const req = JSON.parse(line);
+          if (req && req.method === "tools/call" && req.params) {
+            const toolName = req.params.name;
+            if (req.params.arguments) {
+              req.params.arguments = normalizeToolArgs(toolName, req.params.arguments, resolveNativeExecutable);
+            }
+          }
+          child.stdin.write(JSON.stringify(req) + "\\n");
+        } catch (e) {
+          child.stdin.write(line + "\\n");
+        }
+      }
+    }
+  });
+
+  child.stdout.pipe(process.stdout);
+}
+
 if (command === "-h" || command === "--help" || (command === "help" && args.length <= 1)) {
   printLauncherHelp();
   process.exit(0);
@@ -374,6 +642,10 @@ if (command === "help" && (args[1] === "install-claude-mcp" || args[1] === "inst
 if (installCommands.has(command)) {
   const scriptName = installCommands.get(command);
   runInstallCommand(scriptName, args.slice(1));
+} else if (command === "call") {
+  runEnhancedCall(resolveNativeExecutable, args);
+} else if (command === "mcp") {
+  runEnhancedMcp(resolveNativeExecutable, args);
 } else {
   spawnAndExit(resolveNativeExecutable(), args);
 }
