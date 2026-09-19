@@ -68,6 +68,33 @@ Use `--calls-file` when the sequence is too large for a readable shell command:
 open-computer-use call --calls-file examples/textedit-overlay-seq.json --sleep 0.5
 ```
 
+### Parameter Aliases & Semantic Click
+
+The CLI launcher provides automatic normalization for common parameter aliases:
+- `index` $\rightarrow$ `element_index` (supported across `click`, `scroll`, `set_value`, and `perform_secondary_action`)
+- `button` $\rightarrow$ `mouse_button` (in `click`)
+- `amount` $\rightarrow$ `pages` (in `scroll`)
+- `start_x, start_y, end_x, end_y` $\rightarrow$ `from_x, from_y, to_x, to_y` (in `drag`)
+
+For `click`, semantic matching is also supported by specifying `text` or `title` and an optional `role`:
+```sh
+open-computer-use call click --args '{"app":"TextEdit","text":"Save","role":"button"}'
+```
+This inspects the current window snapshot, scores candidate elements (prioritizing interactive buttons and cells over generic containers), and resolves the element index automatically.
+
+### Screenshot Decoupling in CLI
+
+By default, CLI tool calls decouple multi-megabyte base64 screenshot data from stdout and write the image to `/tmp/ocu_last_screenshot.png`. This prevents terminal buffer overflow and large LLM context overhead. The stdout JSON response summarizes the image reference:
+```json
+{
+  "type": "image_saved",
+  "path": "/tmp/ocu_last_screenshot.png",
+  "mimeType": "image/png",
+  "size_bytes": 142191
+}
+```
+To retain inline base64 image data, supply `--raw-image` or set `OCU_RAW_IMAGE=1`.
+
 ## Text Limits
 
 Snapshot text is truncated to 500 characters by default and ends with `...` when truncation happens. This keeps normal UI state compact for agent planning and element-targeted actions.
