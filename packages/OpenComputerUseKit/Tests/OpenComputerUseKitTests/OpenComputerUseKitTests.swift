@@ -1861,6 +1861,50 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(scale.height, 2, accuracy: 0.0001)
     }
 
+    func testWindowCaptureScaleUsesQuartzDisplayCoordinatesOnMixedScaleDisplays() {
+        let screens = [
+            WindowCaptureScreenGeometry(
+                displayBounds: CGRect(x: 0, y: 0, width: 3440, height: 1440),
+                backingScaleFactor: 1
+            ),
+            WindowCaptureScreenGeometry(
+                displayBounds: CGRect(x: 884, y: 1440, width: 1512, height: 982),
+                backingScaleFactor: 2
+            ),
+        ]
+
+        XCTAssertEqual(
+            windowCaptureScaleFactor(
+                for: CGRect(x: 884, y: 1474, width: 1512, height: 948),
+                screens: screens,
+                fallback: 1
+            ),
+            2
+        )
+    }
+
+    func testWindowCaptureScaleUsesTheDisplayContainingMostOfTheWindow() {
+        let screens = [
+            WindowCaptureScreenGeometry(
+                displayBounds: CGRect(x: 0, y: 0, width: 1000, height: 800),
+                backingScaleFactor: 1
+            ),
+            WindowCaptureScreenGeometry(
+                displayBounds: CGRect(x: 1000, y: 0, width: 1000, height: 800),
+                backingScaleFactor: 2
+            ),
+        ]
+
+        XCTAssertEqual(
+            windowCaptureScaleFactor(
+                for: CGRect(x: 800, y: 100, width: 700, height: 600),
+                screens: screens,
+                fallback: 1
+            ),
+            2
+        )
+    }
+
     func testScreenshotPixelScaleStaysAtOneForUnscaledDisplays() {
         let scale = screenshotPixelScale(
             screenshotPixelSize: CGSize(width: 1024, height: 633),

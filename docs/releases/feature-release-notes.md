@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-09-20 | macOS 混合缩放截图 | Retina 与非 Retina 屏幕混用时，Computer Use 窗口截图不再出现内容只占左上角四分之一、其余区域为空的情况。 | 用 `CGDisplayBounds` 与窗口的 Quartz bounds 选择实际承载窗口的屏幕，并在跨屏时按最大交集决定倍率；不再直接把 AppKit `NSScreen.frame` 与 Quartz 坐标混用。 |
 | 2026-09-17 | DeepSeek Harness 集成 | DSH 用户可以用一条命令安装 Open Computer Use，并在写入配置前发现错误的可执行文件或不兼容的 MCP server。 | 新增 DSH MCP 兼容安装器、turn-boundary 光标清理 hook 和非破坏性 skill 安装；安装前校验 server identity 与非空工具目录但不锁死工具数量，显式安装在 MCP 启动失败时 fail loud，并明确该路径不注册 DSH 的 first-class computer-use provider。 |
 | 2026-09-10 | macOS 拖拽修复 | 显式开启全局指针路径后，窗口移动、文本拖选与 Finder 拖放可收到启动真实拖拽所需的事件；默认路径的限制也会明确呈现。 | 发布 `0.3.5`：补齐拖拽位移、手势事件编号与 HID 投递时序，增加投递路径说明；同步升级 Go MCP SDK 到 `v1.4.1`。 |
 | 2026-09-08 | drag 投递路径可见性 | 在默认安全配置下调用 `drag` 做窗口移动、文本拖选或 Finder 拖放时，结果会明确说明事件只投递给目标进程、为何没有效果，以及需要设置哪个环境变量，不再表现为“成功但无效果”。 | `drag` 结果新增一条 `Drag delivered via app_post` / `Drag delivered via global pointer path` 文本项；tool description 补充默认路径限制与 `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` 说明；skill 文档新增 Drag Delivery 章节；默认行为与安全门本身不变。 |

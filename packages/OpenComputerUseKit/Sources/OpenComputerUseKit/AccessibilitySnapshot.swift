@@ -488,9 +488,20 @@ private struct WindowCapture {
     }
 
     private static func bestEffortScaleFactor(for bounds: CGRect) -> CGFloat {
-        NSScreen.screens.first(where: { $0.frame.intersects(bounds) })?.backingScaleFactor
-            ?? NSScreen.main?.backingScaleFactor
-            ?? 1
+        let screens = NSScreen.screens.compactMap { screen -> WindowCaptureScreenGeometry? in
+            guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+                return nil
+            }
+            return WindowCaptureScreenGeometry(
+                displayBounds: CGDisplayBounds(CGDirectDisplayID(number.uint32Value)),
+                backingScaleFactor: screen.backingScaleFactor
+            )
+        }
+        return windowCaptureScaleFactor(
+            for: bounds,
+            screens: screens,
+            fallback: NSScreen.main?.backingScaleFactor ?? 1
+        )
     }
 
     func pngDataIfAvailable() -> Data? {
@@ -500,6 +511,27 @@ private struct WindowCapture {
 
         return boundedScreenshotPNGData(for: image)
     }
+}
+
+struct WindowCaptureScreenGeometry {
+    let displayBounds: CGRect
+    let backingScaleFactor: CGFloat
+}
+
+func windowCaptureScaleFactor(
+    for windowBounds: CGRect,
+    screens: [WindowCaptureScreenGeometry],
+    fallback: CGFloat
+) -> CGFloat {
+    screens.compactMap { screen -> (area: CGFloat, scale: CGFloat)? in
+        let intersection = screen.displayBounds.intersection(windowBounds)
+        guard !intersection.isNull, intersection.width > 0, intersection.height > 0 else {
+            return nil
+        }
+        return (intersection.width * intersection.height, screen.backingScaleFactor)
+    }
+    .max(by: { $0.area < $1.area })?
+    .scale ?? fallback
 }
 
 struct WindowCaptureCandidate {
