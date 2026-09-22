@@ -72,6 +72,36 @@ REPL does not close applications or erase their UI state.
   model-facing surface is `js` plus `js_reset`.
 - `open-computer-use mcp` remains the native 9-tool compatibility surface for
   other MCP clients.
+- The npm CLI also exposes the same runtime directly:
+
+```sh
+# One evaluation, then close the Worker and native MCP child.
+ocu js 'var apps = await cua.listApps({ emit: false }); nodeRepl.write(apps)'
+
+# Read one evaluation from stdin or a file.
+printf '%s' 'nodeRepl.write(6 * 7)' | ocu js -
+ocu js --file ./automation.mjs
+
+# Keep bindings for multiple terminal inputs.
+ocu repl
+```
+
+`ocu js` also accepts `--timeout <milliseconds>` and `--json`. The interactive
+REPL supports `.help`, `.editor` / `.end`, `.reset`, and `.exit`; when stdin is
+piped, each non-empty line is evaluated in the same persistent session. Use
+`nodeRepl.write(value)` for explicit output.
+
+Use `ocu capabilities` for a human-readable preflight or
+`ocu capabilities --json` for a stable structured report. The commands remain
+visible in `ocu --help` even if the adapter, kernel, or native runtime is
+missing; the report marks them unavailable and execution fails with the missing
+component and path.
+
+The npm entrypoint itself currently has a `#!/usr/bin/env node` shebang. Once
+the launcher is running, `js` and `repl` reuse `process.execPath` and do not
+look up a second `node` on PATH. A shell with no Node executable cannot start
+the npm command at all; supporting that case requires a future native bootstrap
+or bundled Node distribution, not dynamic command hiding.
 - The adapter can be run directly for development:
 
 ```sh
@@ -89,3 +119,17 @@ apply their own password-manager denylist and explicit global-pointer gate.
 
 The native MCP compatibility surface remains available when arbitrary
 JavaScript is not an acceptable host boundary.
+
+## Process lifecycle
+
+| Entry | Lifetime | Persistent state |
+| --- | --- | --- |
+| `ocu js` | One evaluation | A Worker and native MCP child exist only for that invocation. |
+| `ocu repl` | Current terminal session | JavaScript bindings and native snapshot state persist until `.reset`, `.exit`, Ctrl-D, or termination. |
+| `ocu mcp` | Current stdio MCP connection | Native MCP state persists until stdin EOF or host termination. |
+| Codex plugin adapter | Current plugin MCP connection | `js` bindings persist across tool calls until `js_reset` or connection shutdown. |
+
+On macOS, these short-lived CLI layers proxy automation to the hidden
+`Open Computer Use.app` permission agent. That app agent may remain resident so
+future calls reuse the same permission identity; it is separate from the Node
+Worker and native MCP child owned by `js` / `repl`.

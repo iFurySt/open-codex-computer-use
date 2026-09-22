@@ -135,6 +135,18 @@ open-computer-use call list_apps
 ocu call list_apps
 open-computer-use call get_app_state --args '{"app":"TextEdit"}'
 
+# Inspect code-first runtime availability
+ocu capabilities
+ocu capabilities --json
+
+# Run one JavaScript evaluation, from an argument, stdin, or a file
+ocu js 'var apps = await cua.listApps({ emit: false }); nodeRepl.write(apps)'
+printf '%s' 'nodeRepl.write(6 * 7)' | ocu js -
+ocu js --file ./automation.mjs
+
+# Keep JavaScript and cua bindings for the current terminal session
+ocu repl
+
 # Run a sequence in one process so element_index state can be reused
 # Sequence runs sleep 1s between successful operations by default
 open-computer-use call --calls '[{"tool":"get_app_state","args":{"app":"TextEdit"}},{"tool":"press_key","args":{"app":"TextEdit","key":"Return"}}]'
@@ -160,6 +172,18 @@ node ./scripts/run-agent-smoke-tests.mjs --scenario=fixture-full --agents=hermes
 open-computer-use -h
 ocu -h
 ```
+
+`ocu js` closes its JavaScript Worker and native MCP child after one
+evaluation. `ocu repl` keeps them for the current terminal session until
+`.exit`, Ctrl-D, or termination; `.reset` clears its bindings. On macOS, the
+separate hidden `Open Computer Use.app` permission agent may remain resident so
+later commands reuse the same permission identity. `ocu mcp` continues to expose
+the native nine-tool compatibility surface.
+
+The npm launcher itself currently requires Node.js 18 or newer. Its help always lists
+`js` / `repl`, while `ocu capabilities --json` reports whether Node, the REPL
+adapter/kernel, and the native runtime are available. Once started, it reuses
+the current Node executable instead of looking up another `node` on PATH.
 
 ## Cursor Motion
 

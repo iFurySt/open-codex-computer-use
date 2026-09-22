@@ -54,6 +54,24 @@ await app.getAXState();
 Bindings persist across `js` calls until `js_reset`. See
 `docs/references/js-repl.md` for the full API and security boundary.
 
+The npm CLI can use the same code-first runtime without an MCP host:
+
+```sh
+ocu capabilities
+ocu js 'var apps = await cua.listApps({ emit: false }); nodeRepl.write(apps)'
+printf '%s' 'nodeRepl.write(6 * 7)' | ocu js -
+ocu js --file ./automation.mjs
+ocu repl
+```
+
+`ocu js` owns one short-lived Worker/native MCP session. `ocu repl` keeps the
+session and top-level bindings for the current terminal until `.exit`, Ctrl-D,
+or termination; `.editor` / `.end` accepts multiline input and `.reset`
+discards JavaScript bindings. Use `nodeRepl.write(value)` for explicit output.
+The native `ocu mcp` surface remains the nine tools listed above. Run
+`ocu capabilities --json` to inspect component availability instead of
+inferring support from a command being present in help.
+
 ## Direct CLI Tool Calls
 
 Use `call` for one-off checks:

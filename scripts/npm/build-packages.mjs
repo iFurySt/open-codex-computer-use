@@ -213,170 +213,20 @@ function platformLaunchTable() {
 
 function renderLauncher() {
   return `#!/usr/bin/env node
-const { spawn } = require("node:child_process");
-const fs = require("node:fs");
 const path = require("node:path");
+const { pathToFileURL } = require("node:url");
 
 const platformPackages = ${JSON.stringify(platformLaunchTable(), null, 2)};
 const packageRoot = path.resolve(__dirname, "..");
-const args = process.argv.slice(2);
-const command = args[0] || "";
-const installCommands = new Map([
-  ["install-claude-mcp", "install-claude-mcp.sh"],
-  ["install-clauce-mcp", "install-claude-mcp.sh"],
-  ["install-gemini-mcp", "install-gemini-mcp.sh"],
-  ["install-codex-mcp", "install-codex-mcp.sh"],
-  ["install-opencode-mcp", "install-opencode-mcp.sh"],
-  ["install-dsh-mcp", "install-dsh-mcp.sh"],
-  ["install-codex-plugin", "install-codex-plugin.sh"],
-]);
+const cliModule = pathToFileURL(path.join(packageRoot, "scripts", "node-repl", "open-computer-use-cli.mjs")).href;
 
-function printLauncherHelp() {
-  console.log(\`Open Computer Use
-
-Usage:
-  open-computer-use [command] [options]
-  ocu [command] [options]
-  open-computer-use
-
-Commands:
-  mcp                  Start the stdio MCP server.
-  doctor               Print permission status and launch onboarding if needed on macOS.
-  list-apps            Print running or recently used apps.
-  snapshot <app>       Print the current accessibility snapshot for an app.
-  call <tool>          Call one tool, or run a JSON array of tool calls.
-  turn-ended           Notify the running MCP process that the host turn ended.
-  install-claude-mcp   Install the MCP server into ~/.claude.json for this project.
-  install-gemini-mcp   Install the MCP server into Gemini CLI config.
-  install-codex-mcp    Install the MCP server into ~/.codex/config.toml.
-  install-opencode-mcp Install the MCP server into ~/.config/opencode.
-  install-dsh-mcp      Install the MCP server into a DeepSeek Harness profile.
-  install-codex-plugin Install this npm package into the local Codex plugin cache.
-  help [command]       Show general or command-specific help.
-  version              Print the CLI version.
-
-Global options:
-  -h, --help           Show help.
-  -v, --version        Show version.
-
-Notes:
-  This npm package bundles native runtimes for supported platforms and selects the current os-arch at launch.
-  Use 'open-computer-use help <command>' for command-specific help.\`);
-}
-
-function printInstallHelp(scriptName, usage) {
-  console.log(\`Usage:
-  \${usage}
-
-This helper updates a local MCP or plugin config to run:
-  open-computer-use mcp
-
-Script:
-  \${scriptName}\`);
-}
-
-function fail(message) {
-  console.error(message);
-  process.exit(1);
-}
-
-function spawnAndExit(executable, executableArgs) {
-  const child = spawn(executable, executableArgs, {
-    stdio: "inherit",
-    windowsHide: false,
+import(cliModule)
+  .then(({ main }) => main({ packageRoot, platformPackages }))
+  .then(code => { process.exitCode = Number.isInteger(code) ? code : 1; })
+  .catch(error => {
+    console.error(\`open-computer-use: \${error instanceof Error ? error.message : String(error)}\`);
+    process.exitCode = 1;
   });
-
-  child.on("error", (error) => {
-    fail(\`Failed to start \${executable}: \${error.message}\`);
-  });
-
-  for (const signal of ["SIGINT", "SIGTERM"]) {
-    process.on(signal, () => {
-      child.kill(signal);
-    });
-  }
-
-  child.on("exit", (code, signal) => {
-    if (signal) {
-      process.exit(1);
-    }
-    process.exit(code ?? 0);
-  });
-}
-
-function runInstallCommand(scriptName, scriptArgs) {
-  if (process.platform === "win32") {
-    fail(\`\${command} currently requires a POSIX shell. Configure your MCP client with command "open-computer-use" and args ["mcp"] on Windows.\`);
-  }
-
-  const scriptPath = path.join(packageRoot, "scripts", scriptName);
-  if (!fs.existsSync(scriptPath)) {
-    fail(\`Missing installer helper at \${scriptPath}.\`);
-  }
-
-  spawnAndExit(scriptPath, scriptArgs);
-}
-
-function resolveNativeExecutable() {
-  const platformKey = \`\${process.platform}-\${process.arch}\`;
-  const target = platformPackages[platformKey];
-  if (!target) {
-    const supported = Object.keys(platformPackages).sort().join(", ");
-    fail(\`Unsupported platform \${platformKey}. Supported platforms: \${supported}.\`);
-  }
-
-  const executablePath = path.join(packageRoot, ...target.executablePath);
-  if (!fs.existsSync(executablePath)) {
-    fail(\`Missing bundled native runtime for \${platformKey} at \${executablePath}.
-
-Reinstall with:
-  npm install -g open-computer-use\`);
-  }
-
-  return executablePath;
-}
-
-if (command === "-h" || command === "--help" || (command === "help" && args.length <= 1)) {
-  printLauncherHelp();
-  process.exit(0);
-}
-
-if (command === "help" && args[1] === "install-dsh-mcp") {
-  printInstallHelp("install-dsh-mcp.sh", "open-computer-use install-dsh-mcp [--profile <name>] [--command <path>] [--no-hook] [--no-skill]");
-  process.exit(0);
-}
-
-if (command === "help" && args[1] === "install-codex-plugin") {
-  printInstallHelp("install-codex-plugin.sh", "open-computer-use install-codex-plugin");
-  process.exit(0);
-}
-
-if (command === "help" && args[1] === "install-codex-mcp") {
-  printInstallHelp("install-codex-mcp.sh", "open-computer-use install-codex-mcp");
-  process.exit(0);
-}
-
-if (command === "help" && args[1] === "install-gemini-mcp") {
-  printInstallHelp("install-gemini-mcp.sh", "open-computer-use install-gemini-mcp [--scope project|user]");
-  process.exit(0);
-}
-
-if (command === "help" && args[1] === "install-opencode-mcp") {
-  printInstallHelp("install-opencode-mcp.sh", "open-computer-use install-opencode-mcp");
-  process.exit(0);
-}
-
-if (command === "help" && (args[1] === "install-claude-mcp" || args[1] === "install-clauce-mcp")) {
-  printInstallHelp("install-claude-mcp.sh", "open-computer-use install-claude-mcp");
-  process.exit(0);
-}
-
-if (installCommands.has(command)) {
-  const scriptName = installCommands.get(command);
-  runInstallCommand(scriptName, args.slice(1));
-} else {
-  spawnAndExit(resolveNativeExecutable(), args);
-}
 `;
 }
 
@@ -398,8 +248,8 @@ const lines = [
   "Native runtime will be selected from bundled artifacts for " + process.platform + "-" + process.arch + ".",
   "",
   "Next:",
-  "1. Run open-computer-use --version or ocu --version",
-  "2. Add the MCP config below to your host client",
+  "1. Run open-computer-use --version or ocu capabilities",
+  "2. Add the MCP config below to your host client, or use ocu js / ocu repl directly",
   "3. On macOS, run open-computer-use doctor and grant Accessibility / Screen Recording if prompted",
   "",
   "MCP config:",
@@ -461,6 +311,10 @@ ocu --version
 open-computer-use --help
 open-computer-use mcp
 ocu mcp
+ocu capabilities
+ocu capabilities --json
+ocu js 'nodeRepl.write(6 * 7)'
+printf 'var answer = 40\nanswer += 2; nodeRepl.write(answer)\n.exit\n' | ocu repl
 open-computer-use call list_apps
 
 # macOS permission check and onboarding
@@ -479,6 +333,9 @@ open-computer-use install-codex-plugin
 
 - Version: \`${version}\`
 - Supported npm platforms: \`darwin-arm64\`, \`darwin-x64\`, \`linux-arm64\`, \`linux-x64\`, \`win32-arm64\`, \`win32-x64\`
+- \`ocu js\` creates a one-shot JavaScript/native session; \`ocu repl\` keeps one session for the current terminal and preserves bindings between evaluations.
+- Both code-first commands use the Node executable that started the npm launcher. The npm launcher itself still requires Node.js 18 or newer to be available when the command starts.
+- \`ocu mcp\` intentionally continues to expose the native 9-tool compatibility surface; the Codex plugin adapter exposes \`js\` / \`js_reset\` separately.
 - macOS still requires \`Accessibility\` and \`Screen Recording\` permissions.
 - Linux requires a signed-in desktop session with AT-SPI2 / D-Bus accessibility available for real app control.
 - Windows requires a signed-in desktop session for UI Automation access.
@@ -515,6 +372,9 @@ function renderMetaPackageJson(packageName, version) {
       url: "https://github.com/iFurySt/open-codex-computer-use/issues",
     },
     keywords: packageKeywords(),
+    engines: {
+      node: ">=18",
+    },
     preferGlobal: true,
     publishConfig: {
       access: "public",
@@ -545,6 +405,7 @@ function renderMetaPackageJson(packageName, version) {
       "scripts/install-opencode-mcp.sh",
       "scripts/install-dsh-mcp.sh",
       "scripts/install-codex-plugin.sh",
+      "scripts/node-repl/",
       "scripts/postinstall.mjs",
       "skills/open-computer-use/",
       "README.md",
@@ -562,6 +423,17 @@ function copyInstallerScripts(packageRoot) {
   cpSync(path.join(repoRoot, "scripts", "install-dsh-mcp.sh"), path.join(packageRoot, "scripts", "install-dsh-mcp.sh"));
   cpSync(path.join(repoRoot, "scripts", "install-codex-plugin.sh"), path.join(packageRoot, "scripts", "install-codex-plugin.sh"));
   cpSync(path.join(repoRoot, "skills", "open-computer-use"), path.join(packageRoot, "skills", "open-computer-use"), { recursive: true });
+  mkdirSync(path.join(packageRoot, "scripts", "node-repl"), { recursive: true });
+  for (const scriptName of [
+    "open-computer-use-cli.mjs",
+    "open-computer-use-repl.mjs",
+    "open-computer-use-kernel.mjs",
+  ]) {
+    cpSync(
+      path.join(repoRoot, "scripts", "node-repl", scriptName),
+      path.join(packageRoot, "scripts", "node-repl", scriptName),
+    );
+  }
   cpSync(
     path.join(repoRoot, "scripts", "node-repl", "open-computer-use-repl.mjs"),
     path.join(packageRoot, "plugins", "open-computer-use", "scripts", "open-computer-use-repl.mjs")

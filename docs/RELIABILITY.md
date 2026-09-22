@@ -4,7 +4,7 @@
 
 - 构建：`swift build`
 - 单元测试：`swift test`
-- JS REPL：`node --test scripts/node-repl/open-computer-use-repl.test.mjs`
+- JS REPL 与 CLI：`node --test scripts/node-repl/*.test.mjs`
 - 端到端 smoke：`./scripts/run-tool-smoke-tests.sh`
 - macOS SkyLight 实机回归：`OPEN_COMPUTER_USE_RUN_SKY_CLICK_LIVE_TEST=1 swift test --filter SkyClickLiveTests`
 - Linux runtime：`(cd apps/OpenComputerUseLinux && go test ./...)`、`./scripts/build-open-computer-use-linux.sh --arch arm64`
@@ -16,6 +16,8 @@
 
 - macOS 上必须给 `Open Computer Use.app` 授权 `Accessibility` 与 `Screen Recording`；终端本身不应该再是必需授权对象。
 - Codex plugin 的 code-first surface 需要可执行的 `node`。REPL adapter 会为 native MCP 保留独立 child lifecycle，JavaScript kernel 则放在 Worker 中；脚本超时会丢弃该 Worker 的全部 bindings，并由下一次调用使用新的 kernel。
+- npm CLI 本身也由 Node 启动。`ocu js` 只在一次执行期间保留 Worker/native MCP child；`ocu repl` 在当前 terminal session 内保留它们；`ocu mcp` 则跟随 stdio connection。macOS 的隐藏 app agent 是独立的权限身份，可能在这些前台命令退出后继续驻留。
+- `ocu --help` 始终展示 `js` / `repl`；`ocu capabilities --json` 可在不启动 native MCP 的情况下检查 Node、adapter、kernel 和 native artifact。当前 npm shebang 仍要求 shell 能从 PATH 启动 Node，所以“完全无 Node”必须在更外层用 native bootstrap 解决。
 - macOS `click_method=sky_click` 额外依赖 SkyLight / ApplicationServices 私有符号 `SLEventPostToPid`、`SLEventSetIntegerValueField`、`CGEventSetWindowLocation`、`SLPSPostEventRecordTo` 和 `GetProcessForPID`。运行时会动态探测并 fail closed，但 macOS 更新、签名方式或目标 app 输入策略变化仍可能让后台投递失效。受控实机回归除 DOM、前台 PID、鼠标和 z-order 外，还必须验证前台 AppKit active、key window、first responder 以及 resign/key-loss 计数。
 - smoke suite 依赖本地 GUI session，不能把它当成无头环境命令。
 - 普通 app 的 `get_app_state` 结果依赖 AX tree 和窗口截图，复杂 app 上输出会有差异；Electron/WebView app 的 AX tree 通常很深，当前会压缩空 wrapper 并放宽遍历深度，以优先保留可操作文本、按钮和输入框。
@@ -30,6 +32,7 @@
 4. 如果只有 `sky_click` 失败，先重新执行 `get_app_state`，确认窗口仍为 on-screen、未隐藏/最小化且没有切换 Space；错误里出现 `missing SkyLight symbols` 时不要改用隐式 fallback，应按当前 macOS 版本重新验证私有 SPI。被遮挡的 Chromium 页面仍无效果时，再用受控页面区分 renderer 策略变化与坐标/window-local 映射问题。
 5. 如果只想验证仓库基线，直接跑 fixture + smoke，不要先在复杂第三方 app 上排查。
 6. 排查 Linux runtime 时，先确认目标命令是否由桌面用户运行，再用 `open-computer-use call list_apps` 和 `open-computer-use snapshot <app>` 区分 session/env 问题与 AT-SPI tree/action 问题。如果是 Codex MCP，重新执行 `open-computer-use install-codex-mcp` 后重启 Codex，确认配置仍是 `open-computer-use mcp`。
+7. 排查 `ocu js` / `ocu repl` 时先执行 `ocu capabilities --json`。缺少 adapter、kernel 或 native artifact 时重新安装 npm 包；若 shell 报 `node: command not found`，说明 npm launcher 本身尚未启动，需要先安装 Node 或等待未来 native bootstrap 方案。
 
 ## 后续补强方向
 

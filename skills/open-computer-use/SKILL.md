@@ -27,7 +27,8 @@ It supports the same core tool surface across macOS, Linux, and Windows:
 8. Prefer element-targeted actions using `element_index` from the latest `get_app_state` result.
 9. For multi-step CLI work, use `open-computer-use call --calls '<json-array>'` so one process can reuse the latest element index mapping.
 10. For agent runtimes that support local MCP servers, configure `open-computer-use mcp` or `ocu mcp` and call the exposed Computer Use tools directly. Read [references/usage.md](references/usage.md).
-11. If communication, permission, or desktop-session access fails, read [references/troubleshooting.md](references/troubleshooting.md).
+11. For direct code-first orchestration, run `ocu capabilities` and then use one-shot `ocu js` or persistent `ocu repl`. Read [references/usage.md](references/usage.md).
+12. If communication, permission, or desktop-session access fails, read [references/troubleshooting.md](references/troubleshooting.md).
 
 ## Operating Rules
 
@@ -44,6 +45,9 @@ It supports the same core tool surface across macOS, Linux, and Windows:
 ```sh
 open-computer-use -h
 ocu -h
+ocu capabilities --json
+ocu js 'nodeRepl.write(6 * 7)'
+ocu repl
 open-computer-use doctor
 open-computer-use call list_apps
 ocu call list_apps
