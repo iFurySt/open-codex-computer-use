@@ -75,7 +75,7 @@
 - [x] 确认进程生命周期与稳定 capability 展示策略。
 - [x] 完成 CLI 模块、npm launcher 接入与 capability contract。
 - [x] 完成测试、文档、history 与本机、Linux devbox 实机验证。
-- [ ] 同步远端并交付 PR。
+- [x] 同步远端并通过 PR #80 交付。
 
 ## 决策记录
 
@@ -83,3 +83,4 @@
 - 2026-09-22：`js` 是一次性 session，`repl` 在当前终端会话内持久，`mcp` 继续是 native 9-tool stdio server。
 - 2026-09-22：当前 npm launcher 已依赖 Node，因此运行时直接复用 `process.execPath`。无 Node bootstrap 属于后续 native launcher / bundled Node 设计，不以不可靠的 PATH 探测伪装解决。
 - 2026-09-22：最终验证覆盖 18 个 Node contract/integration tests、167 个 Swift tests、Linux/Windows Go tests、Linux Python tests、9-tool smoke、release 全平台构建、本机隔离 tgz 安装和 Linux x64 devbox 隔离安装。两端都验证了 help/capabilities、一次性 `js`、stdin、持久 binding、`.editor`、`.reset`、SIGTERM child cleanup 和原生 MCP 恰好 9 tools。完整 `scripts/ci.sh` 只被 `main` 已存在的 repository-hygiene 缺失文件阻断，其余子步骤均单独通过。
+- 2026-09-22：PR #80 以 squash merge 合入 `main`，merge commit 为 `07610f09b0c118c45cc3bd0a8781029f678e3b7d`；仓库没有为该 commit 配置或触发 GitHub Actions run。合并后的 `main` 再次通过 capabilities、`js`、多行 `repl` 和 native 9-tool sanity check。
