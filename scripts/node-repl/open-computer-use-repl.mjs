@@ -37,14 +37,14 @@ The runtime exposes an asynchronous app-bound API:
 - \`await cua.getState({ emit? })\`: list current apps.
 - \`await cua.listApps({ emit? })\`: list current apps.
 - \`await cua.getApp(nameOrBundleID)\`: bind an app and emit its initial accessibility state.
-- \`await app.getAXState({ emit?, textLimit?, maxTreeNodes?, maxTreeDepth? })\`
+- \`await app.getAXState({ emit?, textLimit?, maxTreeNodes?, maxTreeDepth?, windowPlacement? })\`
 - \`await app.getScreenshot({ emit? })\`
 - \`await app.getAXStateAndScreenshot(options?)\`
 - \`await app.click(elementIndexOrPoint, { mouseButton?, clickCount?, clickMethod? })\`
 - \`await app.scroll(elementIndex, direction, pages?)\`
 - \`await app.drag([fromX, fromY], [toX, toY])\`
-- \`await app.typeText(text)\`
-- \`await app.pressKey(key)\`
+- \`await app.typeText(text, { keyMethod? })\`
+- \`await app.pressKey(key, { keyMethod? })\`
 - \`await app.setValue(elementIndex, value)\`
 - \`await app.performSecondaryAction(elementIndex, action)\`
 
@@ -220,6 +220,7 @@ function optionsToSnapshotArgs(options = {}) {
   if (options.textLimit !== undefined) args.text_limit = options.textLimit;
   if (options.maxTreeNodes !== undefined) args.max_tree_nodes = options.maxTreeNodes;
   if (options.maxTreeDepth !== undefined) args.max_tree_depth = options.maxTreeDepth;
+  if (options.windowPlacement !== undefined) args.window_placement = options.windowPlacement;
   return args;
 }
 
@@ -228,6 +229,12 @@ function optionsToClickArgs(options = {}) {
   if (options.mouseButton !== undefined) args.mouse_button = options.mouseButton;
   if (options.clickCount !== undefined) args.click_count = options.clickCount;
   if (options.clickMethod !== undefined) args.click_method = options.clickMethod;
+  return args;
+}
+
+function optionsToKeyArgs(options = {}) {
+  const args = {};
+  if (options.keyMethod !== undefined) args.key_method = options.keyMethod;
   return args;
 }
 
@@ -260,7 +267,7 @@ export function createCuaApi(native, activeOutput) {
         return text;
       },
       async getScreenshot(options = {}) {
-        const result = await call("get_app_state", { app, text_limit: 1 });
+        const result = await call("get_app_state", { app, ...optionsToSnapshotArgs(options), text_limit: 1 });
         const image = toolResultImages(result)[0];
         if (!image) throw new Error(`Screenshot unavailable for ${app}`);
         const bytes = Buffer.from(image.data, "base64");
@@ -280,13 +287,13 @@ export function createCuaApi(native, activeOutput) {
         await call("click", { app, ...targetArgs, ...optionsToClickArgs(options) });
       },
       async drag(from, to) { await call("drag", { app, from_x: from[0], from_y: from[1], to_x: to[0], to_y: to[1] }); },
-      async pressKey(key) { await call("press_key", { app, key }); },
+      async pressKey(key, options = {}) { await call("press_key", { app, key, ...optionsToKeyArgs(options) }); },
       async scroll(target, direction, pages = 1) {
         if (Array.isArray(target)) throw new Error("coordinate scroll is not supported by this Open Computer Use runtime");
         await call("scroll", { app, element_index: target, direction, pages });
       },
       async setValue(elementIndex, value) { await call("set_value", { app, element_index: elementIndex, value }); },
-      async typeText(text) { await call("type_text", { app, text }); },
+      async typeText(text, options = {}) { await call("type_text", { app, text, ...optionsToKeyArgs(options) }); },
       async performSecondaryAction(elementIndex, action) { await call("perform_secondary_action", { app, element_index: elementIndex, action }); },
     });
   }

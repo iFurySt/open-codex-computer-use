@@ -54,7 +54,8 @@ public final class ComputerUseToolDispatcher {
                 treeLimits: AccessibilityTreeLimits.defaults.replacing(
                     maxNodeCount: try optionalPositiveInt("max_tree_nodes", in: arguments),
                     maxDepth: try optionalPositiveInt("max_tree_depth", in: arguments)
-                )
+                ),
+                windowPlacement: try parseWindowPlacement(optionalString("window_placement", in: arguments))
             )
         case "click":
             return try service.click(
@@ -90,12 +91,14 @@ public final class ComputerUseToolDispatcher {
         case "type_text":
             return try service.typeText(
                 app: requireString("app", in: arguments),
-                text: requireString("text", in: arguments)
+                text: requireString("text", in: arguments),
+                keyMethod: try parseKeyMethod(optionalString("key_method", in: arguments))
             )
         case "press_key":
             return try service.pressKey(
                 app: requireString("app", in: arguments),
-                key: requireString("key", in: arguments)
+                key: requireString("key", in: arguments),
+                keyMethod: try parseKeyMethod(optionalString("key_method", in: arguments))
             )
         case "set_value":
             return try service.setValue(

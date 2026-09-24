@@ -182,6 +182,7 @@ private final class MacOSAppAgentRuntime: NSObject, NSApplicationDelegate {
             queue: .main
         ) { _ in
             Task { @MainActor in
+                resetOpenComputerUseBackgroundWindowState()
                 resetOpenComputerUseVisualCursor()
             }
         }
@@ -197,6 +198,7 @@ private final class MacOSAppAgentRuntime: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        resetOpenComputerUseBackgroundWindowState()
         if let turnEndedObserver {
             DistributedNotificationCenter.default().removeObserver(turnEndedObserver)
         }
@@ -307,7 +309,10 @@ private final class AppAgentConnection: @unchecked Sendable {
             close(fileDescriptor)
             return
         }
-        defer { fclose(file) }
+        defer {
+            server.endSession()
+            fclose(file)
+        }
 
         while let line = readAgentLine(file) {
             let response = handle(requestLine: line)

@@ -35,7 +35,16 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "OpenComputerUseVirtualDisplayShim",
+            path: "packages/OpenComputerUseVirtualDisplayShim",
+            publicHeadersPath: "include",
+            linkerSettings: [
+                .linkedFramework("CoreGraphics"),
+            ]
+        ),
+        .target(
             name: "OpenComputerUseKit",
+            dependencies: ["OpenComputerUseVirtualDisplayShim"],
             path: "packages/OpenComputerUseKit/Sources/OpenComputerUseKit"
         ),
         .executableTarget(

@@ -623,11 +623,16 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(instructions, computerUseServerInstructions)
     }
 
-    func testMCPAcceptsTurnEndedNotificationWithoutResponse() {
-        let server = StdioMCPServer(service: ComputerUseService())
+    func testMCPTurnEndedNotificationResetsBackgroundStateWithoutResponse() {
+        var resetCount = 0
+        let server = StdioMCPServer(
+            service: ComputerUseService(),
+            backgroundStateReset: { resetCount += 1 }
+        )
         let response = server.handle(line: #"{"jsonrpc":"2.0","method":"notifications/turn-ended","params":{"type":"agent-turn-complete"}}"#)
 
         XCTAssertNil(response)
+        XCTAssertEqual(resetCount, 1)
     }
 
     func testWindowRelativeFrameUsesSharedGlobalCoordinates() {
@@ -654,7 +659,7 @@ final class OpenComputerUseKitTests: XCTestCase {
         )
         XCTAssertEqual(
             tools["get_app_state"]?.annotations["readOnlyHint"] as? Bool,
-            true
+            nil
         )
         XCTAssertEqual(
             tools["click"]?.inputSchema["additionalProperties"] as? Bool,
@@ -1682,7 +1687,7 @@ final class OpenComputerUseKitTests: XCTestCase {
         }
     }
 
-    func testSkyClickWindowValidationRequiresMatchingOnScreenOwner() {
+    func testSkyClickWindowValidationRequiresMatchingOwner() {
         let matching: [String: Any] = [
             kCGWindowNumber as String: NSNumber(value: UInt32(321)),
             kCGWindowOwnerPID as String: NSNumber(value: Int32(1234)),
@@ -1697,12 +1702,17 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertFalse(
             skyClickWindowMatchesTarget(windowInfo: [matching], windowID: 321, pid: 1235)
         )
+    }
 
-        var offScreen = matching
-        offScreen[kCGWindowIsOnscreen as String] = NSNumber(value: false)
-        XCTAssertFalse(
-            skyClickWindowMatchesTarget(windowInfo: [offScreen], windowID: 321, pid: 1234)
-        )
+    func testWindowLooksUnoccludedSamplesAGrid() {
+        let bounds = CGRect(x: 100, y: 100, width: 400, height: 300)
+        XCTAssertTrue(windowLooksUnoccluded(bounds: bounds, coveringBounds: []))
+        XCTAssertFalse(windowLooksUnoccluded(bounds: bounds, coveringBounds: [bounds.insetBy(dx: -10, dy: -10)]))
+        XCTAssertFalse(windowLooksUnoccluded(bounds: bounds, coveringBounds: [
+            CGRect(x: 0, y: 0, width: 300, height: 1000), CGRect(x: 300, y: 0, width: 1000, height: 1000),
+        ]), "two windows that jointly cover the target count as occlusion")
+        XCTAssertTrue(windowLooksUnoccluded(bounds: bounds, coveringBounds: [CGRect(x: 100, y: 100, width: 360, height: 300)]), "an exposed strip keeps it visible")
+        XCTAssertFalse(windowLooksUnoccluded(bounds: .zero, coveringBounds: []))
     }
 
     func testSkyLightCapabilityReportsMissingSymbols() {
@@ -1750,6 +1760,170 @@ final class OpenComputerUseKitTests: XCTestCase {
                 )
             )
         )
+    }
+
+    func testSkyLightKeyWindowRecordsFollowYabaiLayout() {
+        let records = skyLightKeyWindowRecords(windowID: 0x1234_5678)
+        XCTAssertEqual(records.map(\.count), [0xF8, 0xF8])
+        XCTAssertEqual(records.map { $0[0x08] }, [0x01, 0x02])
+        for record in records {
+            XCTAssertEqual(record[0x04], 0xF8)
+            XCTAssertEqual(record[0x3A], 0x10)
+            XCTAssertEqual(Array(record[0x3C...0x3F]), [0x78, 0x56, 0x34, 0x12])
+            XCTAssertEqual(Array(record[0x20..<0x30]), [UInt8](repeating: 0xFF, count: 0x10))
+            XCTAssertEqual(record[0x8A], 0, "key-window records must not carry the activation focus marker")
+        }
+    }
+
+    func testSkyMenuKeyEquivalentOnlyCoversCommandCharacterChords() throws {
+        XCTAssertEqual(
+            skyMenuKeyEquivalent(for: try KeyPressParser.parse("cmd+a")),
+            SkyMenuKeyEquivalent(character: "A", modifiers: 0)
+        )
+        XCTAssertEqual(
+            skyMenuKeyEquivalent(for: try KeyPressParser.parse("cmd+shift+option+ctrl+z")),
+            SkyMenuKeyEquivalent(character: "Z", modifiers: 7)
+        )
+        XCTAssertNil(skyMenuKeyEquivalent(for: try KeyPressParser.parse("shift+a")), "non-command chords are key events")
+        XCTAssertNil(skyMenuKeyEquivalent(for: try KeyPressParser.parse("cmd+shift+left")), "navigation chords are key bindings, not menu items")
+        XCTAssertNil(skyMenuKeyEquivalent(for: try KeyPressParser.parse("return")))
+    }
+
+    func testSkyMenuItemMatchingIsCaseInsensitiveAndSkipsDisabledItems() {
+        let selectAll = SkyMenuKeyEquivalent(character: "A", modifiers: 0)
+        XCTAssertTrue(skyMenuItemMatches(cmdChar: "a", cmdModifiers: nil, enabled: nil, equivalent: selectAll))
+        XCTAssertTrue(skyMenuItemMatches(cmdChar: "A", cmdModifiers: 0, enabled: true, equivalent: selectAll))
+        XCTAssertFalse(skyMenuItemMatches(cmdChar: "A", cmdModifiers: 1, enabled: true, equivalent: selectAll))
+        XCTAssertFalse(skyMenuItemMatches(cmdChar: "A", cmdModifiers: 0, enabled: false, equivalent: selectAll))
+        XCTAssertFalse(skyMenuItemMatches(cmdChar: nil, cmdModifiers: 0, enabled: true, equivalent: selectAll))
+    }
+
+    func testSkyKeyWindowValidationAllowsOffScreenWindowsOfTheSameOwner() {
+        let offScreen: [String: Any] = [
+            kCGWindowNumber as String: NSNumber(value: UInt32(321)),
+            kCGWindowOwnerPID as String: NSNumber(value: Int32(1234)),
+            kCGWindowIsOnscreen as String: NSNumber(value: false),
+        ]
+        XCTAssertTrue(skyKeyWindowMatchesTarget(windowInfo: [offScreen], windowID: 321, pid: 1234))
+        XCTAssertFalse(skyKeyWindowMatchesTarget(windowInfo: [offScreen], windowID: 321, pid: 1235))
+        XCTAssertFalse(skyKeyWindowMatchesTarget(windowInfo: [offScreen], windowID: 322, pid: 1234))
+        XCTAssertTrue(skyClickWindowMatchesTarget(windowInfo: [offScreen], windowID: 321, pid: 1234), "sky_click also accepts covered or other-Space windows")
+    }
+
+    func testLazyWebAccessibilityDetectionUsesShippedFrameworks() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ocu-lazy-ax-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let chromium = root.appendingPathComponent("Chromium.app/Contents/Frameworks/Chromium Framework.framework")
+        try FileManager.default.createDirectory(at: chromium, withIntermediateDirectories: true)
+        let native = root.appendingPathComponent("Native.app/Contents/Frameworks/Sparkle.framework")
+        try FileManager.default.createDirectory(at: native, withIntermediateDirectories: true)
+        XCTAssertTrue(appHasLazyWebAccessibility(bundleURL: root.appendingPathComponent("Chromium.app")))
+        XCTAssertFalse(appHasLazyWebAccessibility(bundleURL: root.appendingPathComponent("Native.app")))
+        XCTAssertFalse(appHasLazyWebAccessibility(bundleURL: nil))
+    }
+
+    func testWindowPlacementParsingAndAgentDisplayGeometry() throws {
+        XCTAssertEqual(try parseWindowPlacement(nil), .keep)
+        XCTAssertEqual(try parseWindowPlacement(" Agent_Display "), .agentDisplay)
+        XCTAssertEqual(try parseWindowPlacement("restore"), .restore)
+        XCTAssertThrowsError(try parseWindowPlacement("park")) { error in
+            XCTAssertEqual(
+                (error as? ComputerUseError)?.errorDescription,
+                "Invalid window_placement 'park'. Expected one of: keep, agent_display, restore"
+            )
+        }
+
+        let display = CGRect(x: 1512, y: 0, width: 1920, height: 1080)
+        XCTAssertEqual(agentDisplayPlacement(windowSize: CGSize(width: 600, height: 420), displayBounds: display), CGPoint(x: 1552, y: 40))
+        let huge = agentDisplayPlacement(windowSize: CGSize(width: 4000, height: 3000), displayBounds: display)
+        XCTAssertEqual(huge, CGPoint(x: 1512, y: 0), "oversized windows are pinned to the display origin")
+        XCTAssertTrue(display.contains(huge))
+        for name in ["get_app_state"] {
+            let tool = ToolDefinitions.all.first { $0.name == name }
+            let properties = tool?.inputSchema["properties"] as? [String: Any]
+            XCTAssertEqual((properties?["window_placement"] as? [String: Any])?["enum"] as? [String], ["keep", "agent_display", "restore"])
+        }
+    }
+
+    func testBackgroundInputTimingDefaultsKeepCompatibilityMargins() {
+        XCTAssertEqual(InputTiming.typeChunkDelayDefaultMilliseconds, 20)
+        XCTAssertEqual(InputTiming.pressKeySettleDefaultMilliseconds, 100)
+        XCTAssertEqual(SkyKeyboardDispatcher.keyWindowFallbackSettleDefaultMilliseconds, 10)
+        XCTAssertEqual(SkyKeyboardDispatcher.releaseSettleDefaultMilliseconds, 10)
+        XCTAssertEqual(
+            InputTiming.milliseconds("OCU_TEST_TIMING", default: 20, environment: [:]),
+            0.020,
+            accuracy: 0.000_001
+        )
+        XCTAssertEqual(
+            InputTiming.milliseconds("OCU_TEST_TIMING", default: 20, environment: ["OCU_TEST_TIMING": "7.5"]),
+            0.0075,
+            accuracy: 0.000_001
+        )
+    }
+
+    func testAgentDisplayRestoreGeometryUsesATolerance() {
+        let original = CGPoint(x: 200, y: 300)
+        XCTAssertTrue(AgentDisplay.isRestored(frame: CGRect(x: 200.5, y: 299.5, width: 600, height: 420), to: original))
+        XCTAssertFalse(AgentDisplay.isRestored(frame: CGRect(x: 202, y: 300, width: 600, height: 420), to: original))
+    }
+
+    func testOcclusionKeepAliveRestoresPriorStateAndCanRetryFailures() {
+        final class FakeOcclusionSPI: WindowOcclusionControlling {
+            let occlusionCapability = SkyLightSPICapability(missingSymbols: [], feature: "occlusion")
+            var states: [CGWindowID: Bool] = [101: true, 102: false]
+            var failedRestores: Set<CGWindowID> = [101]
+            var calls: [CGWindowID: Int] = [:]
+
+            func setWindowOcclusionNotificationsEnabled(_ enabled: Bool, windowID: CGWindowID) throws -> Bool {
+                calls[windowID, default: 0] += 1
+                let previous = states[windowID] ?? true
+                if calls[windowID, default: 0] > 1, failedRestores.remove(windowID) != nil {
+                    throw ComputerUseError.message("injected restore failure")
+                }
+                states[windowID] = enabled
+                return previous
+            }
+        }
+
+        let keepAlive = WindowOcclusionKeepAlive()
+        let spi = FakeOcclusionSPI()
+        let visibleBounds = CGRect(x: 10, y: 10, width: 100, height: 100)
+        XCTAssertTrue(keepAlive.keepVisible(windowID: 101, bounds: visibleBounds, spi: spi))
+        XCTAssertTrue(keepAlive.keepVisible(windowID: 102, bounds: visibleBounds, spi: spi))
+        XCTAssertEqual(spi.states[101], false)
+        XCTAssertEqual(spi.states[102], false)
+
+        keepAlive.releaseAll(spi: spi)
+        XCTAssertTrue(keepAlive.isPinned(windowID: 101), "failed restores must remain retryable")
+        XCTAssertFalse(keepAlive.isPinned(windowID: 102))
+        XCTAssertEqual(spi.states[102], false, "restore the original disabled state, not always true")
+
+        keepAlive.releaseAll(spi: spi)
+        XCTAssertFalse(keepAlive.isPinned(windowID: 101))
+        XCTAssertEqual(spi.states[101], true)
+    }
+
+    func testKeyMethodParsingAndPolicy() throws {
+        XCTAssertEqual(try parseKeyMethod(nil), .auto)
+        XCTAssertEqual(try parseKeyMethod(" SKY_KEY "), .skyKey)
+        XCTAssertThrowsError(try parseKeyMethod("global")) { error in
+            XCTAssertEqual(
+                (error as? ComputerUseError)?.errorDescription,
+                "Invalid key_method 'global'. Expected one of: auto, sky_key"
+            )
+        }
+        XCTAssertEqual(keyActionSnapshotRecoveryPolicy(for: .skyKey), .readOnly)
+        XCTAssertEqual(keyActionSnapshotRecoveryPolicy(for: .auto), .allowActivation)
+    }
+
+    func testKeyboardToolSchemasExposeKeyMethod() {
+        for name in ["type_text", "press_key"] {
+            let tool = ToolDefinitions.all.first { $0.name == name }
+            let properties = tool?.inputSchema["properties"] as? [String: Any]
+            let keyMethod = properties?["key_method"] as? [String: Any]
+            XCTAssertEqual(keyMethod?["enum"] as? [String], ["auto", "sky_key"], name)
+        }
     }
 
     func testSkyLightRuntimeSPIProbeCanStampEventWithoutPosting() throws {
@@ -2334,6 +2508,7 @@ final class OpenComputerUseKitTests: XCTestCase {
             focusedSummary: focusedSummary,
             focusedElement: nil,
             selectedText: selectedText,
+            windowElement: nil,
             elements: [:]
         )
     }
