@@ -20,6 +20,7 @@
 ## 当前 release 入口
 
 - 本地 staging / 打 tgz：`./scripts/release-package.sh`
+- 本地重新封装 GitHub Release assets：`./scripts/package-github-release-assets.sh --version <version>`
 - 本地构建 Cursor Motion DMG：`./scripts/build-cursor-motion-dmg.sh --configuration release --arch universal --version <version>`
 - 本地 stage npm 包目录：`node ./scripts/npm/build-packages.mjs`
 - 本地 publish：`node ./scripts/npm/publish-packages.mjs`
@@ -35,6 +36,7 @@
 - npm staging 包版本：以 `plugins/open-computer-use/.codex-plugin/plugin.json` 里的 `version` 为准。
 - GitHub Release 正文：以 `docs/releases/github/<tag>.md` 为准，文件名必须与实际 tag 完全一致。
 - `CursorMotion-<version>.dmg` 文件名与 GitHub Release asset 版本：以 release tag 为准；workflow 会把 `vX.Y.Z` 规范化成 `X.Y.Z` 写进 DMG 文件名，也可以在本地显式传 `--version`。
+- Open Computer Use direct-download asset 版本：以 plugin manifest 为准；`package-github-release-assets.sh --version` 会拒绝与 manifest 不一致的版本。
 
 也就是说：
 
@@ -83,13 +85,14 @@ node ./scripts/validate-github-release-notes.mjs --tag v0.1.14
 
 ### 3. 本地验证版本源已经生效
 
-至少跑这四步：
+至少跑这些步骤：
 
 ```bash
 node ./scripts/validate-github-release-notes.mjs --tag v0.1.14
 swift test
 node ./scripts/npm/build-packages.mjs --out-dir dist/release/npm-staging-check
 ./scripts/build-cursor-motion-dmg.sh --configuration release --arch universal --version 0.1.14
+./scripts/package-github-release-assets.sh --version 0.1.14
 ```
 
 然后直接检查 staging 包版本和 DMG 文件名：
@@ -102,6 +105,9 @@ test -x "dist/release/npm-staging-check/open-computer-use/bin/ocu"
 node -e "const bin=require('./dist/release/npm-staging-check/open-computer-use/package.json').bin; if (bin.ocu !== 'bin/ocu') process.exit(1)"
 node -e "if (require('./dist/release/npm-staging-check/open-computer-use/package.json').optionalDependencies) process.exit(1)"
 ls dist/release/cursor-motion/CursorMotion-0.1.14.dmg
+test -f dist/release/github/Open-Computer-Use-0.1.14-macOS-universal.app.zip
+test "$(find dist/release/github -maxdepth 1 -type f -name 'open-computer-use-cli-*' | wc -l | tr -d ' ')" = 4
+(cd dist/release/github && shasum -a 256 -c SHA256SUMS)
 ```
 
 如果这里打印的不是目标版本，或者 DMG 没按目标版本名产出，不要打 tag。
@@ -123,10 +129,12 @@ git push origin main
 git push origin v0.1.14
 ```
 
-tag push 后，`.github/workflows/release.yml` 会自动做两件事：
+tag push 后，`.github/workflows/release.yml` 会自动完成：
 
 - 发布 npm 包。
-- 构建 `CursorMotion-0.1.14.dmg`，并创建或更新同名 tag 的 GitHub Release asset。
+- 构建 Open Computer Use 的 macOS app、Linux / Windows CLI 与 skill 直接下载包。
+- 构建 `CursorMotion-0.1.14.dmg`。
+- 等全部构建 job 成功后，一次性创建或更新同名 tag 的 GitHub Release assets。
 
 ### 6. 检查 GitHub Release notes
 
@@ -136,7 +144,7 @@ tag push 后，`.github/workflows/release.yml` 会自动做两件事：
 gh release view v0.1.14 --json body,url
 ```
 
-workflow 会使用 `docs/releases/github/<tag>.md` 创建新 Release；如果 Release 已经存在，则在覆盖上传 DMG 后用同一文件更新正文。GitHub 自动生成 notes 不再是正文来源，因此 PR 标题使用中文也不会改变公开 Release 的语言。
+workflow 会使用 `docs/releases/github/<tag>.md` 创建新 Release；如果 Release 已经存在，则覆盖上传 macOS app、Linux / Windows CLI、skill、checksums、manifest 和 DMG，并用同一文件更新正文。GitHub 自动生成 notes 不再是正文来源，因此 PR 标题使用中文也不会改变公开 Release 的语言。
 
 最低要求：
 
@@ -168,18 +176,21 @@ gh run view -R iFurySt/open-codex-computer-use <run-id> --log-failed
   - 如果日志显示已经选择 `GitHub Actions OIDC trusted publishing`，优先检查 CI 里的 npm CLI 版本；trusted publishing 需要 npm `11.5.1+`，当前 release workflow 的 npm package job 使用 Node `24` 并显式检查 npm 版本。
   - 如果 npm CLI 版本满足要求仍报这个错误，说明 npmjs.com 包侧还没有把当前 GitHub repo / workflow 文件配置成 trusted publisher。
 - 构建阶段失败
-  - 优先看 `Build npm release artifacts`、`Build Cursor Motion DMG` 或 Swift 编译错误。
+  - 优先看 `Build npm release artifacts`、`package-github-release-assets.sh` 的架构/归档校验、`Build Cursor Motion DMG` 或 Swift 编译错误。
 - GitHub Release 资产上传失败
-  - 优先看 `Publish Cursor Motion DMG to GitHub Releases`，确认 tag 是否存在、`GH_TOKEN` 权限是否正常，以及生成的 `CursorMotion-<version>.dmg` 路径是否匹配。
+  - 优先看 `publish-github-release` job，确认两个上游 artifact 都已上传、tag 存在、`GH_TOKEN` 权限正常，以及下载后的 asset 路径匹配。
 - publish 认证失败
   - 再去看 `.github/workflows/release.yml`、`scripts/npm/publish-packages.mjs` 和 npm trusted publishing / token fallback 配置。
 
 ## 当前已知边界
 
 - `Open Computer Use` 的 npm release 产物在没有配置 `OPEN_COMPUTER_USE_CODESIGN_P12_BASE64` / `OPEN_COMPUTER_USE_CODESIGN_P12_PASSWORD` 等 secrets 时，仍会退回 ad-hoc signing；配置后会先导入 `Developer ID Application` 证书，再按该 identity 统一签名。
+- 如果 Open Computer Use 已使用 Developer ID 签名且 `APPLE_NOTARY_*` secrets 齐全，workflow 会 notarize 并 staple direct-download `.app` 后重新生成 app zip、checksums 和 manifest；缺少任一条件时跳过 notarization。
 - `Cursor Motion` 当前 release 资产会优先复用 `OPEN_COMPUTER_USE_CODESIGN_*` 对 app 做 `Developer ID Application` 签名；如果同时配置 `APPLE_NOTARY_API_KEY_P8_BASE64`、`APPLE_NOTARY_KEY_ID`、`APPLE_NOTARY_ISSUER_ID`、`APPLE_DEVELOPER_TEAM_ID`，workflow 会继续对 `.dmg` 执行 notarization 和 staple。
 - 如果上述 secrets 缺失，workflow 会分别退回 ad-hoc signing 或跳过 notarization，而不是阻塞整条 release。
 - `open-computer-use` npm root 包会内置六个 `os-arch` native artifacts，包体积会比 macOS-only 版本更大；release 前要确认 staging 包里包含 `dist/Open Computer Use.app`、`dist/linux/` 和 `dist/windows/`，并确认 launcher 没有声明 `optionalDependencies`。
+- 直接下载的 Linux / Windows CLI archive 只包含 native CLI / MCP runtime；`ocu js` / `ocu repl` 所需的 Node adapter 继续通过 npm 包分发。
+- macOS direct download 必须保留完整 `.app` bundle；不要单独分发 `Contents/MacOS/OpenComputerUse`，否则无法可靠复用 app-scoped 权限身份。
 
 ## 如果 tag 已经打错了
 

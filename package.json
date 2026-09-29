@@ -6,6 +6,7 @@
     "npm:build": "node ./scripts/npm/build-packages.mjs",
     "npm:pack": "./scripts/release-package.sh",
     "npm:publish": "node ./scripts/npm/publish-packages.mjs",
+    "package:release-assets": "./scripts/package-github-release-assets.sh",
     "package:skill": "./scripts/package-skill.sh",
     "release:notes:validate": "node ./scripts/validate-github-release-notes.mjs"
   }

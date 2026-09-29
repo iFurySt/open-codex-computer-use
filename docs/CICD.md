@@ -4,11 +4,12 @@
 
 ## 当前 release 入口
 
-- `scripts/release-package.sh`：构建 universal `Open Computer Use.app`，cross-compile Linux / Windows runtime，stage 三个既有 root/alias npm 包；每个包都会内置 macOS app、Linux binaries 和 Windows exes，并暴露 `open-computer-use` / `ocu` 等 npm bin 入口，产出 `dist/release/npm/*.tgz` 与 `dist/release/release-manifest.json`。当前 CI 继续显式使用 ad-hoc signing，保持和此前发布链路一致；本地 debug/dev 构建则允许使用开发机自己的签名身份。
+- `scripts/release-package.sh`：构建 universal `Open Computer Use.app`，cross-compile Linux / Windows runtime，stage 三个既有 root/alias npm 包；每个包都会内置 macOS app、Linux binaries 和 Windows exes，并暴露 `open-computer-use` / `ocu` 等 npm bin 入口。脚本同时调用 `scripts/package-github-release-assets.sh`，产出 npm tarballs、GitHub Release 直接下载制品与对应 manifest。当前 CI 继续显式使用 ad-hoc signing，保持和此前发布链路一致；本地 debug/dev 构建则允许使用开发机自己的签名身份。
+- `scripts/package-github-release-assets.sh`：把已构建的 universal `.app`、Linux 双架构 binary、Windows 双架构 `.exe` 和 `open-computer-use` skill 封装到 `dist/release/github/`，并生成 `SHA256SUMS` 与 `release-assets-manifest.json`。macOS 必须分发完整 app bundle，不能把 bundle 内 binary 当成独立安装包。
 - `scripts/build-cursor-motion-dmg.sh`：本地构建 `Cursor Motion.app` 并封装 `dist/release/cursor-motion/CursorMotion-<version>.dmg`，支持 `native` / `arm64` / `x86_64` / `universal`。
 - `scripts/build-open-computer-use-linux.sh`：本地构建实验性 Linux `open-computer-use` binary，支持 `arm64` / `amd64`；release package 会把这两个产物内置进既有 npm 包的 `dist/linux/`。
 - `scripts/build-open-computer-use-windows.sh`：本地构建实验性 Windows `open-computer-use.exe`，支持 `arm64` / `amd64`；release package 会把这两个产物内置进既有 npm 包的 `dist/windows/`。
-- `.github/workflows/release.yml`：支持 push semver tag 自动发布，也支持手动触发；tag push 时会同时跑 npm release 打包逻辑与 `Cursor Motion` 的 DMG 打包，并把 `.dmg` 上传到对应的 GitHub Releases 页面。`Open Computer Use` 的 npm 产物默认走 ad-hoc signing；如果配置了 `OPEN_COMPUTER_USE_CODESIGN_*` secrets，则会先导入 `Developer ID Application` 证书，再按同一 identity 对 release `.app` 统一签名。`Cursor Motion` 的 DMG 也会复用同一张 `Developer ID Application` 证书签 app；若同时配置 `APPLE_NOTARY_*` secrets，则会在上传前对 `.dmg` 做 notarization 和 staple。
+- `.github/workflows/release.yml`：支持 push semver tag 自动发布，也支持手动触发；tag push 时会并行构建 npm/direct-download artifacts 与 `Cursor Motion` DMG，只有两个构建 job 都成功后，单一汇总 job 才会创建或更新 GitHub Release 并上传全套 assets。`Open Computer Use` 的 npm 与 app 制品默认走 ad-hoc signing；如果配置了 `OPEN_COMPUTER_USE_CODESIGN_*` secrets，则会先导入 `Developer ID Application` 证书，再按同一 identity 对 release `.app` 统一签名。若同时配置 `APPLE_NOTARY_*` secrets，direct-download app zip 会在 notarization 与 staple 后重新封装；`Cursor Motion` DMG 也会走 notarization 和 staple。
 
 ## 设计原则
 
@@ -34,8 +35,15 @@
 - `dist/release/npm/open-computer-use-<version>.tgz`
 - `dist/release/npm/open-computer-use-mcp-<version>.tgz`
 - `dist/release/npm/open-codex-computer-use-mcp-<version>.tgz`
+- `dist/release/github/Open-Computer-Use-<version>-macOS-universal.app.zip`
+- `dist/release/github/open-computer-use-cli-<version>-linux-{arm64,amd64}.tar.gz`
+- `dist/release/github/open-computer-use-cli-<version>-windows-{arm64,amd64}.zip`
+- `dist/release/github/open-computer-use-skill.zip`
+- `dist/release/github/open-computer-use.skill`
+- `dist/release/github/SHA256SUMS`
+- `dist/release/github/release-assets-manifest.json`
 - `dist/release/cursor-motion/CursorMotion-<version>.dmg`
-- GitHub Actions 中上传的 npm release artifact
-- GitHub Releases 中和 tag 对齐的 `CursorMotion-<version>.dmg`
+- GitHub Actions 中上传的 npm 与 direct-download release artifacts
+- GitHub Releases 中上述 direct-download assets 与和 tag 对齐的 `CursorMotion-<version>.dmg`
 
-也就是说，即使项目还没进入更复杂的部署阶段，仓库现在也已经同时具备了一条真实可复用的 npm 制品封装链路，以及一条由 git tag 驱动的 macOS app DMG 交付链路。
+也就是说，即使项目还没进入更复杂的部署阶段，仓库现在也同时具备 npm 分发链路，以及由 git tag 驱动、覆盖 macOS / Linux / Windows 和 skill 的直接下载链路。

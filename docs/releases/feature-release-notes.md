@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-09-29 | GitHub Release 直接下载 | 不使用 npm 或 Homebrew 的用户也可以从 GitHub Releases 直接下载 macOS app、Linux / Windows CLI 和 Agent skill，并通过 checksum 校验制品。 | tag release 在全部构建成功后统一发布 macOS universal `.app.zip`、Linux / Windows 双架构 CLI archives、`.zip` / `.skill` skill 包、SHA-256 校验和与机器可读 manifest；Developer ID 和 notary 配置齐全时会公证并 staple macOS app。 |
 | 2026-09-22 | JS REPL CLI | 用户无需先配置 MCP host，也可以直接用 `ocu js` 执行一次性 Computer Use JavaScript，或用 `ocu repl` 在终端中复用持久 binding；Agent 还能先读取结构化 capability 状态。 | npm launcher 新增 positional/stdin/file 三种 `js` 输入、持久 terminal REPL、`capabilities [--json]` 和稳定 help availability；`ocu mcp` 仍保持原生 9-tool surface。 |
 | 2026-09-22 | JS REPL 错误传播与 read-back | `js` 代码抛出的异常立即以 `isError` 返回且保留 bindings，不再等到 30 s 超时并丢弃 session；macOS 上一批 action 不再为每个动作等待 150 ms 并重新读取整棵 AX tree，十次点击从数秒降到约一次 state read。 | REPL adapter 从 Node 的 `handleError`（Node 26）或 domain（Node 22）路径 settle 当前 evaluation；adapter 以 `OPEN_COMPUTER_USE_ACTION_READ_BACK=0` 启动 native runtime，macOS action 在该模式下返回短状态、跳过 settle 与 snapshot；默认 9-tool 行为不变，Linux / Windows 暂时忽略该变量。 |
 | 2026-09-21 | JS REPL Computer Use | Agent 可以用异步 JavaScript 绑定 app，并在一个 tool round trip 内完成 inspect、action、条件和最终验证，不必在多轮间搬运所有中间状态。 | Codex plugin 通过持久 Node.js Worker 和 app-bound `cua` API 暴露 `js` / `js_reset`；`open-computer-use mcp` 继续保留既有 9-tool compatibility surface。 |

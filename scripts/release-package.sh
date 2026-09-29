@@ -16,6 +16,8 @@ node "${repo_root}/scripts/npm/build-packages.mjs" \
   --arch universal \
   --out-dir "${staging_dir}"
 
+"${repo_root}/scripts/package-github-release-assets.sh"
+
 while IFS= read -r package_dir; do
   npm pack "${package_dir}" --pack-destination "${tarball_dir}" >/dev/null
 done < <(find "${staging_dir}" -mindepth 1 -maxdepth 1 -type d | sort)
@@ -46,6 +48,7 @@ manifest = {
     ).strip(),
     "generated_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "artifacts": artifacts,
+    "github_release_assets": "dist/release/github/release-assets-manifest.json",
     "distribution": {
         "type": "npm",
         "package_count": len(artifacts),
