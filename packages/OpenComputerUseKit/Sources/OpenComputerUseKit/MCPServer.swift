@@ -19,12 +19,18 @@ Ask the user before taking destructive or externally visible actions such as sen
 
 public final class StdioMCPServer {
     private let dispatcher: ComputerUseToolDispatcher
+    private let backgroundStateReset: () -> Void
 
-    public init(service: ComputerUseService = ComputerUseService()) {
+    public init(
+        service: ComputerUseService = ComputerUseService(),
+        backgroundStateReset: @escaping () -> Void = resetOpenComputerUseBackgroundWindowState
+    ) {
         self.dispatcher = ComputerUseToolDispatcher(service: service)
+        self.backgroundStateReset = backgroundStateReset
     }
 
     public func run() throws {
+        defer { endSession() }
         while let line = readLine(strippingNewline: true) {
             guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 continue
@@ -67,9 +73,7 @@ public final class StdioMCPServer {
             case "notifications/initialized":
                 return nil
             case "notifications/turn-ended":
-                VisualCursorSupport.performOnMain {
-                    SoftwareCursorOverlay.reset()
-                }
+                endSession()
                 return nil
             case "ping":
                 return try encodeJSONRPCResult(id: id, result: [:])
@@ -117,6 +121,16 @@ public final class StdioMCPServer {
                 ]
             )
         }
+    }
+
+    /// Release state that is scoped to one MCP client session. App-hosted MCP
+    /// connections call this explicitly because they use `handle(line:)`
+    /// instead of the stdio `run()` loop.
+    public func endSession() {
+        VisualCursorSupport.performOnMain {
+            SoftwareCursorOverlay.reset()
+        }
+        backgroundStateReset()
     }
 
     private func encodeJSONRPCResult(id: Any?, result: [String: Any]) throws -> String {

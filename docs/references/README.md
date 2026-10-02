@@ -21,3 +21,9 @@
   - 当抓包目录里的 `websocket/` + `local-sessions/` 仍不足以解释本地 tool / MCP 行为时，再补查 Codex 本地 `logs_2.sqlite`。
 - `codex-computer-use-cli.md`
   - 仓库内 `scripts/computer-use-cli/` 的用途、使用方法，以及为什么探测官方 bundled `computer-use` 时要优先走 `codex app-server` 代理而不是 direct stdio。
+- `background-input-benchmarks.md`
+  - 后台点击 / 键盘 / snapshot / agent display 的实测数字：环境、方法、每张表的 n 与分位数、决定默认间隔的扫描、多 app 扫描结果和复现命令（英文）。
+- `macos-window-visibility-and-spaces.md`
+  - 被遮挡 / 其他 Space 窗口的 AX tree 与截图为什么会丢、WindowServer occlusion 通知 keep-alive、Chromium 懒加载 AX tree、已验证与未解决的边界。
+- `macos-skylight-background-keyboard.md`
+  - `key_method=sky_key` 的实机研究记录：为什么后台 Chromium 收得到按键却不输入文字、yabai key-window record、菜单快捷键走 AX、跨 Space 验证，以及哪些方案被实测否定。

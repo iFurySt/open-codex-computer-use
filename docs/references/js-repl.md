@@ -41,15 +41,15 @@ await app.getAXState();
 runtime and emits the initial accessibility state. The returned binding exposes:
 
 ```text
-getAXState(options?)
-getScreenshot(options?)
-getAXStateAndScreenshot(options?)
+getAXState({ emit?, textLimit?, maxTreeNodes?, maxTreeDepth?, windowPlacement? })
+getScreenshot({ emit?, windowPlacement? })
+getAXStateAndScreenshot({ emit?, textLimit?, maxTreeNodes?, maxTreeDepth?, windowPlacement? })
 click(elementIndexOrPoint, options?)
 drag([fromX, fromY], [toX, toY])
-pressKey(key)
+pressKey(key, options?)
 scroll(elementIndex, direction, pages?)
 setValue(elementIndex, value)
-typeText(text)
+typeText(text, options?)
 performSecondaryAction(elementIndex, action)
 ```
 
@@ -61,6 +61,24 @@ methods emit their result by default; pass
 `{ emit: false }` when code needs the value but the model does not need to see
 it. Use `nodeRepl.write(value)` for extra text and
 `await nodeRepl.emitImage(image)` for extra images.
+
+Snapshot options use camelCase and map to the native tool arguments:
+`textLimit`, `maxTreeNodes`, `maxTreeDepth`, and `windowPlacement`. Keyboard
+options accept `keyMethod`. For example, one macOS session can park a window,
+operate on it without taking foreground focus, and restore every window parked
+for that app:
+
+```js
+var chrome = await cua.getApp("Google Chrome");
+await chrome.getAXState({ windowPlacement: "agent_display" });
+await chrome.typeText("hello", { keyMethod: "sky_key" });
+await chrome.pressKey("cmd+a", { keyMethod: "sky_key" });
+await chrome.getAXState({ windowPlacement: "restore" });
+```
+
+`windowPlacement` and `keyMethod: "sky_key"` are macOS-only native
+capabilities. A parked window is also restored when the MCP/REPL connection
+closes or the host reports the end of the assistant turn.
 
 Top-level bindings persist across calls. Prefer `var` for reusable names, or use
 `js_reset` when the session really needs a fresh lexical scope. Resetting the

@@ -102,6 +102,47 @@ test("app-bound API composes actions and state in one js call", async () => {
   assert.ok(result.content.some(item => item.type === "text" && item.text === "state:Text"));
 });
 
+test("app-bound API forwards background-operation options", async () => {
+  const native = mockNative();
+  const session = new PersistentJavaScriptSession({ native });
+  const result = await session.run(`
+    var backgroundApp = await cua.getApp("Text");
+    await backgroundApp.getAXState({ emit: false, textLimit: "max", maxTreeNodes: 42, maxTreeDepth: 7, windowPlacement: "agent_display" });
+    await backgroundApp.getScreenshot({ emit: false, windowPlacement: "keep" });
+    await backgroundApp.getAXStateAndScreenshot({ emit: false, windowPlacement: "restore" });
+    await backgroundApp.typeText("hello", { keyMethod: "sky_key" });
+    await backgroundApp.pressKey("cmd+a", { keyMethod: "sky_key" });
+  `);
+
+  assert.equal(result.isError, false);
+  assert.deepEqual(native.calls[1], {
+    name: "get_app_state",
+    arguments: {
+      app: "Text",
+      text_limit: "max",
+      max_tree_nodes: 42,
+      max_tree_depth: 7,
+      window_placement: "agent_display",
+    },
+  });
+  assert.deepEqual(native.calls[2], {
+    name: "get_app_state",
+    arguments: { app: "Text", window_placement: "keep", text_limit: 1 },
+  });
+  assert.deepEqual(native.calls[3], {
+    name: "get_app_state",
+    arguments: { app: "Text", window_placement: "restore" },
+  });
+  assert.deepEqual(native.calls[4], {
+    name: "type_text",
+    arguments: { app: "Text", text: "hello", key_method: "sky_key" },
+  });
+  assert.deepEqual(native.calls[5], {
+    name: "press_key",
+    arguments: { app: "Text", key: "cmd+a", key_method: "sky_key" },
+  });
+});
+
 test("tool errors are catchable in JavaScript", async () => {
   const session = new PersistentJavaScriptSession({ native: mockNative() });
   const result = await session.run(`
