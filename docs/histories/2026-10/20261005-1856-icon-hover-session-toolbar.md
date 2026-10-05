@@ -23,3 +23,8 @@
 - apps/OpenComputerUse/Sources/OpenComputerUse/WorkspaceCodeBlock.swift
 - apps/OpenComputerUse/Sources/OpenComputerUse/VirtualDisplayWorkspace.swift
 - docs/FRONTEND.md
+
+### 后续修正：只改变符号颜色
+- 用户指出分组标题 hover 的大面积圆角背景不符合要求；移除共享图标样式的全部背景，仅保留符号从 secondary 到 primary 的色彩变化。
+- 分组标题恢复 plain 样式，保持标题、箭头与 + 的完整热区和展开逻辑；资源行原有选择样式不改。
+- 更新 FRONTEND；release App/helper 构建与签名校验通过，正常退出后重启并通过 agentInfo 确认新 runtime。没有新增热插拔测试或实现镜像测试。

@@ -14,9 +14,6 @@ struct WorkspaceIconButtonStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .foregroundStyle(enabled ? tint ?? (hovering || configuration.isPressed ? Color.primary : .secondary) : .secondary.opacity(0.4))
-                .background(enabled && (hovering || configuration.isPressed)
-                    ? Color.primary.opacity(configuration.isPressed ? 0.12 : 0.06) : .clear,
-                    in: RoundedRectangle(cornerRadius: 5))
                 .contentShape(Rectangle())
                 .onHover { hovering = $0 }
         }

@@ -649,7 +649,7 @@ private struct WorkspaceSidebarGroupHeader: View {
                 .frame(minHeight: 22)
                 .padding(.vertical, 8)
                 .contentShape(Rectangle())
-            }.buttonStyle(WorkspaceIconButtonStyle()).accessibilityLabel("\(expanded ? "Collapse" : "Expand") \(title)")
+            }.buttonStyle(.plain).accessibilityLabel("\(expanded ? "Collapse" : "Expand") \(title)")
             Button(action: create) { Image(systemName: "plus").frame(width: 28, height: 38).contentShape(Rectangle()) }
                 .buttonStyle(WorkspaceIconButtonStyle()).opacity(hovering ? 1 : 0).disabled(busy)
                 .help(title == "Displays" ? "New Display" : "New Session")
