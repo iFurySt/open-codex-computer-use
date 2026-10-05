@@ -64,4 +64,83 @@ final class VirtualDisplayPreviewTests: XCTestCase {
         XCTAssertEqual(motion.sample(at: 2), CGPoint(x: 0.5, y: 0.5))
         XCTAssertFalse(motion.isMoving)
     }
+
+    func testFreshOverlayAnimatesInsteadOfTeleportingAndTurnsAtCaptureCadence() throws {
+        var motion = VirtualDisplayCursorMotion()
+        let target = CGPoint(x: 0.8, y: 0.3)
+        motion.setTarget(target, at: 0, logicalSize: image, animateFirstMove: true)
+        XCTAssertTrue(motion.isTraveling)
+        XCTAssertNotEqual(motion.sample(at: 0), target)
+        var turns: [CGFloat] = []
+        var deviations: [CGFloat] = []
+        let start = try XCTUnwrap(motion.renderState(at: 0)).tipPosition
+        let end = CGPoint(x: target.x * image.width, y: (1 - target.y) * image.height)
+        for frame in 1...20 {
+            let pose = try XCTUnwrap(motion.renderState(at: Double(frame) / 30))
+            turns.append(abs(pose.rotation))
+            let cross = (end.x - start.x) * (pose.tipPosition.y - start.y) - (end.y - start.y) * (pose.tipPosition.x - start.x)
+            deviations.append(abs(cross) / hypot(end.x - start.x, end.y - start.y))
+        }
+        XCTAssertGreaterThan(turns.max() ?? 0, 0.05)
+        XCTAssertGreaterThan(deviations.max() ?? 0, 5, "The captured 30 fps samples must include a visible arc")
+        let finished = try XCTUnwrap(motion.sample(at: 10))
+        XCTAssertEqual(finished.x, target.x, accuracy: 0.0001)
+        XCTAssertEqual(finished.y, target.y, accuracy: 0.0001)
+        XCTAssertFalse(motion.isMoving)
+        motion.setTarget(nil, at: 10, logicalSize: image)
+        XCTAssertNil(motion.renderState(at: 10))
+    }
+
+    func testRenderedPositionAndHeadingMatchOrdinaryCursorDynamics() throws {
+        var motion = VirtualDisplayCursorMotion()
+        let start = CGPoint(x: image.width * 0.2, y: image.height * 0.7)
+        let end = CGPoint(x: image.width * 0.8, y: image.height * 0.3)
+        motion.setTarget(CGPoint(x: 0.2, y: 0.3), at: 0, logicalSize: image)
+        motion.setTarget(CGPoint(x: 0.8, y: 0.7), at: 0, logicalSize: image)
+        let heading = visualCursorAppKitForwardHeading(renderRotation: 0)
+        let candidate = try XCTUnwrap(HeadingDrivenCursorMotionModel.chooseBestCandidate(from:
+            HeadingDrivenCursorMotionModel.makeCandidates(start: start, end: end,
+                bounds: CGRect(origin: .zero, size: image),
+                startForward: CGVector(dx: cos(heading), dy: sin(heading)),
+                endForward: CGVector(dx: cos(heading), dy: sin(heading)))))
+        let duration = OfficialCursorMotionModel.calibratedTravelDuration(distance: hypot(end.x - start.x, end.y - start.y), measurement: candidate.measurement)
+        var dynamics = CursorVisualDynamicsAnimator.state(at: start, time: 0)
+        var progress: CGFloat = 0, spring = CursorMotionSpringState()
+        for frame in 1...6 {
+            let time = CGFloat(frame) / 30
+            (progress, spring) = CursorMotionProgressAnimator.advance(current: progress, state: spring,
+                to: min(time / duration, 1) * OfficialCursorMotionModel.closeEnoughTime)
+            let reference = CursorVisualDynamicsAnimator.advance(state: dynamics,
+                targetTipPosition: candidate.path.sample(at: progress).point, targetTime: time,
+                baseHeading: visualCursorRenderBaseHeading(), renderYAxisMultiplier: visualCursorRuntimeRenderYAxisMultiplier())
+            dynamics = reference.state
+            let actual = try XCTUnwrap(motion.renderState(at: Double(time)))
+            XCTAssertEqual(actual.tipPosition.x, reference.renderState.tipPosition.x, accuracy: 0.0001)
+            XCTAssertEqual(actual.tipPosition.y, reference.renderState.tipPosition.y, accuracy: 0.0001)
+            XCTAssertEqual(actual.rotation, reference.renderState.rotation, accuracy: 0.0001)
+        }
+    }
+
+    /// Reuses a caller-provided display; never hotplugs a screen during tests.
+    @MainActor
+    func testLiveCursorTravelCanBeCancelledAndClosedWithoutBlockingAppKit() async throws {
+        guard let value = ProcessInfo.processInfo.environment["OPEN_COMPUTER_USE_VIRTUAL_CURSOR_LIVE_DISPLAY_ID"],
+              let displayID = UInt32(value) else {
+            throw XCTSkip("Provide an existing virtual display ID for the AppKit cursor lifecycle check")
+        }
+        let overlay = try VirtualDisplayCursorOverlay(displayID: displayID)
+        defer { overlay.close() }
+        let cancelled = Task { await overlay.move(to: CGPoint(x: 0.8, y: 0.3)) }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        overlay.setTarget(nil)
+        let cancelResult = await cancelled.value
+        XCTAssertFalse(cancelResult)
+        let completed = await overlay.move(to: CGPoint(x: 0.5, y: 0.5))
+        XCTAssertTrue(completed)
+        let closed = Task { await overlay.move(to: CGPoint(x: 0.9, y: 0.1)) }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        overlay.close()
+        let closeResult = await closed.value
+        XCTAssertFalse(closeResult)
+    }
 }

@@ -574,12 +574,12 @@ public final class ComputerUseService {
                     throw ComputerUseError.invalidArguments("fixture click requires an identifier-backed element")
                 }
                 cursorTarget = visualCursorTarget(for: record, snapshot: snapshot)
-                moveVisualCursor(to: cursorTarget)
+                try moveVisualCursor(to: cursorTarget)
                 try FixtureBridge.post(FixtureCommand(kind: "click", identifier: identifier))
             } else if let x, let y {
                 let identifier = try fixtureIdentifier(at: CGPoint(x: x, y: y), snapshot: snapshot)
                 cursorTarget = fixtureVisualCursorTarget(identifier: identifier, snapshot: snapshot)
-                moveVisualCursor(to: cursorTarget)
+                try moveVisualCursor(to: cursorTarget)
                 try FixtureBridge.post(FixtureCommand(kind: "click", identifier: identifier, x: x, y: y))
             } else {
                 throw ComputerUseError.invalidArguments("click requires either element_index or x/y")
@@ -602,7 +602,7 @@ public final class ComputerUseService {
                 targetWindowLayer: snapshot.targetWindowLayer
             )
 
-            moveVisualCursor(to: cursorTarget)
+            try moveVisualCursor(to: cursorTarget)
 
             do {
                 switch clickMethod {
@@ -663,7 +663,7 @@ public final class ComputerUseService {
                 targetWindowLayer: snapshot.targetWindowLayer
             )
 
-            moveVisualCursor(to: cursorTarget)
+            try moveVisualCursor(to: cursorTarget)
 
             do {
                 switch clickMethod {
@@ -863,7 +863,7 @@ public final class ComputerUseService {
             }
 
             let cursorTarget = visualCursorTarget(for: record, snapshot: snapshot)
-            moveVisualCursor(to: cursorTarget)
+            try moveVisualCursor(to: cursorTarget)
             try FixtureBridge.post(FixtureCommand(kind: "set_value", identifier: identifier, value: value))
             Thread.sleep(forTimeInterval: 0.15)
             settleVisualCursor(at: cursorTarget)
@@ -879,7 +879,7 @@ public final class ComputerUseService {
         }
 
         let cursorTarget = visualCursorTarget(for: record, snapshot: snapshot)
-        moveVisualCursor(to: cursorTarget)
+        try moveVisualCursor(to: cursorTarget)
 
         do {
             try verifyVirtualInput()
@@ -1835,12 +1835,13 @@ public final class ComputerUseService {
         return record.flatMap { visualCursorTarget(for: $0, snapshot: snapshot) }
     }
 
-    private func moveVisualCursor(to target: VisualCursorTarget?) {
+    private func moveVisualCursor(to target: VisualCursorTarget?) throws {
+        guard VisualCursorSupport.isEnabled else { return }
         if let context = virtualContext, let target {
             let mappings = currentVisualCursorScreenMappings()
             if let mapping = mappings.first(where: { $0.appKitFrame.contains(target.point) }) {
                 let global = CGPoint(x: mapping.screenStateFrame.minX + target.point.x - mapping.appKitFrame.minX, y: mapping.screenStateFrame.minY + mapping.appKitFrame.maxY - target.point.y)
-                VirtualDisplaySessionRegistry.shared.setCursor(sessionID: context.sessionID, global: global)
+                try VirtualDisplaySessionRegistry.shared.moveCursor(sessionID: context.sessionID, global: global)
             }
             return
         }

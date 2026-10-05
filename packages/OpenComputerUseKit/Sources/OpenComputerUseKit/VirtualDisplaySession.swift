@@ -1088,9 +1088,9 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
         if isAction { try validate(s, requireApp: true) } else { try? validate(s, requireApp: true) }
         return result
     }
-    func setCursor(sessionID: String, global: CGPoint) {
-        guard let s = sessions[sessionID], s.reason == nil else { return }
-        s.capture.setCursor(CGPoint(x: (global.x - s.bounds.minX) / s.bounds.width, y: (global.y - s.bounds.minY) / s.bounds.height))
+    func moveCursor(sessionID: String, global: CGPoint) throws {
+        guard let s = sessions[sessionID], s.reason == nil else { throw ComputerUseError.message("Session paused or ended before cursor movement") }
+        try s.capture.moveCursor(to: CGPoint(x: (global.x - s.bounds.minX) / s.bounds.width, y: (global.y - s.bounds.minY) / s.bounds.height))
     }
     public func clearCursor() {
         controlLock.lock(); inputEpoch += 1

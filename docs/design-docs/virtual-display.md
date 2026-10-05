@@ -235,8 +235,10 @@ JS：cua.getAppCandidates(app?, {pid?})；display.attachApp(app?, {mode, pid?, w
 
 ## 虚拟屏软件光标与观看导航
 
-`VirtualDisplayCursorOverlay` 在实际虚拟屏内创建全屏透明、不可成为 key/main、忽略鼠标事件的 NSPanel；layer 裁剪保证图像不会越入物理屏。直接复用 OBU 图片/hotspot，路径与时序使用普通软件光标相同的 HeadingDriven 候选和 Official spring 模型；中途重新定位从当前画面位置继续。只在运动期间使用 60 Hz timer，静止与隐藏时停止；暂停/turn-ended 隐藏 glyph，屏幕参数改变时立即隐藏；停止捕获同步关闭面板，确保 holder 移除显示器前已无光标窗口。系统鼠标不移动，也不激活目标。
+`VirtualDisplayCursorOverlay` 在实际虚拟屏内创建全屏透明、不可成为 key/main、忽略鼠标事件的 NSPanel；layer 裁剪保证图像不会越入物理屏。直接复用 OBU 图片/hotspot，路径与时序使用普通软件光标相同的 HeadingDriven 候选和 Official spring 模型，并复用 CursorVisualDynamicsAnimator 的位置/角度弹簧；候选起始朝向取实际绘制角度，OBU 图片绕 hotspot 转向，中途重新定位从当前画面位置继续。首次移动从既有默认初始点播放，而非直接出现在目标上。只在移动与最多一秒尾部收敛期间使用 60 Hz timer，静止与隐藏时停止；暂停/turn-ended 隐藏 glyph，屏幕参数改变时立即隐藏；停止捕获同步关闭面板，确保 holder 移除显示器前已无光标窗口。系统鼠标不移动，也不激活目标。
 
 ScreenCaptureKit 使用 [宿主排除 + 指定窗口例外](https://developer.apple.com/documentation/screencapturekit/sccontentfilter/init(display:excludingapplications:exceptingwindows:))，仅包含该面板，宿主其他窗口继续排除。因此显示器帧订阅也包含光标，预览不需要额外光标层；窗口级工具截图仍按原来的目标窗口过滤。找不到软件光标捕获窗口时明确报错，不能退化成宿主全量捕获。
 
 `VirtualDisplayViewport` 独立于 snapshot/工具坐标：缩放保持指针下的图像位置、范围 0.25–8 倍，两指滑动（含系统惯性）与按住拖动共用平移路径，受图像边缘限制；精确滚动或带 phase/momentum 的手势归入平移，普通滚轮用于缩放。Original size 切换或双击重置。Retina 原始尺寸使用实际 backing scale。观看手势不调用任何远程输入工具。
+
+会话内光标 move 使用异步 MainActor continuation；工具 worker 最多等待 4 秒，travel 完成才继续真实输入，与普通 OCU 的动作先后顺序一致。暂停、turn-ended、关闭或捕获停止会取消等待；超时清除光标并拒绝本次输入，不因等待解除原有身份/窗口/后台校验。位置/朝向弹簧有逐帧参考模型测试，30 fps 取样也必须观察到弧线与转向；这不代替视频帧的像素级比对。

@@ -39,6 +39,18 @@ public final class VirtualDisplayCapture: NSObject, SCStreamOutput, SCStreamDele
         // Never synchronously wait for AppKit while holding the registry operation lock.
         DispatchQueue.main.async { overlay?.setTarget(point) }
     }
+    func moveCursor(to point: CGPoint) throws {
+        guard !Thread.isMainThread else { throw ComputerUseError.message("Cursor movement must run on a worker thread") }
+        lock.lock(); cursor = point; let overlay = cursorOverlay; lock.unlock()
+        guard let overlay else { throw ComputerUseError.message("Virtual display cursor is unavailable") }
+        let completed: Bool
+        do { completed = try BlockingAsyncBridge.run(timeout: 4) { await overlay.move(to: point) } }
+        catch {
+            setCursor(nil)
+            throw ComputerUseError.message("Virtual cursor movement timed out; input was not delivered")
+        }
+        guard completed else { throw ComputerUseError.message("Virtual cursor movement was cancelled; input was not delivered") }
+    }
     private func installOverlay(_ overlay: VirtualDisplayCursorOverlay, token: Int) -> Bool {
         lock.lock(); defer { lock.unlock() }
         guard token == generation else { return false }

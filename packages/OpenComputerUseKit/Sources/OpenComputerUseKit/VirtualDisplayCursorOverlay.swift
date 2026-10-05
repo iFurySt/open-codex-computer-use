@@ -11,6 +11,7 @@ final class VirtualDisplayCursorOverlay {
     private var timer: Timer?
     private var screenObserver: NSObjectProtocol?
     private var closed = false
+    private var travelCompletion: CheckedContinuation<Bool, Never>?
     var windowID: CGWindowID { CGWindowID(panel.windowNumber) }
 
     init(displayID: CGDirectDisplayID) throws {
@@ -45,9 +46,25 @@ final class VirtualDisplayCursorOverlay {
         }
     }
 
+    /// The worker waits for travel, while AppKit remains free to render/cancel.
+    func move(to point: CGPoint) async -> Bool {
+        guard !closed, !Task.isCancelled else { return false }
+        return await withCheckedContinuation { continuation in
+            finishTravel(false)
+            travelCompletion = continuation
+            setTarget(point)
+        }
+    }
+
+    private func finishTravel(_ completed: Bool) {
+        let completion = travelCompletion; travelCompletion = nil
+        completion?.resume(returning: completed)
+    }
+
     func setTarget(_ point: CGPoint?) {
         guard !closed else { return }
-        motion.setTarget(point, at: ProcessInfo.processInfo.systemUptime, logicalSize: panel.frame.size)
+        if point == nil { finishTravel(false) }
+        motion.setTarget(point, at: ProcessInfo.processInfo.systemUptime, logicalSize: panel.frame.size, animateFirstMove: true)
         render()
         guard motion.isMoving, timer == nil else { return }
         let timer = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] _ in
@@ -57,15 +74,17 @@ final class VirtualDisplayCursorOverlay {
     }
 
     private func render() {
-        if let point = motion.sample(at: ProcessInfo.processInfo.systemUptime) {
-            glyph.position = CGPoint(x: point.x * panel.frame.width, y: (1 - point.y) * panel.frame.height)
+        if let pose = motion.renderState(at: ProcessInfo.processInfo.systemUptime) {
+            glyph.position = pose.tipPosition
+            glyph.setAffineTransform(CGAffineTransform(rotationAngle: -pose.rotation))
             glyph.isHidden = false
         } else { glyph.isHidden = true }
+        if !motion.isTraveling { finishTravel(!glyph.isHidden) }
         if !motion.isMoving { timer?.invalidate(); timer = nil }
     }
 
     func close() {
-        closed = true; timer?.invalidate(); timer = nil
+        closed = true; finishTravel(false); timer?.invalidate(); timer = nil
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
         screenObserver = nil
         glyph.isHidden = true; panel.orderOut(nil); panel.close()
@@ -77,57 +96,88 @@ private final class VirtualCursorPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-/// Same path candidates and timing as the ordinary software cursor, sampled on a monotonic timeline.
-/// Stored points are display-local AppKit points; callers use normalized Quartz coordinates.
+/// Display-local animation using the ordinary cursor's path, progress, position
+/// and angle spring models. Normalized Quartz coordinates are only an API boundary.
 struct VirtualDisplayCursorMotion {
     private var size = CGSize(width: 1920, height: 1080)
     private var position: CGPoint?
     private var target: CGPoint?
     private var path: CursorMotionPath?
-    var isMoving: Bool { path != nil }
+    private var dynamics: CursorVisualDynamicsState?
+    private(set) var rotation: CGFloat = 0
+    private var settling = false
+    var isTraveling: Bool { path != nil }
+    var isMoving: Bool { isTraveling || settling }
     private var began: TimeInterval = 0
     private var duration: CGFloat = 0
     private var progress: CGFloat = 0
     private var spring = CursorMotionSpringState()
-    private var forward: CGVector = {
-        let heading = visualCursorAppKitForwardHeading(renderRotation: 0)
-        return CGVector(dx: cos(heading), dy: sin(heading))
-    }()
-    mutating func setTarget(_ point: CGPoint?, at time: TimeInterval, logicalSize: CGSize) {
+
+    mutating func setTarget(_ point: CGPoint?, at time: TimeInterval, logicalSize: CGSize, animateFirstMove: Bool = false) {
         guard let point, point.x.isFinite, point.y.isFinite, logicalSize.width > 0, logicalSize.height > 0 else {
             self = .init(); return
         }
-        _ = sample(at: time)
+        _ = renderState(at: time)
         if size != logicalSize { self = .init(); size = logicalSize }
         let end = CGPoint(x: min(max(point.x, 0), 1) * size.width, y: (1 - min(max(point.y, 0), 1)) * size.height)
         guard target != end else { return }
         target = end
-        guard let start = position, hypot(end.x - start.x, end.y - start.y) > 0.5 else {
-            position = end; path = nil; return
+        if position == nil {
+            position = animateFirstMove ? clamped(defaultVisualCursorInitialTipPosition()) : end
+            dynamics = CursorVisualDynamicsAnimator.state(at: position!, time: CGFloat(time))
         }
-        let heading = visualCursorAppKitForwardHeading(renderRotation: 0)
+        guard let start = position, hypot(end.x - start.x, end.y - start.y) > 0.5 else {
+            position = end; path = nil; settling = false; rotation = 0
+            dynamics = CursorVisualDynamicsAnimator.state(at: end, time: CGFloat(time))
+            return
+        }
+        let startHeading = visualCursorAppKitForwardHeading(renderRotation: rotation)
+        let endHeading = visualCursorAppKitForwardHeading(renderRotation: 0)
         let candidates = HeadingDrivenCursorMotionModel.makeCandidates(start: start, end: end,
-            bounds: CGRect(origin: .zero, size: size), startForward: forward,
-            endForward: CGVector(dx: cos(heading), dy: sin(heading)))
+            bounds: CGRect(origin: .zero, size: size),
+            startForward: CGVector(dx: cos(startHeading), dy: sin(startHeading)),
+            endForward: CGVector(dx: cos(endHeading), dy: sin(endHeading)))
         let selected = HeadingDrivenCursorMotionModel.chooseBestCandidate(from: candidates)
         let curve = selected?.path ?? CursorMotionPath(start: start, end: end)
-        path = curve
+        path = curve; settling = true
         duration = OfficialCursorMotionModel.calibratedTravelDuration(
             distance: hypot(end.x - start.x, end.y - start.y), measurement: selected?.measurement ?? curve.measure(bounds: nil))
         began = time; progress = 0; spring = .init()
     }
+
     mutating func sample(at time: TimeInterval) -> CGPoint? {
+        renderState(at: time).map { CGPoint(x: $0.tipPosition.x / size.width, y: 1 - $0.tipPosition.y / size.height) }
+    }
+
+    mutating func renderState(at time: TimeInterval) -> CursorVisualRenderState? {
+        guard let target, let position else { return nil }
+        var waypoint = target
         if let path {
             let elapsed = max(time - began, 0)
-            if elapsed >= Double(duration) {
-                position = path.end; self.path = nil
-            } else {
-                (progress, spring) = CursorMotionProgressAnimator.advance(current: progress, state: spring,
-                    to: CGFloat(elapsed) / max(duration, 0.001) * OfficialCursorMotionModel.closeEnoughTime)
-                let value = path.sample(at: progress)
-                position = value.point; forward = value.tangent
+            (progress, spring) = CursorMotionProgressAnimator.advance(current: progress, state: spring,
+                to: min(CGFloat(elapsed) / max(duration, 0.001), 1) * OfficialCursorMotionModel.closeEnoughTime)
+            waypoint = clamped(path.sample(at: progress).point)
+            if elapsed >= Double(duration) || CursorMotionProgressAnimator.isCloseEnough(progress: progress) {
+                self.path = nil; waypoint = target
             }
         }
-        return position.map { CGPoint(x: min(max($0.x / size.width, 0), 1), y: min(max(1 - $0.y / size.height, 0), 1)) }
+        if !isTraveling && time >= began + Double(duration) + 1 {
+            settling = false
+            dynamics = CursorVisualDynamicsAnimator.state(at: target, time: CGFloat(time))
+        }
+        let result = CursorVisualDynamicsAnimator.advance(
+            state: dynamics ?? CursorVisualDynamicsAnimator.state(at: position, time: CGFloat(time)),
+            targetTipPosition: waypoint, targetTime: CGFloat(time),
+            baseHeading: visualCursorRenderBaseHeading(), renderYAxisMultiplier: visualCursorRuntimeRenderYAxisMultiplier())
+        dynamics = result.state
+        self.position = clamped(result.renderState.tipPosition)
+        rotation = result.renderState.rotation
+        return CursorVisualRenderState(tipPosition: self.position!, rotation: rotation,
+            cursorBodyOffset: result.renderState.cursorBodyOffset, fogOffset: result.renderState.fogOffset,
+            fogOpacity: result.renderState.fogOpacity, fogScale: result.renderState.fogScale)
+    }
+
+    private func clamped(_ point: CGPoint) -> CGPoint {
+        CGPoint(x: min(max(point.x, 0), size.width), y: min(max(point.y, 0), size.height))
     }
 }
