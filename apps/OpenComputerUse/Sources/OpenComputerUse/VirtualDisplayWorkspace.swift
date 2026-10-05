@@ -440,24 +440,32 @@ struct VirtualDisplayWorkspaceView: View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Create virtual session").font(.title2)
             TextField("Session name (optional)", text: $model.sessionName)
-            Picker("Display", selection: $model.preferredDisplay) {
-                Text("Automatic — reuse or create").tag(nil as UInt32?)
-                ForEach(model.displays.filter { $0.online && $0.sessionIDs.isEmpty }) { display in
-                    Text(model.name(display)).tag(Optional(display.displayID))
+            HStack {
+                Text("Display")
+                Spacer()
+                WorkspaceChoicePopUp(
+                    selection: Binding(
+                        get: { model.preferredDisplay.map(Int.init) ?? 0 },
+                        set: { model.preferredDisplay = $0 == 0 ? nil : UInt32($0) }
+                    ),
+                    choices: [.init(value: 0, title: "Automatic — reuse or create")] +
+                        model.displays.filter { $0.online && $0.sessionIDs.isEmpty }.map {
+                            .init(value: Int($0.displayID), title: model.name($0))
+                        },
+                    accessibilityLabel: "Display", enabled: !model.busy
+                ).frame(width: 230, height: 34)
+            }
+            .onChange(of: model.preferredDisplay) { _, id in
+                if let display = model.displays.first(where: { $0.displayID == id }) {
+                    model.scale = display.configuration.scale
                 }
-            }.pickerStyle(.menu).disabled(model.busy)
-                .onChange(of: model.preferredDisplay) { _, id in
-                    if let display = model.displays.first(where: { $0.displayID == id }) {
-                        model.scale = display.configuration.scale
-                    }
-                }
+            }
             HStack {
                 Text("Display scale")
                 Spacer()
                 DisplayScalePopUp(selection: $model.scale, enabled: !model.busy && model.preferredDisplay == nil)
                     .frame(width: 230, height: 34)
             }
-            Text(model.preferredDisplay.map { "Use Display \($0). Applications can be added after creation." } ?? "Reuse a matching display, or create one. Applications can be added after creation.").foregroundStyle(.secondary)
             if model.busy {
                 HStack(spacing: 10) {
                     ProgressView().controlSize(.small)
@@ -770,10 +778,27 @@ final class VirtualDisplayWorkspaceController: NSObject, NSWindowDelegate {
     @objc private func showWorkspace() { show() }
 }
 
-// AppKit popup menus overlay their selected row without resizing the sheet.
-// Follows HeyYo's NativeAudioInputDevicePopUp pattern; no audio dependencies.
-private struct DisplayScalePopUp: NSViewRepresentable {
+// Shared native selection control, following HeyYo's Microphone popup pattern.
+// A selected-row popup overlays the trigger; fixed width keeps both form rows aligned.
+private struct DisplayScalePopUp: View {
     @Binding var selection: Int
+    var enabled: Bool
+    var body: some View {
+        WorkspaceChoicePopUp(selection: $selection, choices: [
+            .init(value: 1, title: "1× · 1920 × 1080"),
+            .init(value: 2, title: "2× · 3840 × 2160")
+        ], accessibilityLabel: "Display scale", enabled: enabled)
+    }
+}
+
+private struct WorkspaceChoicePopUp: NSViewRepresentable {
+    struct Choice: Equatable {
+        let value: Int
+        let title: String
+    }
+    @Binding var selection: Int
+    let choices: [Choice]
+    let accessibilityLabel: String
     var enabled: Bool
 
     func makeCoordinator() -> Coordinator { Coordinator(selection: $selection) }
@@ -785,11 +810,6 @@ private struct DisplayScalePopUp: NSViewRepresentable {
         button.font = .systemFont(ofSize: NSFont.systemFontSize)
         button.setContentHuggingPriority(.defaultLow, for: .horizontal)
         button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        button.setAccessibilityLabel("Display scale")
-        for (scale, title) in [(1, "1× · 1920 × 1080"), (2, "2× · 3840 × 2160")] {
-            button.addItem(withTitle: title)
-            button.lastItem?.tag = scale
-        }
         button.target = context.coordinator
         button.action = #selector(Coordinator.selectionChanged(_:))
         updateNSView(button, context: context)
@@ -798,12 +818,27 @@ private struct DisplayScalePopUp: NSViewRepresentable {
 
     func updateNSView(_ button: NSPopUpButton, context: Context) {
         context.coordinator.selection = $selection
+        // Polling refreshes the workspace; leave the menu intact when its options are unchanged.
+        if context.coordinator.choices != choices {
+            button.removeAllItems()
+            for choice in choices {
+                button.addItem(withTitle: choice.title)
+                button.lastItem?.tag = choice.value
+            }
+            context.coordinator.choices = choices
+        }
+        // Native menus reserve a leading checkmark gutter while anchoring the title.
+        // Include that gutter so the menu also covers the trigger’s trailing arrows.
+        button.menu?.minimumWidth = 246
         button.selectItem(withTag: selection)
         button.isEnabled = enabled
+        button.setAccessibilityLabel(accessibilityLabel)
+        button.cell?.lineBreakMode = .byTruncatingMiddle
     }
 
-    final class Coordinator: NSObject {
+    @MainActor final class Coordinator: NSObject {
         var selection: Binding<Int>
+        var choices: [Choice] = []
         init(selection: Binding<Int>) { self.selection = selection }
         @objc func selectionChanged(_ sender: NSPopUpButton) {
             guard let item = sender.selectedItem else { return }
