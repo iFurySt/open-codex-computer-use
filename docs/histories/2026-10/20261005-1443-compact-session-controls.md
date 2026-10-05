@@ -30,3 +30,6 @@
 - `docs/FRONTEND.md`
 - `docs/ARCHITECTURE.md`
 - `docs/design-docs/virtual-display.md`
+
+### 后续修正：顶部按钮顺序
+用户要求折叠在左、新会话在右并作为一组。将两者放入 detail navigation ToolbarItemGroup，移除系统自动折叠按钮；唯一折叠按钮直接控制 NavigationSplitView.columnVisibility，保持全高度原生侧栏。Release 构建及签名校验通过，真实 AX/截图验证展开和折叠顺序，New Session sheet 打开/取消正常。
