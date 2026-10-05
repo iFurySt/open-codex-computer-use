@@ -46,7 +46,9 @@ final class DisplayGuardian: NSObject {
     private(set) var fixtureAXSelfTestPassed = false
     private let fixtureGate = FixtureActionGate()
     private let brokerBootstrap: LockedUseGuardianBootstrap?
-    private let brokerClient: LockedUseIPCClient?
+    private var brokerClient: LockedUseIPCClient?
+    private var watchdogBootstrap: LockedUseGuardianBootstrap?
+    private var hasObservedUnlock = false
     private var brokerReportInFlight = false
     private var lastBrokerReport: TimeInterval = 0
     private var unlockWorkPending = false
@@ -85,7 +87,8 @@ final class DisplayGuardian: NSObject {
                 physicalInput = observer
                 try observer.start()
                 let hello = try client.request(.init(operation: .guardianHello, leaseID: bootstrap.leaseID, token: bootstrap.token))
-                guard hello.result != .denied else { throw GuardianError.message("Broker rejected Guardian identity/challenge") }
+                guard hello.result != .denied, let token = hello.token else { throw GuardianError.message("Broker rejected Guardian identity/challenge") }
+                watchdogBootstrap = try .init(leaseID: bootstrap.leaseID, token: token)
             } else { createCaptureFixture() }
             try coverDisplays()
             try startWatchdog()
@@ -289,6 +292,9 @@ final class DisplayGuardian: NSObject {
         watchdog = process
         watchdogInput = input.fileHandleForWriting
         watchdogOutput = output.fileHandleForReading
+        if let watchdogBootstrap {
+            try input.fileHandleForWriting.write(contentsOf: LockedUseIPCFrame.encode(watchdogBootstrap))
+        }
         watchdogReader = HeartbeatPipe(output.fileHandleForReading.fileDescriptor)
     }
 
@@ -319,6 +325,7 @@ final class DisplayGuardian: NSObject {
             }
             if watchdogHealthy { execute(try policy.heartbeat(now: now)) }
             let current = LockedUseSession.current()
+            if current.state == .unlocked, brokerBootstrap != nil { hasObservedUnlock = true }
             let tapHealthy = tap.map { CGEvent.tapIsEnabled(tap: $0) } ?? false
             // Secure input is expected at loginwindow after relock. Prior to
             // stopping it is a coverage gap and must stop the rehearsal.
@@ -348,6 +355,10 @@ final class DisplayGuardian: NSObject {
                 if policy.phase == .shielding, brokerBootstrap == nil {
                     let remaining = max(0, Int(ceil(15 - (now - started))))
                     shields.updateMessage("Open Computer Use · 遮罩期间操作测试\n剩余 \(remaining) 秒\n结束后将锁屏 · 请保持鼠标键盘不动")
+                }
+                if brokerBootstrap != nil, policy.phase == .shielding {
+                    let remaining = max(0, Int(ceil(LockedUseStateMachine.maximumLease - (now - started))))
+                    shields.updateMessage("Open Computer Use 正在使用电脑\n最长剩余 \(remaining) 秒\n移动鼠标或按键可返回锁屏")
                 }
                 emit("guardianState", details: ["phase": policy.phase.rawValue, "session": current.state.rawValue,
                     "reason": policy.reason?.rawValue ?? "", "inputTapEnabled": tapHealthy,
@@ -383,18 +394,32 @@ final class DisplayGuardian: NSObject {
                 }
                 if let watchdogInput { _ = HeartbeatPipe.send(76, to: watchdogInput.fileDescriptor) }
                 emit("lockConfirmed", details: ["shieldReleased": true, "unlockRequested": false])
-                cleanup()
-                NSApplication.shared.stop(nil)
-                // Wake an AppKit run loop which may currently have no events.
-                if let event = NSEvent.otherEvent(with: .applicationDefined, location: .zero, modifierFlags: [],
-                    timestamp: 0, windowNumber: 0, context: nil, subtype: 0, data1: 0, data2: 0) {
-                    NSApplication.shared.postEvent(event, atStart: true)
+                if let client = brokerClient, let bootstrap = brokerBootstrap {
+                    cleanup(closeBroker: false)
+                    Task { @MainActor in
+                        _ = try? await Task.detached {
+                            try client.request(.init(operation: .guardianReleased, leaseID: bootstrap.leaseID))
+                        }.value
+                        await Task.detached { client.close() }.value
+                        self.stopApplication()
+                    }
+                } else {
+                    cleanup()
+                    stopApplication()
                 }
             }
         }
     }
 
-    private func cleanup() {
+    private func stopApplication() {
+        NSApplication.shared.stop(nil)
+        if let event = NSEvent.otherEvent(with: .applicationDefined, location: .zero, modifierFlags: [],
+            timestamp: 0, windowNumber: 0, context: nil, subtype: 0, data1: 0, data2: 0) {
+            NSApplication.shared.postEvent(event, atStart: true)
+        }
+    }
+
+    private func cleanup(closeBroker: Bool = true) {
         timer?.invalidate()
         timer = nil
         if let tapSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), tapSource, .commonModes) }
@@ -408,12 +433,12 @@ final class DisplayGuardian: NSObject {
         watchdogOutput?.closeFile()
         physicalInput?.stop()
         physicalInput = nil
-        if let client = brokerClient { Task.detached { client.close() } }
+        if closeBroker, let client = brokerClient { Task.detached { client.close() } }
     }
 
     private func reportToBroker(now: TimeInterval, session: LockedUseSession, coverage: Bool,
                                 inputHealthy: Bool, watchdogHealthy: Bool) {
-        guard let bootstrap = brokerBootstrap, let client = brokerClient,
+        guard let bootstrap = brokerBootstrap,
               !brokerReportInFlight, now - lastBrokerReport >= 0.1 else { return }
         brokerReportInFlight = true
         lastBrokerReport = now
@@ -427,6 +452,19 @@ final class DisplayGuardian: NSObject {
         Task { @MainActor in
             defer { brokerReportInFlight = false }
             do {
+                let client: LockedUseIPCClient
+                if let existing = brokerClient { client = existing }
+                else {
+                    let observed = hasObservedUnlock
+                    let recovered = try await Task.detached {
+                        let candidate = try LockedUseIPCClient(endpoint: .guardian, brokerRequirement: LockedUseSigningIdentity.brokerRequirement())
+                        let hello = try candidate.request(.init(operation: .guardianRecoveryHello, leaseID: bootstrap.leaseID,
+                            session: .current(), unlockWorkPending: false, hasObservedUnlock: observed))
+                        guard hello.result != .denied else { candidate.close(); throw GuardianError.message("Guardian recovery denied") }
+                        return candidate
+                    }.value
+                    brokerClient = recovered; client = recovered
+                }
                 let reply = try await Task.detached { try client.request(message) }.value
                 guard reply.result != .denied else { throw GuardianError.message("Broker denied Guardian report") }
                 for effect in reply.effects {
@@ -440,7 +478,11 @@ final class DisplayGuardian: NSObject {
                     default: throw GuardianError.message("Unknown Broker Guardian effect")
                     }
                 }
-            } catch { stop(.parentDisconnected) }
+            } catch {
+                stop(.parentDisconnected)
+                if let failed = brokerClient { Task.detached { failed.close() } }
+                brokerClient = nil
+            }
         }
     }
 

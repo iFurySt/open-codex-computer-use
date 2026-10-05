@@ -5,6 +5,7 @@
 typedef struct {
     uint8_t audit_token[32];
     uint32_t effective_user_id;
+    uint32_t audit_user_id;
     uint32_t audit_session_id;
     int32_t process_id;
 } OCUPeerIdentity;
@@ -14,4 +15,7 @@ typedef struct {
 int ocu_copy_peer_identity(int socket_fd, OCUPeerIdentity *out_identity);
 /* 0: no allow ACE grants mutation; 1: unsafe; -1: inspection failed. */
 int ocu_has_mutating_acl(int file_fd);
+/* SCM_RIGHTS transfers a connected endpoint for kernel peer verification only. */
+int ocu_send_peer_socket(int channel_fd, int peer_fd);
+int ocu_receive_peer_socket(int channel_fd);
 #endif

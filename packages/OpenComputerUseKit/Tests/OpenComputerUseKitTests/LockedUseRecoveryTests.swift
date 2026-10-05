@@ -1,0 +1,87 @@
+import Foundation
+@testable import OpenComputerUseKit
+import XCTest
+
+final class LockedUseRecoveryTests: XCTestCase {
+    private func context(_ role: LockedUseBrokerCoordinator.Role, _ byte: UInt8) -> LockedUseBrokerCoordinator.Context {
+        .init(id: UUID(), role: role, userID: 501, auditSessionID: 42,
+            auditToken: Data(repeating: byte, count: 32), processID: Int32(100 + byte), codeHash: Data(repeating: byte, count: 20))
+    }
+    private let locked = LockedUseSession(state: .locked, userID: 501, auditSessionID: 42)
+    private let unlocked = LockedUseSession(state: .unlocked, userID: 501, auditSessionID: 42)
+    private let guards = LockedUseStateMachine.Guards(allDisplaysCovered: true, inputTapHealthy: true, watchdogHealthy: true, displayGeneration: 1)
+
+    func testWatchdogMustRegisterBeforeProductionPermitIsIssued() throws {
+        let owner = context(.agent, 1), guardian = context(.guardian, 2), watchdog = context(.guardian, 3)
+        var broker = LockedUseBrokerCoordinator(enabled: true, backendValidated: true, requiresWatchdog: true)
+        let begin = try broker.handle(.init(operation: .begin, session: locked), context: owner, now: 1)
+        let lease = try XCTUnwrap(begin.leaseID)
+        let hello = try broker.handle(.init(operation: .guardianHello, leaseID: lease, token: begin.token), context: guardian, now: 1.1)
+        _ = try broker.handle(.init(operation: .guardianReport, leaseID: lease, session: locked, guards: guards), context: guardian, now: 1.2)
+        XCTAssertEqual(broker.phase, .preparing)
+        XCTAssertThrowsError(try broker.handle(.init(operation: .watchdogHello, leaseID: lease, token: Data(repeating: 0, count: 32)), context: watchdog, now: 1.3))
+        _ = try broker.handle(.init(operation: .watchdogHello, leaseID: lease, token: hello.token), context: watchdog, now: 1.4)
+        let waiting = try broker.handle(.init(operation: .guardianReport, leaseID: lease, session: locked, guards: guards), context: guardian, now: 1.45)
+        XCTAssertEqual(waiting.phase, .preparing)
+        _ = try broker.handle(.init(operation: .watchdogReport, leaseID: lease, session: locked, guards: guards), context: watchdog, now: 1.46)
+        let ready = try broker.handle(.init(operation: .guardianReport, leaseID: lease, session: locked, guards: guards), context: guardian, now: 1.5)
+        XCTAssertEqual(ready.phase, .authorizing)
+        XCTAssertTrue(ready.effects.contains("requestUnlock"))
+    }
+
+    func testRecoveryNeverReissuesPermitAndNeedsActualUnlockDrainAndRelock() throws {
+        let owner = context(.agent, 1), guardian = context(.guardian, 2), watchdog = context(.guardian, 3)
+        let lease = UUID()
+        let record = try LockedUseRecoveryRecord(leaseID: lease, owner: owner, originalClientToken: Data(repeating: 9, count: 32), guardian: guardian,
+            watchdog: watchdog, watchdogChallenge: nil, everGranted: true, observedUnlocked: false, agentDrained: false, fullyReleased: false).validated()
+        var broker = LockedUseBrokerCoordinator(enabled: true, backendValidated: true, requiresWatchdog: true, recovery: record)
+        XCTAssertEqual(broker.phase, .relocking)
+        XCTAssertThrowsError(try broker.handle(.init(operation: .begin, session: locked), context: owner, now: 1))
+        let plugin = context(.plugin, 4)
+        XCTAssertThrowsError(try broker.handle(.init(operation: .pluginClaim), context: plugin, now: 1.1))
+        _ = try broker.handle(.init(operation: .guardianReport, leaseID: lease, session: locked, guards: guards, unlockWorkPending: false), context: guardian, now: 1.2)
+        _ = try broker.handle(.init(operation: .quiesced, leaseID: lease), context: owner, now: 1.3)
+        XCTAssertEqual(broker.phase, .relocking)
+        _ = try broker.handle(.init(operation: .guardianRecoveryHello, leaseID: lease, hasObservedUnlock: true), context: guardian, now: 1.4)
+        _ = try broker.handle(.init(operation: .quiesced, leaseID: lease), context: owner, now: 1.5)
+        let released = try broker.handle(.init(operation: .guardianReport, leaseID: lease, session: locked, guards: guards, unlockWorkPending: false), context: guardian, now: 1.6)
+        XCTAssertEqual(released.phase, .awaitingManualUnlock)
+        XCTAssertTrue(released.effects.contains("releaseGuards"))
+        _ = try broker.handle(.init(operation: .guardianReleased, leaseID: lease), context: guardian, now: 1.7)
+        _ = try broker.handle(.init(operation: .watchdogReleased, leaseID: lease), context: watchdog, now: 1.8)
+        XCTAssertTrue(broker.isFullyReleased)
+        let observer = context(.observer, 5)
+        _ = try broker.handle(.init(operation: .status, session: unlocked), context: observer, now: 1.9)
+        XCTAssertEqual(broker.phase, .idle)
+    }
+
+    func testGuardianDeathUsesIndependentWatchdogLockEvidenceAndActionDrain() throws {
+        let owner = context(.agent, 1), guardian = context(.guardian, 2), watchdog = context(.guardian, 3)
+        let lease = UUID()
+        let record = try LockedUseRecoveryRecord(leaseID: lease, owner: owner, originalClientToken: Data(repeating: 9, count: 32), guardian: guardian,
+            watchdog: watchdog, watchdogChallenge: nil, everGranted: true, observedUnlocked: true, agentDrained: false, fullyReleased: false).validated()
+        var broker = LockedUseBrokerCoordinator(enabled: true, backendValidated: true, requiresWatchdog: true, recovery: record)
+        try broker.guardianProcessExited()
+        let beforeDrain = try broker.handle(.init(operation: .watchdogReport, leaseID: lease, session: locked), context: watchdog, now: 1)
+        XCTAssertFalse(beforeDrain.effects.contains("releaseWatchdog"))
+        _ = try broker.handle(.init(operation: .quiesced, leaseID: lease), context: owner, now: 1.1)
+        let afterDrain = try broker.handle(.init(operation: .watchdogReport, leaseID: lease, session: locked), context: watchdog, now: 1.2)
+        XCTAssertEqual(afterDrain.phase, .awaitingManualUnlock)
+        XCTAssertTrue(afterDrain.effects.contains("releaseWatchdog"))
+        _ = try broker.handle(.init(operation: .watchdogReleased, leaseID: lease), context: watchdog, now: 1.3)
+        XCTAssertTrue(broker.isFullyReleased)
+    }
+
+    func testRecoveryRecordRejectsUnattestedOrCrossSessionPeers() throws {
+        let bare = LockedUseBrokerCoordinator.Context(id: UUID(), role: .agent, userID: 501, auditSessionID: 42)
+        let bad = LockedUseRecoveryRecord(leaseID: UUID(), owner: bare, originalClientToken: Data(repeating: 1, count: 32), guardian: nil, watchdog: nil,
+            watchdogChallenge: nil, everGranted: false, observedUnlocked: false, agentDrained: false, fullyReleased: true)
+        XCTAssertThrowsError(try bad.validated())
+        let owner = context(.agent, 1)
+        let other = LockedUseBrokerCoordinator.Context(id: UUID(), role: .guardian, userID: 502, auditSessionID: 42,
+            auditToken: Data(repeating: 2, count: 32), processID: 102, codeHash: Data(repeating: 2, count: 20))
+        let mismatch = LockedUseRecoveryRecord(leaseID: UUID(), owner: owner, originalClientToken: Data(repeating: 1, count: 32), guardian: other, watchdog: nil,
+            watchdogChallenge: nil, everGranted: false, observedUnlocked: false, agentDrained: false, fullyReleased: false)
+        XCTAssertThrowsError(try mismatch.validated())
+    }
+}

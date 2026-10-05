@@ -4,7 +4,7 @@ import Foundation
 /// the role/connection identity; neither is accepted from this message body.
 public struct LockedUseIPCMessage: Codable, Sendable {
     public enum Operation: String, Codable, Sendable {
-        case status, begin, guardianHello, guardianReport, action, end, quiesced
+        case status, disable, validationPassed, validationManual, begin, guardianHello, guardianReport, guardianReleased, watchdogHello, watchdogRecoveryHello, watchdogReport, watchdogReleased, ownerRecoveryHello, guardianRecoveryHello, action, end, quiesced
         case pluginClaim, pluginConsume, pluginFinished
     }
     public let version: Int
@@ -16,15 +16,17 @@ public struct LockedUseIPCMessage: Codable, Sendable {
     public let guards: LockedUseStateMachine.Guards?
     public let stopReason: LockedUseStateMachine.StopReason?
     public let unlockWorkPending: Bool?
+    public let hasObservedUnlock: Bool?
 
     public init(id: UUID = UUID(), operation: Operation, leaseID: UUID? = nil,
                 token: Data? = nil, session: LockedUseSession? = nil,
                 guards: LockedUseStateMachine.Guards? = nil,
-                stopReason: LockedUseStateMachine.StopReason? = nil, unlockWorkPending: Bool? = nil) {
+                stopReason: LockedUseStateMachine.StopReason? = nil, unlockWorkPending: Bool? = nil, hasObservedUnlock: Bool? = nil) {
         version = 1; self.id = id; self.operation = operation
         self.leaseID = leaseID; self.token = token; self.session = session
         self.guards = guards; self.stopReason = stopReason
         self.unlockWorkPending = unlockWorkPending
+        self.hasObservedUnlock = hasObservedUnlock
     }
 
     public func validated() throws -> Self {

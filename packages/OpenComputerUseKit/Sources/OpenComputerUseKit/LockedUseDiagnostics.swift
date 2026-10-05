@@ -74,6 +74,8 @@ public struct LockedUseDiagnostics: Codable, Sendable {
     public let stage: String
     public let enabled: Bool
     public let available: Bool
+    public let clientApproved: Bool
+    public let authenticationPolicyIntact: Bool
     public let session: LockedUseSession
     public let accessibility: Bool
     public let screenRecording: Bool
@@ -88,25 +90,41 @@ public struct LockedUseDiagnostics: Codable, Sendable {
     public static func current() -> LockedUseDiagnostics {
         let pluginsPath = "/Library/Security/SecurityAgentPlugins"
         let entries = (try? FileManager.default.contentsOfDirectory(atPath: pluginsPath)) ?? []
-        let ownPlugin = "OpenComputerUseAuthorizationPlugin.bundle"
-        let others = entries.filter { $0.hasSuffix(".bundle") && $0 != ownPlugin }.sorted()
+        let ownPlugin = "OpenComputerUseLockedUseAuthorizationPlugin.bundle"
+        let others = entries.filter { $0.hasSuffix(".bundle") && $0 != ownPlugin && $0 != "OpenComputerUseAuthorizationPlugin.bundle" }.sorted()
+        let configuration = try? LockedUseBrokerConfiguration.loadInstalled()
+        let policyIntact = (try? LockedUseAuthorizationRules.installedRulesObserved()) == true
+        let identity = try? LockedUseSigningIdentity.current()
+        let approvals = try? LockedUseClientApprovals.loadInstalled()
+        let approved = approvals?.approvals.contains { record in
+            record.role == .agent && record.userID == identity?.userID
+                && record.signingIdentifier == identity?.signingIdentifier
+                && record.teamIdentifier == identity?.teamIdentifier
+        } ?? false
+        var available = false
+        if let configuration, let team = try? LockedUseSigningIdentity.current().teamIdentifier,
+           let evidence = try? LockedUseComponentValidation.current(team: team) {
+            available = policyIntact && approved && configuration.matchesValidation(osBuild: evidence.osBuild, brokerHash: evidence.brokerHash,
+                guardianHash: evidence.guardianHash, pluginHash: evidence.pluginHash)
+        }
         return .init(
-            schemaVersion: 1, stage: "experimental-preflight", enabled: false, available: false,
+            schemaVersion: 1, stage: available ? "validated" : configuration == nil ? "experimental-preflight" : "installed-awaiting-validation", enabled: configuration?.enabled ?? false, available: available,
+            clientApproved: approved, authenticationPolicyIntact: policyIntact,
             session: .current(), accessibility: AXIsProcessTrusted(),
             screenRecording: CGPreflightScreenCaptureAccess(), inputMonitoring: CGPreflightListenEventAccess(),
             pluginInstalled: entries.contains(ownPlugin),
-            brokerInstalled: FileManager.default.fileExists(atPath: "/Library/PrivilegedHelperTools/OpenComputerUseLockedUseBroker"),
+            brokerInstalled: FileManager.default.fileExists(atPath: "/Library/Application Support/OpenComputerUse/LockedUse/OpenComputerUseLockedUseBroker"),
             otherAuthorizationPlugins: others,
-            blockers: [
-                "The loginwindow unlock backend has not passed live validation; automatic unlock is unavailable.",
-                "The display/input guardian is a live rehearsal adapter; the privileged Broker and production guardian integration are not implemented.",
-                "The production loginwindow flow and Keychain preservation require live validation; isolated plugin loading does not validate session unlocking."
+            blockers: available ? [] : [
+                "The loginwindow unlock backend and Keychain preservation require live validation for these components and this macOS build. Production automatic unlock is unavailable.",
+                "An explicitly administrator-installed validation profile can exercise the protected unlock transaction; installation alone does not validate it."
             ]
         )
     }
 
     public var summary: String {
         "Locked Use: stage=\(stage), enabled=\(enabled), available=\(available), session=\(session.state.rawValue)\n"
+            + "Client approved: \(clientApproved), authentication policy intact: \(authenticationPolicyIntact)\n"
             + "Input Monitoring: \(inputMonitoring ? "granted" : "missing")\n"
             + "Other authorization plugins: \(otherAuthorizationPlugins.isEmpty ? "none detected" : otherAuthorizationPlugins.joined(separator: ", "))\n"
             + blockers.joined(separator: "\n")
@@ -124,9 +142,10 @@ public struct LockedUseDiagnostics: Codable, Sendable {
 func requireUsableComputerUseSession(_ session: LockedUseSession = .current()) throws {
     switch session.state {
     case .unlocked:
+        try LockedUseActionScope.validate()
         return
     case .locked:
-        throw ComputerUseError.stateUnavailable("The Mac is locked. Locked Use is not available until its loginwindow backend and independent guardian pass live validation. Unlock the Mac manually; run `ocu locked-use status --json` for diagnostics.")
+        throw ComputerUseError.stateUnavailable("The Mac is locked and this GUI request has no active Locked Use lease. Enable and validate Locked Use in the signed app, or unlock normally; run `ocu locked-use status --json` for diagnostics.")
     case .unavailable:
         throw ComputerUseError.stateUnavailable("No completed GUI session for the current console user is available. Computer Use cannot operate a login, switched-user, or unknown session.")
     }

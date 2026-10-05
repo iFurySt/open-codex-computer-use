@@ -9,10 +9,14 @@ identity="$2"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 swift build --product OpenComputerUseLockedUseBroker
+swift build --product OpenComputerUseLockedUseInstaller
 binary_dir="$(swift build --show-bin-path)"
 output="$repo_root/.build/locked-use/components"
 mkdir -p "$output"
 cp "$binary_dir/OpenComputerUseLockedUseBroker" "$output/OpenComputerUseLockedUseBroker"
+cp "$binary_dir/OpenComputerUseLockedUseInstaller" "$output/OpenComputerUseLockedUseInstaller"
+codesign --force --options runtime --timestamp --identifier dev.opencomputeruse.locked-use.installer \
+  --sign "$identity" "$output/OpenComputerUseLockedUseInstaller"
 codesign --force --options runtime --timestamp --identifier dev.opencomputeruse.locked-use.broker \
   --sign "$identity" "$output/OpenComputerUseLockedUseBroker"
 team="$(codesign -dv --verbose=4 "$output/OpenComputerUseLockedUseBroker" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
@@ -43,3 +47,20 @@ xcrun clang -std=c11 -Wall -Wextra -Werror -mmacosx-version-min=14.0 -framework 
   experiments/LockedUse/AuthorizationPlugin/RemotePluginTests.c -o "$output/remote-plugin-abi-tests"
 "$output/remote-plugin-abi-tests" "$bundle/Contents/MacOS/OpenComputerUseLockedUseAuthorizationPlugin"
 echo 'Signed Broker, Guardian and remote plugin built. No system files or authorization rules changed.'
+
+fixture="$output/Locked Use Native Fixture (Dev).app"
+mkdir -p "$fixture/Contents/MacOS"
+cp "$binary_dir/OpenComputerUseGuardian" "$fixture/Contents/MacOS/OpenComputerUseGuardian"
+cat > "$fixture/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>dev.opencomputeruse.locked-use.fixture.dev</string>
+<key>CFBundleExecutable</key><string>OpenComputerUseGuardian</string>
+<key>CFBundleName</key><string>Locked Use Native Fixture</string>
+<key>CFBundleVersion</key><string>1</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>NSPrincipalClass</key><string>NSApplication</string>
+</dict></plist>
+PLIST
+codesign --force --options runtime --timestamp --sign "$identity" "$fixture"

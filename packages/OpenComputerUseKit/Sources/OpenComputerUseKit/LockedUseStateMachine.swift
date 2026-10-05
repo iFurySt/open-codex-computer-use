@@ -100,6 +100,14 @@ public struct LockedUseStateMachine: Sendable {
 
     public init() {}
 
+    public mutating func restoreForRelock(owner: Owner, fullyReleased: Bool) {
+        reset()
+        self.owner = owner
+        phase = fullyReleased ? .awaitingManualUnlock : .relocking
+        requiresManualUnlock = true
+        stopReason = .disconnected
+    }
+
     /// `now` must be monotonic uptime. Wall-clock timestamps cannot extend leases.
     public mutating func begin(owner candidate: Owner, session: LockedUseSession, prerequisites: Prerequisites, now: TimeInterval) throws -> [Effect] {
         try checkClock(now)

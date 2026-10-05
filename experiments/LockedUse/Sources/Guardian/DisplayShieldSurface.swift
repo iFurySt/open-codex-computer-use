@@ -40,14 +40,14 @@ final class DisplayShieldSurface {
         }.joined(separator: "|")
     }
 
-    func coverDisplays(message: String) throws {
+    func coverDisplays(message: String, levelOffset: Int = 0) throws {
         let screens = screenIDs()
         guard !screens.isEmpty else { throw GuardianError.message("No display available") }
         topology = displayTopology()
         for (id, screen) in screens {
             let window = ShieldWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false, screen: screen)
             window.setFrame(screen.frame, display: true)
-            window.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
+            window.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + levelOffset)
             window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
             window.backgroundColor = .black
             window.isOpaque = true

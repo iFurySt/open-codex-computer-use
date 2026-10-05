@@ -237,12 +237,18 @@ final class LockedUseTests: XCTestCase {
         XCTAssertThrowsError(try requireUsableComputerUseSession(session(.unavailable)))
     }
 
-    func testCLIExposesReadOnlyPreflightAndRejectsSystemMutations() throws {
+    func testCLIRoutesAdministrationLocallyAndRejectsMalformedCommands() throws {
         XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["locked-use", "status"]), .lockedUseStatus(json: false))
         XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["locked-use", "status", "--json"]), .lockedUseStatus(json: true))
         XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["locked-use", "--help"]), .help(command: "locked-use"))
         XCTAssertTrue(shouldUseMacOSAppAgentProxy(command: .lockedUseStatus(json: true), proxyDisabled: false, appBundleAvailable: true, runningFromLaunchServicesAppInstance: false))
-        for arguments in [["status", "--json", "--json"], ["enable"], ["disable"], ["authorize-client", "test"], ["uninstall"], ["unknown"], []] {
+        for action in ["enable", "disable", "recover", "certify", "settings"] {
+            let command = OpenComputerUseCLICommand.lockedUseManagement(action: action, validation: false)
+            XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["locked-use", action]), command)
+            XCTAssertFalse(shouldUseMacOSAppAgentProxy(command: command, proxyDisabled: false, appBundleAvailable: true, runningFromLaunchServicesAppInstance: false))
+        }
+        XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["locked-use", "enable", "--validation"]), .lockedUseManagement(action: "enable", validation: true))
+        for arguments in [["status", "--json", "--json"], ["disable", "--validation"], ["enable", "--validation", "extra"], ["authorize-client", "test"], ["uninstall"], ["unknown"], []] {
             XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["locked-use"] + arguments))
         }
     }

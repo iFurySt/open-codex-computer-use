@@ -84,3 +84,15 @@ Broker 基础组件补充 LOCAL_PEERTOKEN / Security 动态验证、固定路径
 新增独立签名 Broker、受角色约束的内核身份认证 IPC、Guardian challenge 和一次性 remote 插件许可。IPC 限制消息 / 排队大小并使用绝对截止时间，重验动态签名身份；放行不等于桌面解锁，动作仍需独立 Guardian 观测和健康证明。取消后不以旧锁屏状态提前撤罩。Guardian 接入锁屏 AXConfirm 和不读取键值的硬件活动监测，后者尚待 Secure Input 实机验证。
 
 验证：完整 Swift 222 项、1 项 gated live test 跳过、0 失败；已签名 remote 插件离线 ABI 验证拒绝、重复调用与取消。系统安装、OCU 租约入口和真实解锁仍在后续计划内，未合并目标分支。
+
+### 原生租约接入与恢复开发
+
+用户要求先提交当前开发，再继续完成全部实现 / 验证，最后一次性本地合并；已有开发 checkpoint，未合并目标分支。补齐签名 native Installer、CLI / settings 的安装 / 停用 / 部分恢复与验证转生产入口，以及 SCM_RIGHTS 原始 CLI 内核身份、app-agent 连接级租约 / 动作排空、客户端 EOF 和 JS reset / timeout 旧 epoch 停止。
+
+root Broker 增加 boot-bound crash journal，回复授权前 fsync，不保存 / 恢复 permit；旧 peer 只能重连接续排空 / 重锁。Guardian / 独立 watchdog 双进程遮罩与输入保护、root 健康回报和 release ACK 防止新租约 / 卸载跨越未释放保护。认证策略改变后撤销本 epoch，新保护健康要求和恢复边界有离线测试。
+
+新增固定真实 AX / SCK fixture 和自有 Keychain probe / 监督式控制器，图片 / 随机值不落盘或输出；完整测试证据由 root 记录并匹配 OS / 组件哈希，生产 promotion 仍要求实测和管理员认证。构建支持匹配 profile 的自有 Keychain group；本机缺少匹配 profile，Data Protection 尚未实测。未锁屏 legacy 自有项目创建 / 读取 / 清理通过；原生 AX / SCK preflight 因新 app 权限缺失被拒绝，已打开引导。修复旧 agent 的启动时间懒初始化，构建 UUID 阻止复用旧代码。
+
+当前完整 Swift 234 项（1 项跳过、0 失败）、Node 24 项、fixture / cursor smoke、签名插件离线 ABI 和 profile 校验测试通过。还没有真实自动解锁、系统 Installer / recovery / promotion、Secure Input 键鼠、进程死亡 / 服务重启 / 显示器变化与完整 Keychain 保持的实测证据；保留生产关闭，不提前合并。
+
+- 用户完成隔离 app 授权并重启验证实例后，固定独立 native fixture 的真实 AXPress、计数器变化、前后 SCK 图像变化及 legacy 自有测试项通过；没有执行锁屏或自动解锁，测试项已清理。

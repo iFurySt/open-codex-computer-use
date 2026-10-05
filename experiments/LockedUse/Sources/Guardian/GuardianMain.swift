@@ -21,19 +21,14 @@ struct GuardianMain {
         signal(SIGPIPE, SIG_IGN)
         do {
             switch Array(CommandLine.arguments.dropFirst()) {
+            case ["--external-fixture"]:
+                let app = NSApplication.shared
+                app.setActivationPolicy(.regular)
+                let fixture = ExternalFixture()
+                fixture.show()
+                withExtendedLifetime(fixture) { app.run() }
             case ["--broker-guardian"]:
-                var decoder = LockedUseIPCFrame()
-                var bootstrap: LockedUseGuardianBootstrap?
-                let deadline = ProcessInfo.processInfo.systemUptime + 3
-                while bootstrap == nil {
-                    try LockedUseIPCSocket.wait(descriptor: STDIN_FILENO, events: Int16(POLLIN), deadline: deadline)
-                    var bytes = [UInt8](repeating: 0, count: 4096)
-                    let count = Darwin.read(STDIN_FILENO, &bytes, bytes.count)
-                    guard count > 0 else { throw GuardianError.message("Guardian bootstrap pipe ended") }
-                    let frames = try decoder.append(Data(bytes.prefix(count)))
-                    guard frames.count <= 1 else { throw GuardianError.message("Invalid Guardian bootstrap") }
-                    if let frame = frames.first { bootstrap = try JSONDecoder().decode(LockedUseGuardianBootstrap.self, from: frame) }
-                }
+                let bootstrap = try readGuardianBootstrap()
                 let app = NSApplication.shared
                 app.setActivationPolicy(.accessory)
                 let guardian = try DisplayGuardian(session: .current(), brokerBootstrap: bootstrap)
@@ -180,9 +175,10 @@ struct GuardianMain {
 
 enum GuardianError: Error { case message(String) }
 
-/// Separate process with no AppKit dependency in its loop. Inherited heartbeat
-/// loss always requests relock. It never trusts a command claiming lock success.
-func runWatchdog(persistent: Bool = false) throws {
+/// Separate process and protection surface. Root IPC uses a separate queue;
+/// inherited heartbeat loss requests relock without waiting for root replies.
+@MainActor func runWatchdog(persistent: Bool = false) throws {
+    let bootstrap = persistent ? try readGuardianBootstrap() : nil
     let initial = LockedUseSession.current()
     guard (initial.state == .unlocked || (persistent && initial.state == .locked)), initial.userID != nil, initial.auditSessionID != nil,
           isatty(STDIN_FILENO) == 0 else { throw GuardianError.message("Watchdog requires an inherited pipe and an unlocked GUI session") }
@@ -192,7 +188,9 @@ func runWatchdog(persistent: Bool = false) throws {
     var lastHeartbeat = ProcessInfo.processInfo.systemUptime
     var lastLock = -Double.infinity
     var stopping = false
-    _ = HeartbeatPipe.send(82, to: STDOUT_FILENO) // R = actual watchdog initialized
+    let shield = persistent ? try WatchdogShield(stop: { stopping = true }) : nil
+    let brokerLink = bootstrap.map { WatchdogBrokerLink(bootstrap: $0, protected: shield?.healthy == true) }
+    if !persistent { _ = HeartbeatPipe.send(82, to: STDOUT_FILENO) } // R requires root registration in broker mode
     while true {
         let now = ProcessInfo.processInfo.systemUptime
         let bytes = pipe.drain(allowed: [72, 76]) // H heartbeat, L guardian saw lock
@@ -200,7 +198,15 @@ func runWatchdog(persistent: Bool = false) throws {
         if pipe.failed || now - lastHeartbeat >= 1.5 { stopping = true }
         let current = LockedUseSession.current()
         let same = current.userID == initial.userID && current.auditSessionID == initial.auditSessionID
-        if bytes.contains(76), same, current.state == .locked { return }
+        let protected = shield?.healthy ?? true
+        if !protected { stopping = true }
+        brokerLink?.observe(current, protected: protected, stopping: stopping)
+        if brokerLink?.ready == true { _ = HeartbeatPipe.send(82, to: STDOUT_FILENO) }
+        if (bytes.contains(76) || brokerLink?.releaseRequested == true), same, current.state == .locked {
+            shield?.close()
+            brokerLink?.finish()
+            return
+        }
         if stopping {
             if same, current.state == .locked, !persistent { return }
             if now - lastLock >= 0.5 {
@@ -212,6 +218,7 @@ func runWatchdog(persistent: Bool = false) throws {
             }
         } else if !same || current.state == .unavailable { stopping = true }
         _ = HeartbeatPipe.send(72, to: STDOUT_FILENO)
-        Thread.sleep(forTimeInterval: 0.1)
+        if persistent { _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) }
+        else { Thread.sleep(forTimeInterval: 0.1) }
     }
 }

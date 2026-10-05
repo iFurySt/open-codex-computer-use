@@ -5,6 +5,7 @@ public enum OpenComputerUseCLICommand: Equatable {
     case mcp
     case doctor
     case lockedUseStatus(json: Bool)
+    case lockedUseManagement(action: String, validation: Bool)
     case listApps
     case snapshot(app: String, textLimit: SnapshotTextLimit = .defaults, treeLimits: AccessibilityTreeLimits = .defaults)
     case call(OpenComputerUseCallInvocation)
@@ -35,7 +36,7 @@ public func shouldUseMacOSAppAgentProxy(
         return !runningFromLaunchServicesAppInstance
     case .mcp, .doctor, .lockedUseStatus, .listApps, .snapshot, .call:
         return true
-    case .turnEnded, .help, .version:
+    case .lockedUseManagement, .turnEnded, .help, .version:
         return false
     }
 }
@@ -148,8 +149,16 @@ public func openComputerUseHelpText(command: String? = nil) -> String {
           open-computer-use locked-use status [--json]
 
         Read-only macOS session, permission, and system-component diagnostics.
-        Automatic unlock and system installation are not available in this
-        experimental preflight build. No command changes authentication rules.
+          open-computer-use locked-use enable [--validation]
+          open-computer-use locked-use disable
+          open-computer-use locked-use recover
+          open-computer-use locked-use certify
+          open-computer-use locked-use settings
+
+        Installation and removal require macOS administrator authentication.
+        --validation installs an experimental profile for supervised testing.
+        Production unlock requires evidence matching this OS and component build.
+        recover restores an interrupted installation only after safe drainage.
         """
     case "list-apps":
         return """
@@ -488,12 +497,10 @@ private func parseLockedUse(arguments: [String]) throws -> OpenComputerUseCLICom
     }
     if arguments == ["status"] { return .lockedUseStatus(json: false) }
     if arguments == ["status", "--json"] { return .lockedUseStatus(json: true) }
-    if let operation = arguments.first,
-       ["enable", "disable", "authorize-client", "revoke-client", "uninstall"].contains(operation) {
-        throw OpenComputerUseCLIError(
-            message: "Locked Use system installation and client authorization are unavailable until live validation passes. This build does not modify authentication rules.",
-            helpCommand: "locked-use"
-        )
+    if arguments == ["enable", "--validation"] { return .lockedUseManagement(action: "enable", validation: true) }
+    if arguments.count == 1, let action = arguments.first,
+       ["enable", "disable", "recover", "certify", "settings"].contains(action) {
+        return .lockedUseManagement(action: action, validation: false)
     }
-    throw OpenComputerUseCLIError(message: "Expected locked-use status [--json]", helpCommand: "locked-use")
+    throw OpenComputerUseCLIError(message: "Expected locked-use status, enable, disable, recover, certify, or settings", helpCommand: "locked-use")
 }

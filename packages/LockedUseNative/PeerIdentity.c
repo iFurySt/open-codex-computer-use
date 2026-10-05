@@ -1,6 +1,8 @@
 #include "LockedUseNative.h"
 #include <bsm/libbsm.h>
 #include <errno.h>
+#include <unistd.h>
+#include <fcntl.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -18,6 +20,7 @@ int ocu_copy_peer_identity(int socket_fd, OCUPeerIdentity *out) {
     if (size != sizeof(token)) { errno = EINVAL; return -1; }
     memcpy(out->audit_token, &token, sizeof(token));
     out->effective_user_id = audit_token_to_euid(token);
+    out->audit_user_id = audit_token_to_auid(token);
     out->audit_session_id = audit_token_to_asid(token);
     out->process_id = audit_token_to_pid(token);
     return 0;
@@ -62,4 +65,48 @@ int ocu_has_mutating_acl(int file_fd) {
     if (result == 0 && entry_status < 0 && errno != EINVAL) result = -1;
     acl_free(acl);
     return result;
+}
+
+int ocu_send_peer_socket(int channel_fd, int peer_fd) {
+    unsigned char marker = 0x4f;
+    struct iovec vector = { &marker, 1 };
+    union { struct cmsghdr alignment; char bytes[CMSG_SPACE(sizeof(int))]; } control = {0};
+    struct msghdr message = {0};
+    message.msg_iov = &vector; message.msg_iovlen = 1;
+    message.msg_control = control.bytes; message.msg_controllen = sizeof(control.bytes);
+    struct cmsghdr *header = CMSG_FIRSTHDR(&message);
+    header->cmsg_level = SOL_SOCKET; header->cmsg_type = SCM_RIGHTS;
+    header->cmsg_len = CMSG_LEN(sizeof(int));
+    memcpy(CMSG_DATA(header), &peer_fd, sizeof(peer_fd));
+    return sendmsg(channel_fd, &message, 0) == 1 ? 0 : -1;
+}
+
+int ocu_receive_peer_socket(int channel_fd) {
+    unsigned char marker = 0;
+    struct iovec vector = { &marker, 1 };
+    union { struct cmsghdr alignment; char bytes[CMSG_SPACE(sizeof(int) * 8)]; } control = {0};
+    struct msghdr message = {0};
+    message.msg_iov = &vector; message.msg_iovlen = 1;
+    message.msg_control = control.bytes; message.msg_controllen = sizeof(control.bytes);
+    ssize_t count = recvmsg(channel_fd, &message, 0);
+    if (count < 0) return -1;
+    int received = -1, descriptors = 0, invalid = 0;
+    for (struct cmsghdr *header = CMSG_FIRSTHDR(&message); header;
+         header = CMSG_NXTHDR(&message, header)) {
+        if (header->cmsg_level != SOL_SOCKET || header->cmsg_type != SCM_RIGHTS ||
+            header->cmsg_len < CMSG_LEN(0)) { invalid = 1; continue; }
+        size_t length = header->cmsg_len - CMSG_LEN(0);
+        if (length % sizeof(int)) invalid = 1;
+        for (size_t offset = 0; offset + sizeof(int) <= length; offset += sizeof(int)) {
+            int fd; memcpy(&fd, CMSG_DATA(header) + offset, sizeof(fd));
+            if (++descriptors == 1) received = fd; else close(fd);
+        }
+    }
+    if (count != 1 || marker != 0x4f || descriptors != 1 || invalid ||
+        message.msg_flags & (MSG_CTRUNC | MSG_TRUNC) ||
+        fcntl(received, F_SETFD, FD_CLOEXEC) != 0) {
+        if (received >= 0) close(received);
+        errno = EPROTO; return -1;
+    }
+    return received;
 }

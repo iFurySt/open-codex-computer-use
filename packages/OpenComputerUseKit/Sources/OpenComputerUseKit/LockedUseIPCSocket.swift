@@ -1,8 +1,9 @@
 import Darwin
 import Foundation
+import LockedUseNative
 
 public enum LockedUseIPCEndpoint: String, Sendable {
-    case agent, guardian, plugin
+    case agent, guardian, plugin, observer, admin
     public var path: String {
         "/Library/Application Support/OpenComputerUse/LockedUse/run/\(rawValue).sock"
     }
@@ -18,12 +19,19 @@ public final class LockedUseIPCClient: @unchecked Sendable {
     private let brokerRequirement: String
     public let broker: LockedUsePeerIdentity
 
-    public init(endpoint: LockedUseIPCEndpoint, brokerRequirement: String) throws {
+    public init(endpoint: LockedUseIPCEndpoint, brokerRequirement: String, clientSocket: Int32? = nil) throws {
         let fd = try LockedUseIPCSocket.connect(path: endpoint.path)
         do {
             let peer = try LockedUsePeerIdentity.verified(socket: fd, requirement: brokerRequirement)
             guard peer.userID == 0, peer.hardenedRuntime, !peer.permitsCodeInjection else {
                 throw LockedUseClientApprovals.Failure.unapproved
+            }
+            if endpoint == .agent {
+                guard let clientSocket else { throw LockedUseClientApprovals.Failure.unapproved }
+                try LockedUseIPCSocket.wait(descriptor: fd, events: Int16(POLLOUT), deadline: ProcessInfo.processInfo.systemUptime + 2)
+                guard ocu_send_peer_socket(fd, clientSocket) == 0 else {
+                    throw POSIXError(.init(rawValue: errno) ?? .EIO)
+                }
             }
             broker = peer
             self.brokerRequirement = brokerRequirement

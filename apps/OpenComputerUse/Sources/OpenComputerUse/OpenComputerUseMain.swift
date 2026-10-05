@@ -38,6 +38,8 @@ enum OpenComputerUseMain {
         }
 
         switch command {
+        case .lockedUseManagement:
+            _ = try LockedUseSettings.handle(arguments: arguments)
         case .mcp:
             let service = ComputerUseService()
             let server = StdioMCPServer(service: service)

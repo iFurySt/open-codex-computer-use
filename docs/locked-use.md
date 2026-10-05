@@ -2,7 +2,7 @@
 
 目标是在已登录用户的屏幕锁定后，允许已授权客户端临时解锁 GUI 会话，同时遮蔽所有物理显示器，继续通过 AX / ScreenCaptureKit / 输入执行任务，最后重锁。
 
-**当前不是可用的自动解锁功能。** 当前交付的是只读诊断、可测试的保护状态机、真实 app 的锁屏拒绝路径、独立 Guardian / watchdog rehearsal、Broker 的签名认证 / 批准记录 / 一次性许可组件，以及始终拒绝授权的独立插件 ABI / 系统加载实验。生产 Broker IPC、guardian 集成、安装授权与真实 loginwindow backend 尚未完成；不能通过环境变量或另一厂商的插件开启。
+**当前仍处于实机验证阶段，生产自动解锁默认关闭。** 已实现签名 root Broker、remote Authorization 机制、Guardian / 独立 watchdog、管理员安装 / 停用 / 恢复入口，以及 OCU GUI 请求的自动租约接入。真实 loginwindow 解锁、Secure Input 硬件交付与两类 Keychain 保持尚未通过实测；不能以离线测试通过或安装成功代替这些证据。
 
 ## 当前可用入口
 
@@ -12,7 +12,7 @@ ocu locked-use status --json
 ocu doctor
 ```
 
-诊断分别报告 AX、Screen Recording 和 Input Monitoring 的当前进程 runtime preflight，以及会话状态、系统组件是否存在、其他 Authorization 插件名称和未完成的门槛。查询不请求权限，不安装、不解锁、不锁屏；安装文件存在也不表示签名、注册或运行已验证。`available` / `enabled` 当前始终为 false。
+诊断分别报告 AX、Screen Recording 和 Input Monitoring 的当前进程 runtime preflight，以及会话状态、系统组件是否存在、其他 Authorization 插件名称和未完成的门槛。查询不请求权限，不安装、不解锁、不锁屏；安装文件存在也不表示签名、注册或运行已验证。`enabled` 来自 root 所有的安装配置；`available` 还要求 macOS build 和组件签名哈希与实测证据匹配。批准记录匹配当前 app agent 且安装认证规则完整也是 `available` 的必要条件。没有证据时生产自动解锁保持关闭。
 
 原生诊断由 `.app` agent 执行，与真实控制进程保持相同权限身份。源码 CLI 的开发验证应绕过已经安装的旧版本 agent：
 
@@ -21,18 +21,18 @@ swift build
 OPEN_COMPUTER_USE_DISABLE_APP_AGENT_PROXY=1 .build/debug/OpenComputerUse locked-use status --json
 ```
 
-无完成登录的控制台 GUI session、切换用户或未知会话时，真实 app 控制明确拒绝。正常锁屏也返回 Locked Use 未验证的错误，不再尝试恢复窗口或向锁屏注入输入。缓存的真实 AX snapshot 每次复用前重新检查会话；输入事件投递和 AX 动作 / 属性变更路径补充检查。fixture 是测试数据，不代表真实桌面，仍可用于 headless smoke。会话检查不能提供与 WindowServer 事务原子性相同的保证。
+无完成登录的控制台 GUI session、切换用户或未知会话时，真实 app 控制明确拒绝。正常锁屏中的 GUI 请求由 app agent 尝试获取受保护租约；没有可用 Broker / 批准 / 验证 profile 时立即返回错误，动作自身的 session gate 仍拒绝无租约的锁定会话。缓存的真实 AX snapshot 每次复用前重新检查会话；输入事件投递和 AX 动作 / 属性变更路径补充检查。fixture 是测试数据，不代表真实桌面，仍可用于 headless smoke。会话检查不能提供与 WindowServer 事务原子性相同的保证。
 
 ## 保护状态机
 
-`LockedUseStateMachine` 是纯状态 / effect reducer，**未接入生产自动解锁**。未来 Broker 串行驱动它；执行 effect 不构成系统成功证据。
+`LockedUseStateMachine` 是由独立 Broker 串行驱动的纯状态 / effect reducer。真实解锁仍需管理员验证 profile 实测；执行 effect 不构成系统成功证据。
 
 - `idle → preparing → authorizing → unlocking → active → relocking`
 - 先收到全部显示器遮蔽、输入拦截和独立 watchdog 健康证据，才发一次性许可并请求解锁。
 - 许可绑定 connection UUID、用户 UID 和 audit session；只允许认证后的插件回执消费一次，5 秒失效。
 - 消费许可后还要确认相同会话已解锁，才能允许工具动作。
 - 单调时间计时：3 秒 heartbeat 期限、10 秒启动期限、30 秒空闲期限、300 秒绝对租约上限。真实 guardian 需独立于 GUI action 维持 heartbeat。
-- `turn-ended`、EOF、JS reset / timeout 或租约结束应撤销许可并重锁；这些生命周期接入仍待生产 backend 实现。
+- `turn-ended`、EOF、JS reset / timeout 或租约结束应撤销许可并重锁；app agent 已接入 turn-ended / EOF / 空闲期限；JS reset / timeout 结束原生连接，独立 EOF 监测可停止尚在执行的租约，动作完成后才确认排空。
 - 本地输入、显示器 topology generation 改变、guardian 失效或会话异常立即停止并重锁；未知输入按接管处理。
 - Broker 确认许可撤销已提交、解锁尝试取消 / 排空、动作投递停止后，还需确认原会话锁定，才能释放遮蔽。原锁屏仍可见不代表排队解锁已取消。未知 / 其他用户的锁定事件不算重锁成功；失败保留保护并重试。
 - 接管和异常后进入 `awaitingManualUnlock`。正常人工解锁事件才清除抑制，排队请求不能重新解锁。
@@ -83,13 +83,13 @@ python3 scripts/run-locked-use-rehearsal.py --confirm-watchdog-test
 
 ### Broker 认证组件
 
-- `LockedUseAuthorizationRules` 生成离线安装 / 恢复计划，只对现有 OR rule 添加本项目 branch，保留原 fallback 和其他语义字段。旧计划或原规则被更改、阈值不兼容、已有本项目引用时拒绝；没有执行系统写入。真正 installer 的互斥、root 存储和写入前后校验仍待接入。认证事务的 opaque ID 不能当作 audit session，详见 [认证边界](references/macos-locked-use-authentication.md)。
+- `LockedUseAuthorizationRules` 生成离线安装 / 恢复计划，只对现有 OR rule 添加本项目 branch，保留原 fallback 和其他语义字段。旧计划或原规则被更改、阈值不兼容、已有本项目引用时拒绝；没有执行系统写入。Installer 已实现 root 存储、互斥和写入前后校验，系统效果仍需实测。认证事务的 opaque ID 不能当作 audit session，详见 [认证边界](references/macos-locked-use-authentication.md)。
 
 - `LockedUseNative` 用 `LOCAL_PEERTOKEN` 获得 kernel audit token，包含 PID version；不把客户端自报 PID 转成身份。
 - `LockedUsePeerIdentity` 用 token 查询动态 SecCode，并验证 administrator-approved requirement。
-- `LockedUseClientApprovals` 固定从 `/Library/Application Support/OpenComputerUse/LockedUse/clients.json` 读取，逐层 `openat` / `O_NOFOLLOW`，检查 root ownership、group/other 不可写与无允许修改的 extended ACL，拒绝 symlink、非 regular file、超大配置、无效 signer / team 和重复记录。不在仓库保存真实批准记录。这里尚未实现写入 UI / installer。
-- 批准记录绑定 UID、角色、signing identifier 和 Team ID；角色按连接 endpoint 选择，不取请求 payload。批准 peer 必须启用 hardened runtime，并拒绝 get-task-allow、禁用 Library Validation、允许 DYLD 环境注入或 unsigned executable memory 等 entitlement。Developer ID 签名的 self-test 验证正确 signer / role 成功及错误 signer / role 拒绝；这不表示完整 Broker IPC 已完成。
-- `LockedUsePermitRegistry` 使用 SecRandomCopyBytes 生成 32-byte nonce，绑定 connection UUID、attempt UUID、UID、audit session，5 秒过期，单次消费，断开撤销，重放拒绝。最多 32 个 pending permit；4096 个 retired attempt 后拒绝发新许可，需要在无租约状态下重新建立 registry epoch，尚待 Broker 生命周期实现。该 registry 不验证插件身份，调用它之前必须先认证 Apple SecurityAgent peer。
+- `LockedUseClientApprovals` 固定从 `/Library/Application Support/OpenComputerUse/LockedUse/clients.json` 读取，逐层 `openat` / `O_NOFOLLOW`，检查 root ownership、group/other 不可写与无允许修改的 extended ACL，拒绝 symlink、非 regular file、超大配置、无效 signer / team 和重复记录。不在仓库保存真实批准记录。Installer 只登记当前用户、同团队的 OCU 原生 CLI / app agent 与 Guardian；本阶段不开放任意第三方 agent 登记。
+- 批准记录绑定 UID、角色、signing identifier 和 Team ID；角色按连接 endpoint 选择，不取请求 payload。批准 peer 必须启用 hardened runtime，并拒绝 get-task-allow、禁用 Library Validation、允许 DYLD 环境注入或 unsigned executable memory 等 entitlement。Developer ID 签名的 self-test 验证正确 signer / role 成功及错误 signer / role 拒绝；这不代替真实 unlock 链路验证。
+- `LockedUsePermitRegistry` 使用 SecRandomCopyBytes 生成 32-byte nonce，绑定 connection UUID、attempt UUID、UID、audit session，5 秒过期，单次消费，断开撤销，重放拒绝。最多 32 个 pending permit；单个 registry 最多保存 4096 个 retired attempt；只有上一租约完全释放并可开始新租约时，Broker 才创建新 registry epoch。旧 lease ID / nonce 不能跨越 epoch。该 registry 不验证插件身份，调用它之前必须先认证 Apple SecurityAgent peer。
 
 ## Authorization 插件实验
 
@@ -152,3 +152,57 @@ ls /Library/Security/SecurityAgentPlugins
 - [官方 Computer Use / Locked Use 设置](https://learn.chatgpt.com/docs/computer-use)
 - [DispatchShield](https://github.com/VenusOne-Lee/DispatchShield)：已解锁桌面遮蔽参考，不是锁屏自动解锁实现。
 - [trycua Authorization 插件讨论](https://github.com/trycua/cua/issues/1744)：方案参考，不是完成链路的证据。
+
+
+## 管理员安装与 OCU 接入（待实机验证）
+
+先构建、签名组件，再将它们嵌入同一签名团队的开发 app：
+
+```sh
+scripts/build-locked-use-components.sh --identity 'Developer ID Application: <your identity>'
+OPEN_COMPUTER_USE_INCLUDE_LOCKED_USE=1 scripts/build-open-computer-use-app.sh debug
+'dist/Open Computer Use (Dev).app/Contents/MacOS/OpenComputerUse' locked-use settings
+```
+
+安装 UI 将 artifacts 复制到 root 保护的 staging，验证签名 Installer 后才执行它。Installer 再验证全部组件、签名团队、hardened runtime、无注入 entitlement 和 root 目录 / ACL；登记当前用户的原生 CLI client、app agent 与 Guardian。当前登记范围是本 app 的原生客户端，不能将其描述为已认证 Node / Codex 父进程。原生客户端 socket 通过 SCM_RIGHTS 转交，Broker 仅检验内核 peer，不读该 socket 的业务数据；UID / audit session 必须与 agent 一致。规则备份先写入 root 目录；只为现有 OR policy 增加独立 remote branch，保留原生 / 第三方 fallback。Installer 并发操作用独立 flock 排斥。
+
+`locked-use enable` 安装生产 profile，缺少匹配实测证据时不能自动解锁。仅开发实测显式使用 `locked-use enable --validation`；它通过管理员安装的 launchd profile 开放验证事务，不等于生产验证通过。`locked-use disable` 先冻结 Broker 的新租约，只有 idle / awaitingManualUnlock 时恢复匹配的原规则、停止服务并移除自身插件及 staged 副本；第三方策略改变时拒绝覆盖。安装失败会保留 recovery plan，`locked-use recover` 可恢复部分安装，但只有实例锁和 root journal 证明旧保护已释放时才移除组件；未排空的崩溃事务必须先恢复 Broker。此路径仍待系统验证。
+
+普通 app-agent GUI 调用在完成登录的锁定 console session 请求租约；库存 / 协议查询不触发解锁。Guardian 从锁屏启动，通过私有 inherited pipe 接收 challenge；准备覆盖、tap、硬件活动 monitor 与独立 watchdog 后，才执行只针对 loginwindow 唯一 secure field 的 AXConfirm。它不读取字段内容或传入密码。原生会话真实 unlocked 且根服务确认全部保护健康后，才启用 GUI dispatch。各输入 / AX mutation / snapshot session gate 再向根服务核验当前连接。其他连接用只读 observer endpoint 检查租约，不能借用临时解锁的桌面。Secure Event Input 下 IOHID 活动交付尚待实机验证。
+
+开发 Keychain 检查仅使用 `ocu/locked-use/keychain/prepare`、`verify`、`cleanup` 等原生 MCP 方法。为 login 和 Data Protection Keychain 分别创建本项目 UUID / 随机值测试项，verify 禁止弹出认证 UI，返回布尔结果与 OSStatus；不枚举、读取或修改已有用户项目。cleanup 失败会保留对象以便正常解锁后重试。独立 native fixture 与 FixtureBridge 无关，后续闭环必须走真实 AX 和 ScreenCaptureKit。
+
+
+## 崩溃恢复与双进程保护
+
+Broker 在回复授权 / active 之前，把同一 kernel boot epoch 的旧租约、内核 peer token / code hash、解锁观察、动作排空与保护 ACK 写入 root 的 `lease-recovery.json` 并 fsync 文件和目录。**不保存、不恢复授权 permit nonce。** 同一 boot 的服务重启只继续旧事务的排空和重锁，要求正常手动解锁后才解除抑制。原进程重连必须匹配已记录的完整内核 token 与签名哈希；原生 CLI 死亡后恢复连接只能用于清理，不能继续动作。kernel reboot 会摧毁原 GUI / 排队认证事务，属于新的会话 epoch。
+
+独立 watchdog 经私有 pipe 注册到 root，持有另一个进程的备用遮罩、过滤 tap 和硬件活动 monitor；Broker 要求两套保护健康且心跳新鲜。Guardian 主线程卡死或进程死亡时，备用窗口仍可保持遮蔽，watchdog 的 root RPC 在另一个队列执行，不能拖延 inherited heartbeat 的重锁期限。主 Guardian / watchdog 都要在原会话已锁定、事务与动作已排空后释放自己的保护并向 root 回报 ACK。新的租约和卸载都等待这些 ACK。软件窗口仍不构成系统级原子热插拔 / 所有 secure overlay / 双进程同时死亡的零泄漏证明；需针对目标系统验证。
+
+Broker 每秒及签发 / 消费许可之前重读本项目认证策略。其他软件改变规则或 remote 机制时，本服务 epoch 停止签发并撤销租约，保留恢复通道；不会自动覆盖第三方的新规则。
+
+## 专用真实 GUI / Keychain 验证
+
+```sh
+# 普通已解锁状态，先验证独立测试项与真实 AX / SCK。
+python3 scripts/run-locked-use-native-validation.py --prepare-only --legacy-only
+python3 scripts/run-locked-use-native-validation.py --unlocked-fixture-test --legacy-only
+
+# 管理员安装验证 profile 后，由用户配合锁屏测试。
+python3 scripts/run-locked-use-native-validation.py --confirm-lock-test
+```
+
+控制器保持同一原生 MCP 连接：正常解锁时创建本项目 UUID 的测试项，从真实锁屏调用固定 native validation，受保护解锁后只对签名的 `Locked Use Native Fixture` 执行 AXPress，检查计数器变化和前后真实 SCK 图片哈希，再读取自己的测试项。图片与 secret 只在内存；输出只有结果。结束后发送 turn-ended、观察重锁，用户正常解锁并输入 `continue`，再验证 / 清理测试项。任何失败都不杀 Guardian / watchdog，也不凭旧锁屏拆除保护。连接退出时无法删除的自有项目会留在 app agent 内重试正常解锁后的清理；进程死亡会丢失内存清理对象，应保留监督式测试连接直到 cleanup 完成。
+
+Data Protection Keychain 使用受限 entitlement，需要为该 OCU bundle 匹配的 macOS Developer ID provisioning profile：
+
+```sh
+OPEN_COMPUTER_USE_PROVISIONING_PROFILE='<profile path>' \
+OPEN_COMPUTER_USE_INCLUDE_LOCKED_USE=1 scripts/build-open-computer-use-app.sh debug
+```
+
+构建只从 profile 提取当前 app 自己的 App ID / Keychain group，拒绝过期、其他平台、其他 app 和带 debugging entitlement 的 profile；macOS 在进程启动时仍独立验证签名 / profile。详情见 [Apple TN3137](https://developer.apple.com/documentation/Technotes/tn3137-on-mac-keychains)。`--legacy-only` 是明确缩小范围的开发检查，不能产出生产验证证据；缺少 profile 时不能把 Data Protection 检查记为通过。
+
+签名 native agent 的固定测试全部通过后才向 root 提交验证回报。Broker 保存组件 / OS 哈希及真实重锁、双方保护释放、手动解锁后的 Keychain 验证到 `validation-report.json`。`locked-use certify` 要求用户确认物理屏幕、Secure Input 键鼠接管、进程 / 服务故障、显示器变化以及正常密码 / Touch ID 的实测结果，再通过系统管理员认证；Installer 还独立检查完整 root 记录和当前哈希，并冻结 / 重启服务为生产 profile。此入口尚未实机通过，不能将已实现入口描述为验证完成。macOS 或组件升级会使旧证据失效；停用 / 恢复原策略后重装新组件并重新验证。
+
+app bundle 含每次构建唯一的标识，app agent 在启动时固定捕获该标识和启动时间，避免懒初始化把旧进程误判为新构建。MCP 获取租约或验证失败仍返回对应 JSON-RPC id 的错误；不会让调用方一直等待响应。JS reset / timeout / turn-ended 关闭旧 native epoch；旧 Worker 的排队请求被丢弃，下次请求启动新的 native MCP，不重放失败的 GUI 请求。

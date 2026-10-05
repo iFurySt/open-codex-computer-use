@@ -31,7 +31,11 @@
 - [x] 保留现有认证 fallback 的离线安装规划；拒绝不同阈值、规则变化与篡改备份，未执行系统写入。
 - [ ] 真正 loginwindow 解锁、独立保护与 Keychain 保持实验（阻塞生产 backend 开放）。
 - [x] 签名 Broker 控制面、限定角色 IPC、remote 插件一次性放行与锁屏 Guardian 接入；离线验证通过，尚未安装运行。
-- [ ] 管理员安装、客户端授权 UI、OCU 自动租约接入与真实自动解锁。
+- [x] 管理员安装 / 卸载入口、同团队原生客户端登记与 OCU 自动租约接入；已编译，尚未进行系统安装。
+- [x] JS reset / timeout / EOF 停止通道与独立 Keychain 自有测试项 API。
+- [x] 安装失败恢复入口、Broker 崩溃 journal / 双 Guardian release ACK、同团队原生客户端登记和验证转生产入口；离线通过，系统效果待实测。
+- [ ] 真实安装 / 恢复、故障注入、升级失效与生产 promotion 验证。
+- [ ] 真实自动解锁、Secure Input 硬件输入与 Keychain 保持验证。
 
 ## 环境观测
 
@@ -90,3 +94,9 @@ Apple DTS 确认过 screensaver authorization plugin 的 Data Protection Keychai
 - 2026-10-05：完整 Swift 206 项（1 项 gated live test 跳过）、fixture / cursor smoke 通过。签名 Guardian 的内核身份、批准角色、错误 signer / role 及 debug-injectable 副本拒绝均验证；批准文件拒绝 extended ACL 写授权。没有触发真实锁屏；生产 Broker IPC、客户端登记与实际 unlock backend 仍待完成。
 
 - 2026-10-05：新增有界 framing / 绝对 RPC 超时、动态 audit token 与签名重校验的 Broker 服务和 remote 插件；授权放行与实际 GUI 可用状态分离，取消后等待解锁事务和动作排空才释放。Guardian 增加锁屏 AXConfirm 与只观察活动的 IOHID 输入保护；Secure Input 下的硬件事件交付仍需实机确认。完整 Swift 222 项、1 项跳过、0 失败；签名插件 ABI 拒绝 / 重复 / 取消回归通过。未安装生产服务、未更改 screensaver right。
+
+- 2026-10-05：补齐固定已安装位置的签名 native Installer、原客户端 socket 的 SCM_RIGHTS 内核验证、连接级动作 / 排空、JS reset / timeout / EOF 终止旧 native epoch；新增 root boot-bound crash journal、严格旧 peer 重连及主 / watchdog 保护释放 ACK。Broker 策略被更改后撤销新许可但保留恢复通道。
+- 2026-10-05：独立 watchdog 增加备用遮罩、tap 和硬件活动观察；准备阶段必须收到 child 的独立健康回报。新增固定真实 GUI / 自有 Keychain 验证、root 验证记录及管理员认证的 promotion 入口。缺少匹配 OCU 的 provisioning profile，Data Protection Keychain 尚未测试；构建已支持受限自有 group。
+- 2026-10-05：Swift 234 项、1 项跳过、0 失败，Node 24 项通过，fixture / cursor smoke 和签名 remote ABI 通过。未锁屏的 legacy Keychain 自有项目 prepare / read / cleanup 通过；真实 native AX / SCK preflight 因新隔离 app 权限缺失被拒绝，不能报告通过。发现并修复懒初始化启动时间导致复用旧 agent 的问题，构建增加唯一标识。已打开权限引导，等待用户配合；尚未安装自动解锁 profile。
+
+- 用户完成隔离 app 授权并重启验证实例后，固定独立 native fixture 的真实 AXPress、计数器变化、前后 SCK 图像变化及 legacy 自有测试项通过；没有执行锁屏或自动解锁，测试项已清理。

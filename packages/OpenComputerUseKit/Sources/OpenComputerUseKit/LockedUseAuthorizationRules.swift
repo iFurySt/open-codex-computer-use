@@ -1,5 +1,6 @@
 import CoreFoundation
 import Foundation
+import Security
 
 /// Pure installation planning. No AuthorizationRightSet, privilege elevation,
 /// or system writes occur here. The installer must retain the original plan in
@@ -42,6 +43,28 @@ public enum LockedUseAuthorizationRules {
     public static func installationObserved(current: Data, plan: Plan) throws -> Bool {
         try validate(plan)
         return try equivalent(current, plan.installed)
+    }
+
+    public static func loadInstalledPlan() throws -> Plan {
+        let data = try LockedUseSecureStore.read(components: ["Library", "Application Support", "OpenComputerUse", "LockedUse", "authorization-plan.json"])
+        let plan = try JSONDecoder().decode(Plan.self, from: data)
+        try validate(plan)
+        return plan
+    }
+
+    public static func installedRulesObserved() throws -> Bool {
+        let plan = try loadInstalledPlan()
+        var policy: CFDictionary?
+        guard AuthorizationRightGet("system.login.screensaver", &policy) == errAuthorizationSuccess,
+              let policy else { return false }
+        let bytes = try PropertyListSerialization.data(fromPropertyList: policy, format: .xml, options: 0)
+        guard try installationObserved(current: bytes, plan: plan) else { return false }
+        var remote: CFDictionary?
+        guard AuthorizationRightGet(remoteRight, &remote) == errAuthorizationSuccess,
+              let rule = remote as? [String: Any] else { return false }
+        return rule["class"] as? String == "evaluate-mechanisms"
+            && rule["mechanisms"] as? [String] == ["OpenComputerUseLockedUseAuthorizationPlugin:remote"]
+            && (rule["shared"] as? NSNumber)?.boolValue == false
     }
 
     private static func validate(_ plan: Plan) throws {
