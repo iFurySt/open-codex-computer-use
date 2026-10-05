@@ -132,3 +132,5 @@ Apple DTS 确认过 screensaver authorization plugin 的 Data Protection Keychai
 - 2026-10-05：nonactivating NSPanel + 主屏蔽层级 +1 的不锁屏 surface 自检通过；完整 Swift 249 项、1 跳过、0 失败。下一轮真实切换仍待系统管理员完成旧验证版卸载认证后安装新版，不将尺寸自检记为解锁切换覆盖证明。
 
 - 待查：独立诊断中的合成 PID-version 实验发生进程退出未完成，已撤销该注入用例；生产前仍必须覆盖真实 Broker 死亡 / socket token 过期时 verifier 和认证宿主的有界恢复。合法 / 错误身份 / ad hoc / debug 的实际签名测试通过。
+
+- 2026-10-05：新版 NSPanel 的真实快速闭环复测未自动解锁。双保护准备成功；单次显示器唤醒与固定 AXValue 写入成功，但整个 5 秒 authorizing 窗口没有机制调用，随后 unlockTimeout。锁定观测后约 7.1 秒确认双方释放。正常手动登录时机制调用、现代签名验证成功，过期 claim 被拒绝，原系统 fallback 成功；自有 legacy 测试项验证与清理通过。这轮没有进入 active / native AX-SCK，不能证明 NSPanel 在自动解锁切换时的覆盖修复。下一步定位系统认证事务启动时机差异，不能靠延长许可或重复锁屏宣称修复；生产仍关闭，尚未合并。

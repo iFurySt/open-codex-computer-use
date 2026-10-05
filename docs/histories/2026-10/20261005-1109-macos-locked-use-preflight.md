@@ -130,3 +130,9 @@ root Broker 增加 boot-bound crash journal，回复授权前 fsync，不保存 
 - 2026-10-05：nonactivating NSPanel + 主屏蔽层级 +1 的不锁屏 surface 自检通过；完整 Swift 249 项、1 跳过、0 失败。下一轮真实切换仍待系统管理员完成旧验证版卸载认证后安装新版，不将尺寸自检记为解锁切换覆盖证明。
 
 - 补充诊断边界：合成修改 PID-version 的独立内核 verifier 实验出现诊断进程退出未完成，未计为通过；撤销该实验用例并记录原生异常待查，不据此开放故障认证。实际 socket audit-token 路径、合法 / 错误身份 / ad hoc / debug 的完整签名构建与 ABI 检查通过；测试制品改用每轮独立目录和 fresh inode，避免原地重签的内核缓存歧义。
+### 实机补充：NSPanel 快速闭环复测
+
+- 双保护准备与固定 AXValue 探针成功，但 5 秒授权窗口内没有插件调用，因 unlockTimeout 安全收束；锁定观测后约 7.1 秒得到双方释放确认。
+- 正常手动登录才调用插件，现代 Broker 签名校验通过，已失效许可被拒绝，系统原 fallback 完成登录；自有 legacy Keychain 测试项验证与清理通过。
+- 未到达 active / 原生 AX-SCK 操作阶段，不能将本轮记为完整闭环或自动解锁时遮罩覆盖验证。仍需定位认证事务启动时机差异；生产保持关闭，未合并。
+- 测试后验证配置卸载成功，原认证策略恢复；主保护、watchdog 和 Broker 已退出。
