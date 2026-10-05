@@ -41,3 +41,6 @@ Release 构建、deep/strict 签名校验和 diff check 通过。真实 AX 与�
 
 ### 后续修正：展开时按钮留在侧栏顶部
 用户明确展开时折叠与新会话图标应留在左侧栏顶部，只有折叠后才在主区域组成一组。根据 columnVisibility 条件选择 sidebar toolbar 或 detail navigation toolbar，共用 sidebarControls，保持左折叠、右新会话且只出现一套入口。Release 构建、签名及 diff check 通过；真实截图与 AX 检查展开与折叠两种布局，折叠后的创建入口正常打开 sheet；随后用户在 App 内继续操作会话，本轮不再打断操作。
+
+### 回退自定义折叠实现
+用户指出仅要求调整顺序，却被替换了折叠实现，造成动画卡顿及展开时位置改变，明确要求恢复最初方案。对照 8617783 恢复原生 NavigationSplitView sidebar toggle 与 sidebar toolbar 的 New Session 声明，删除 toolbar(removing:)、sidebarControls 自定义按钮、withAnimation 手动切换及条件 toolbar 重建。最近的 Display scale 原生菜单、glass 创建按钮与 OBU cursor 资源保持不变。Release 构建和签名校验通过；当前用户仍有活动会话，本轮未重启或销毁，回退后的运行时在下次启动生效。

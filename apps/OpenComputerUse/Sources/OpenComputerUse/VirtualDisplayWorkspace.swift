@@ -197,7 +197,6 @@ struct VirtualDisplayWorkspaceView: View {
                 }.padding(.vertical, 4).tag(state.sessionID)
             }
             .listStyle(.sidebar)
-            .toolbar(removing: .sidebarToggle)
             .safeAreaInset(edge: .top, spacing: 0) {
                 HStack(spacing: 9) {
                     Image(nsImage: NSImage(named: NSImage.applicationIconName) ?? NSImage())
@@ -209,8 +208,10 @@ struct VirtualDisplayWorkspaceView: View {
                 .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 20)
             }
             .toolbar {
-                if columnVisibility != .detailOnly {
-                    ToolbarItemGroup(placement: .automatic) { sidebarControls }
+                ToolbarItem(placement: .automatic) {
+                    Button(action: showCreateSession) { Image(systemName: "square.and.pencil") }
+                        .help("New Session").accessibilityLabel("New Session")
+                        .keyboardShortcut("n", modifiers: .command).disabled(model.busy)
                 }
             }
             .navigationSplitViewColumnWidth(min: 240, ideal: 260, max: 320)
@@ -261,11 +262,7 @@ struct VirtualDisplayWorkspaceView: View {
                         Text(message).foregroundStyle(.secondary).padding(10).frame(maxWidth: .infinity, alignment: .leading).background(.bar)
                     }
                 }.navigationTitle(model.state.map(model.name) ?? "Virtual sessions")
-                .toolbar(removing: .sidebarToggle)
                 .toolbar {
-                    if columnVisibility == .detailOnly {
-                        ToolbarItemGroup(placement: .navigation) { sidebarControls }
-                    }
                     ToolbarItemGroup(placement: .primaryAction) {
                         Button { model.showingAddApp = true } label: { Label("Add application", systemImage: "plus.app") }
                             .disabled(model.busy || model.state == nil || model.state?.phase == "paused")
@@ -277,22 +274,9 @@ struct VirtualDisplayWorkspaceView: View {
                 }
             }
         }
-        .toolbar(removing: .sidebarToggle)
         .sheet(isPresented: $model.showingCreate) { createSheet }
         .sheet(isPresented: $model.showingAddApp) { addAppSheet }
         .frame(minWidth: 900, minHeight: 660)
-    }
-    @ViewBuilder private var sidebarControls: some View {
-        Button {
-            withAnimation {
-                columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
-            }
-        } label: { Image(systemName: "sidebar.left") }
-            .help(columnVisibility == .detailOnly ? "Show Sidebar" : "Hide Sidebar")
-            .accessibilityLabel(columnVisibility == .detailOnly ? "Show Sidebar" : "Hide Sidebar")
-        Button(action: showCreateSession) { Image(systemName: "square.and.pencil") }
-            .help("New Session").accessibilityLabel("New Session")
-            .keyboardShortcut("n", modifiers: .command).disabled(model.busy)
     }
     private func showCreateSession() {
         model.sessionName = ""

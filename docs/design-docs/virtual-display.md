@@ -162,7 +162,7 @@ node scripts/run-app-agent-lifecycle-smoke.mjs --with-session
 
 ## 侧栏与窗口布局
 
-参考 HeyYo Dictionary 的原生方案：sidebar 使用 List 作为根视图，在顶部 safeAreaInset 放较小的单行 OpenComputerUse 品牌；展开时折叠和 New Session compose 图标留在左侧栏顶部 toolbar，只有折叠后才移到主区域顶部 navigation toolbar 组成一组，顺序为折叠在左、新会话在右，支持 Command-N，侧栏折叠时仍保留入口；AppKit 窗口启用 fullSizeContentView、透明标题栏与可见页面标题。侧栏背景覆盖窗口顶部，品牌图标及 OpenComputerUse 文字独立留在侧栏，标题栏仅显示当前会话或 Virtual sessions。移除系统自动 sidebarToggle，由同组唯一折叠按钮控制 columnVisibility；展开/折叠都保持页面标题靠左、操作靠右。macOS 26.5.1 / arm64 Release bundle 的两种状态已通过真实 AX 与截图检查。
+参考 HeyYo Dictionary 的原生方案：sidebar 使用 List 作为根视图，在顶部 safeAreaInset 放较小的单行 OpenComputerUse 品牌；New Session compose 图标使用 sidebar toolbar 声明，折叠按钮和展开/折叠位置由系统原生 NavigationSplitView 管理，支持 Command-N，侧栏折叠时仍保留入口；AppKit 窗口启用 fullSizeContentView、透明标题栏与可见页面标题。侧栏背景覆盖窗口顶部，品牌图标及 OpenComputerUse 文字独立留在侧栏，标题栏仅显示当前会话或 Virtual sessions。保留系统唯一 sidebarToggle，去掉自定义按钮和条件 toolbar 重建逻辑，恢复原生位置与动画；展开/折叠都保持页面标题靠左、操作靠右。macOS 26.5.1 / arm64 Release bundle 的两种状态已通过真实 AX 与截图检查。
 
 空状态移除解释段落，仅保留显示器图标、Virtual sessions 标题和中性的胶囊形 Create Session 按钮（macOS 26 原生 glass，旧版 bordered）。顶部与中央创建入口共用名称重置和 sheet 展示逻辑。
 
