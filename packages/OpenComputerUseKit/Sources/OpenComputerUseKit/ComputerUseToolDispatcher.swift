@@ -72,7 +72,7 @@ public final class ComputerUseToolDispatcher {
         }
         switch name {
         case "prewarm_virtual_display":
-            let id = try registry.prewarm(configuration: configuration())
+            let id = try registry.prewarm(configuration: configuration(), reuseDisplay: boolean("reuse_display", default: true))
             let value: [String: Any] = ["display_id": id, "idle_displays": registry.idleDisplayStates(), "displays": registry.displayStates().map(\.dictionary)]
             return .text(String(decoding: try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]), as: UTF8.self))
         case "delete_virtual_display":

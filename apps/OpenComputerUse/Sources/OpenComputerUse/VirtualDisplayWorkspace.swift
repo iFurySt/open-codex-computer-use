@@ -50,6 +50,9 @@ final class VirtualDisplayWorkspaceModel: ObservableObject {
     @Published var selectedDisplay: UInt32?
     @Published var displays: [VirtualDisplayResourceState] = []
     @Published var preferredDisplay: UInt32?
+    @Published var displayNames: [UInt32: String] = [:]
+    @Published var displayName = ""
+    @Published var showingCreateDisplay = false
     @Published var names: [String: String] = [:]
     @Published var notebooks: [String: WorkspaceNotebook] = [:]
     @Published var selectedApp: String?
@@ -76,6 +79,7 @@ final class VirtualDisplayWorkspaceModel: ObservableObject {
         applications.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) || $0.bundleIdentifier.localizedCaseInsensitiveContains(search) }
     }
     func name(_ state: VirtualDisplayState) -> String { names[state.sessionID] ?? "Session \(state.sessionID.prefix(6))" }
+    func name(_ display: VirtualDisplayResourceState) -> String { displayNames[display.displayID] ?? "Display \(display.displayID)" }
     init() {
         polling = Task { [weak self] in
             while !Task.isCancelled {
@@ -105,6 +109,7 @@ final class VirtualDisplayWorkspaceModel: ObservableObject {
         let live = Set(sessions.map(\.sessionID))
         notebooks = notebooks.filter { live.contains($0.key) }
         names = names.filter { live.contains($0.key) }
+        displayNames = displayNames.filter { key, _ in displays.contains { $0.displayID == key } }
         for state in sessions where notebooks[state.sessionID] == nil { notebooks[state.sessionID] = WorkspaceNotebook(sessionID: state.sessionID) }
         if let id = selectedDisplay, let display = displays.first(where: { $0.displayID == id }) {
             selectedSession = display.sessionIDs.first
@@ -126,6 +131,22 @@ final class VirtualDisplayWorkspaceModel: ObservableObject {
                 let created = try await Task.detached { [registry] in try registry.create(configuration: configuration, displayID: displayID) }.value
                 names[created.sessionID] = title.isEmpty ? "Session \(sessions.count + 1)" : title
                 selectedDisplay = nil; selectedSession = created.sessionID; showingCreate = false
+            } catch { message = error.localizedDescription }
+            busy = false; await refresh()
+        }
+    }
+    func createDisplay() {
+        guard !busy else { return }
+        busy = true; message = nil
+        let configuration = VirtualDisplayConfiguration(scale: scale)
+        let title = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task {
+            do {
+                let id = try await Task.detached { [registry] in
+                    try registry.prewarm(configuration: configuration, reuseDisplay: false)
+                }.value
+                if !title.isEmpty { displayNames[id] = title }
+                selectedDisplay = id; selectedSession = nil; showingCreateDisplay = false
             } catch { message = error.localizedDescription }
             busy = false; await refresh()
         }
@@ -275,11 +296,11 @@ struct VirtualDisplayWorkspaceView: View {
                                 }
                         }
                     }
-                    WorkspaceSidebarGroupHeader(title: "Displays", expanded: $displaysExpanded, busy: model.busy, create: showCreateSession)
+                    WorkspaceSidebarGroupHeader(title: "Displays", expanded: $displaysExpanded, busy: model.busy, create: showCreateDisplay)
                         .padding(.top, 8)
                     if displaysExpanded {
                         ForEach(model.displays) { display in
-                            WorkspaceSidebarResourceRow(title: "Display \(display.displayID)", subtitle: displaySubtitle(display), icon: "display", busy: model.busy,
+                            WorkspaceSidebarResourceRow(title: model.name(display), subtitle: displaySubtitle(display), icon: "display", busy: model.busy,
                                 selected: model.sidebarSelection == .display(display.displayID),
                                 select: { model.sidebarSelection = .display(display.displayID) },
                                 delete: { model.deleteDisplay(display) })
@@ -343,7 +364,7 @@ struct VirtualDisplayWorkspaceView: View {
                         }
                     } else if let id = model.selectedDisplay, let display = model.displays.first(where: { $0.displayID == id }) {
                         ContentUnavailableView {
-                            Label("Display \(display.displayID)", systemImage: "display")
+                            Label(model.name(display), systemImage: "display")
                         } description: {
                             Text(displaySubtitle(display))
                         } actions: {
@@ -380,10 +401,15 @@ struct VirtualDisplayWorkspaceView: View {
             }
         }
         .sheet(isPresented: $model.showingCreate) { createSheet }
+        .sheet(isPresented: $model.showingCreateDisplay) { createDisplaySheet }
         .sheet(isPresented: $model.showingAddApp) { addAppSheet }
         .frame(minWidth: 900, minHeight: 660)
     }
+    private func showCreateDisplay() {
+        model.displayName = ""; model.message = nil; model.showingCreateDisplay = true
+    }
     private func showCreateSession() {
+        model.message = nil
         model.sessionName = ""
         model.preferredDisplay = nil
         model.showingCreate = true
@@ -413,7 +439,18 @@ struct VirtualDisplayWorkspaceView: View {
     private var createSheet: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Create virtual session").font(.title2)
-            TextField("Session name", text: $model.sessionName)
+            TextField("Session name (optional)", text: $model.sessionName)
+            Picker("Display", selection: $model.preferredDisplay) {
+                Text("Automatic — reuse or create").tag(nil as UInt32?)
+                ForEach(model.displays.filter { $0.online && $0.sessionIDs.isEmpty }) { display in
+                    Text(model.name(display)).tag(Optional(display.displayID))
+                }
+            }.pickerStyle(.menu).disabled(model.busy)
+                .onChange(of: model.preferredDisplay) { _, id in
+                    if let display = model.displays.first(where: { $0.displayID == id }) {
+                        model.scale = display.configuration.scale
+                    }
+                }
             HStack {
                 Text("Display scale")
                 Spacer()
@@ -432,6 +469,30 @@ struct VirtualDisplayWorkspaceView: View {
                 Spacer()
                 Button("Cancel") { model.showingCreate = false }.disabled(model.busy)
                 Button("Create") { model.create() }.keyboardShortcut(.defaultAction).disabled(model.busy || !model.permissionsGranted)
+            }
+            if let message = model.message { Text(message).foregroundStyle(.red) }
+        }.padding(24).frame(width: 440)
+    }
+    private var createDisplaySheet: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Create virtual display").font(.title2)
+            TextField("Display name (optional)", text: $model.displayName)
+            HStack {
+                Text("Display scale")
+                Spacer()
+                DisplayScalePopUp(selection: $model.scale, enabled: !model.busy)
+                    .frame(width: 230, height: 34)
+            }
+            Text("Create an empty display, then select it when creating a session.").foregroundStyle(.secondary)
+            if model.busy { ProgressView("Creating display…").controlSize(.small) }
+            HStack {
+                if !model.permissionsGranted {
+                    Button("Set up permissions") { model.showingCreateDisplay = false; requestPermissions() }
+                }
+                Spacer()
+                Button("Cancel") { model.showingCreateDisplay = false }.disabled(model.busy)
+                Button("Create") { model.createDisplay() }.keyboardShortcut(.defaultAction)
+                    .disabled(model.busy || !model.permissionsGranted)
             }
             if let message = model.message { Text(message).foregroundStyle(.red) }
         }.padding(24).frame(width: 440)
@@ -500,7 +561,8 @@ private struct WorkspaceSidebarGroupHeader: View {
             }.buttonStyle(.plain).accessibilityLabel("\(expanded ? "Collapse" : "Expand") \(title)")
             Button(action: create) { Image(systemName: "plus").frame(width: 28, height: 38).contentShape(Rectangle()) }
                 .buttonStyle(.plain).opacity(hovering ? 1 : 0).disabled(busy)
-                .help("New Session").accessibilityLabel("New Session in \(title)")
+                .help(title == "Displays" ? "New Display" : "New Session")
+                .accessibilityLabel(title == "Displays" ? "New Display" : "New Session")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .foregroundStyle(.secondary)

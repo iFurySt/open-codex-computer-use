@@ -22,7 +22,7 @@ UI 状态在 MainActor 更新，显示器/AX/捕获生命周期在 worker 执行
 
 虚拟屏幕预览的 Agent cursor 直接复用 OBU 的 cursor-chat.png（23×24 points，原始 46×48 pixels），以 CALayer 显示，使用 OBU 中性姿态的 hotspot 转换。资源由 SwiftPM 管理并随签名 App 分发；不再维护预览专属手绘轮廓。系统光标仍隐藏，预览光标不写入 ScreenCaptureKit 原始帧。
 
-侧栏内容分为 Sessions / Displays，独立可折叠；分组标题整行点击折叠，hover 显示展开方向的 chevron 与右侧 +（两处都新建会话），项目 hover 显示 trash。分组标题只控制展开状态，不改变选择，折叠不清除当前预览。Session trash 默认删除会话并保留空屏，右键可选 Delete Session and Display；Display trash 安全删除该屏与关联会话。Displays 包含活动/空闲资源，活动屏选中后查看会话；空屏展示配置与复用入口，创建精确绑定该 display ID 并锁定配置。失败展示原因并保留资源，操作期间禁用删除；独立捕获不在空闲页自动恢复。保留原生 NavigationSplitView 全高、品牌和 toolbar；空闲页复用原生 glass/bordered Create Session 按钮。
+侧栏内容分为 Sessions / Displays，独立可折叠；分组标题整行点击折叠，hover 显示展开方向的 chevron 与右侧 +（Sessions 创建会话，Displays 创建独立空显示器），项目 hover 显示 trash。分组标题只控制展开状态，不改变选择，折叠不清除当前预览。Session trash 默认删除会话并保留空屏，右键可选 Delete Session and Display；Display trash 安全删除该屏与关联会话。Displays 包含活动/空闲资源，活动屏选中后查看会话；空屏展示配置与复用入口，创建精确绑定该 display ID 并锁定配置。失败展示原因并保留资源，操作期间禁用删除；独立捕获不在空闲页自动恢复。保留原生 NavigationSplitView 全高、品牌和 toolbar；空闲页复用原生 glass/bordered Create Session 按钮。
 
 侧栏横向间距集中在 WorkspaceSidebarLayout：外侧 gutter 10 points，品牌、分组标题与项目选中框使用同一边界；组内 session/display 行内容在 8 points 内边距基础上再向右缩进 12 points，右侧删除按钮保持统一内边距，选中框不随层级缩窄。禁止分别给 Logo/分组叠加不同横向 padding。
 
@@ -31,3 +31,5 @@ Add application sheet 的应用选择与进程/窗口选择分开：应用列表
 侧栏项目容器使用 ScrollView + LazyVStack，固定外侧 padding，不再混用 sidebar List 自动 inset、contentMargins 和 listRowInsets。选中背景和 hover 背景由资源行绘制；选择与删除为并列原生 Button，隐藏删除图标仍保留固定占位。滚动条隐藏，避免内容溢出时产生横向 gutter。外层 NavigationSplitView、原生 toggle/toolbar/折叠动画保持不变。
 
 Sessions/Displays 标题的上下 8 points 为按钮内部 padding，外层 HStack 使用全宽 Rectangle contentShape 接收 hover；标题/箭头/间隙/右侧 + 同属热区，+ 固定 28×38 points。分组间额外 top spacing 仅为分组间隔。新建空会话通过捕获/布局检查后直接 ready，不因创建过程的前台/Dock 变化或空会话 Space 通知要求再点开始；锁屏/睡眠、布局/捕获异常及受管实例冲突仍暂停。
+
+创建会话与显示器的名称输入均标注 optional；名称是 GUI 工作区标签，不改变系统显示身份。会话创建提供 Display 菜单：默认自动复用或创建，也可精确选择在线空闲屏（一个屏同时只租给一个活动会话），选择后沿用该屏配置。Displays 的 + 强制预留新空屏，不生成持久会话。

@@ -281,6 +281,7 @@ test("virtual display lifecycle exposes prewarm, reuse, retention and scoped idl
   const session = new PersistentJavaScriptSession({native});
   const result = await session.run(`
     await cua.prewarmVirtualDisplay({scale: 2});
+    await cua.prewarmVirtualDisplay({scale: 2, reuseDisplay: false});
     var lease = await cua.createVirtualDisplay({scale: 2, reuseDisplay: false});
     await lease.destroy({retainDisplay: false});
     var idle = await cua.listIdleVirtualDisplays();
@@ -291,6 +292,7 @@ test("virtual display lifecycle exposes prewarm, reuse, retention and scoped idl
   assert.equal(result.isError, false);
   assert.deepEqual(calls.map(call => [call.name, call.arguments]), [
     ["prewarm_virtual_display", {scale: 2}],
+    ["prewarm_virtual_display", {scale: 2, reuse_display: false}],
     ["create_virtual_display", {scale: 2, reuse_display: false}],
     ["destroy_virtual_display", {session_id: "lease", retain_display: false}],
     ["get_virtual_display_state", {}],

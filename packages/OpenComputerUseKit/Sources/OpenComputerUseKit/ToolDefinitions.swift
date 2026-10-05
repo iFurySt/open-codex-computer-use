@@ -61,7 +61,8 @@ public enum ToolDefinitions {
         ToolDefinition(name: "destroy_virtual_display", description: "Restore borrowed windows and request dedicated app termination. Retain the empty display by default to avoid hotplug; retain_display=false removes it. Unsaved content may block cleanup.", annotations: defaultAnnotations(), inputSchema: objectSchema(properties: [
             "session_id": stringProperty(description: "Virtual session identifier"),
             "retain_display": ["type": "boolean", "description": "Keep empty display for reuse; default true. False removes it and may move Dock."]], required: ["session_id"])),
-        ToolDefinition(name: "prewarm_virtual_display", description: "Reserve an empty macOS virtual display without an input session. Idempotent for an idle matching configuration. First creation can move Dock; subsequent sessions reuse it.", annotations: defaultAnnotations(), inputSchema: objectSchema(properties: [
+        ToolDefinition(name: "prewarm_virtual_display", description: "Reserve an empty macOS virtual display without an input session. Idempotent for an idle matching configuration by default; reuse_display=false creates a new empty display. First creation can move Dock; subsequent sessions reuse it.", annotations: defaultAnnotations(), inputSchema: objectSchema(properties: [
+            "reuse_display": ["type": "boolean", "description": "Reuse matching idle display; default true. False reserves a new display."],
             "width": positiveIntegerProperty(description: "Logical width; default 1920"),
             "height": positiveIntegerProperty(description: "Logical height; default 1080"),
             "scale": integerProperty(description: "Backing scale: 1 (default) or 2")], required: [])),

@@ -193,3 +193,5 @@ App-agent Quit 使用 RunLoop 调度 terminate/reply 与 worker 清理：termina
 电源 coordinator 内置统一 metrics：`MetricsCollector` 读取固定 SMC/电池传感器与保活状态，`MetricsService` 独立队列采样，系统 sqlite3 `MetricsStore` 持久化短期记录与配置。默认 5 秒/1 小时，限 10,000 条/32 MiB 主库；SDK/CLI 支持范围查询、configure、clear。采集不创建防休眠许可，错误与保活隔离，未知传感器不伪装为零。详细功率口径和接口见 [电源保活 metrics](power-hold.md#metrics短期电源数据)。
 
 实例所有权与窗口范围分开：get_app_candidates 只读列出全部 PID/window 候选；attach launch 默认仅取得验证过的新实例、保持隐藏并返回候选窗口，不移动窗口。调用方逐个指定 PID/window_id 后才移动，全部待显示窗口确认在虚拟屏内后才应用级 unhide。manage_all_windows=true 仅显式授权专属启动的初始窗口；后续新普通窗口不自动进入范围。adopt 不应用级 hide/unhide，不退出借用进程，原位置通过身份校验恢复。
+
+显示器预留 API `prewarm(configuration:reuseDisplay:)` / `prewarm_virtual_display` 接受 `reuse_display`（JS `reuseDisplay`），默认 true 保持幂等；false 强制创建独立空显示器。GUI Displays + 使用 false，会话创建可选择空闲 display ID 或自动复用。

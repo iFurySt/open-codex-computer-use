@@ -624,16 +624,16 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
             throw error
         }
     }
-    /// Reserve an empty display. Repeated prewarm with a matching live configuration is idempotent.
-    public func prewarm(configuration: VirtualDisplayConfiguration = .init()) throws -> UInt32 {
+    /// Reserve an empty display. By default, a matching idle display is reused; reuseDisplay=false reserves a new resource.
+    public func prewarm(configuration: VirtualDisplayConfiguration = .init(), reuseDisplay: Bool = true) throws -> UInt32 {
         lock.lock(); defer { lock.unlock() }
         guard !Thread.isMainThread else { throw ComputerUseError.message("Prewarm virtual displays on a worker thread") }
         try configuration.validate()
         guard AXIsProcessTrusted(), CGPreflightScreenCaptureAccess() else { throw ComputerUseError.permissionDenied("Accessibility and Screen Recording permissions are required") }
-        if let entry = idleDisplays.first(where: { $0.configuration == configuration && $0.holder.process.isRunning && CGDisplayIsActive($0.holder.displayID) != 0 }) {
+        if reuseDisplay, let entry = idleDisplays.first(where: { $0.configuration == configuration && $0.holder.process.isRunning && CGDisplayIsActive($0.holder.displayID) != 0 }) {
             return entry.holder.displayID
         }
-        let session = try create(configuration: configuration)
+        let session = try create(configuration: configuration, reuseDisplay: reuseDisplay)
         try destroy(sessionID: session.sessionID, retainDisplay: true)
         return session.displayID
     }

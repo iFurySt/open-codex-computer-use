@@ -39,7 +39,7 @@ The runtime exposes an asynchronous app-bound API:
 - \`await cua.getApp(nameOrBundleID)\`: bind an app and emit its initial accessibility state.
 - \`await cua.getAppCandidates(app?, { pid? })\` (macOS): read-only candidate lookup; explicit PID/window selection is required for adoption.
 - \`await cua.createVirtualDisplay({ width?, height?, scale?, reuseDisplay?, displayId? })\` (macOS): returns a session with \`id\`, \`attachApp(app, { mode: "adopt"|"launch", pid?, windowId?, newDocument?, manageAllWindows? })\`, \`getState()\`, \`pause()\`, \`resume()\`, \`destroy({ retainDisplay? })\` and \`getApp(app, { windowId? })\`.
-- macOS display reuse: \`await cua.prewarmVirtualDisplay({scale: 1})\`, \`await cua.listIdleVirtualDisplays()\`, \`await cua.releaseVirtualDisplays({displayId?})\`. Create reuses matching idle displays by default; destroy retains an empty display by default. First creation and final release may move Dock.
+- macOS display reuse: \`await cua.prewarmVirtualDisplay({scale: 1})\`, \`await cua.listIdleVirtualDisplays()\`, \`await cua.releaseVirtualDisplays({displayId?})\`. Prewarm defaults to reuse; pass \`reuseDisplay: false\` to reserve another empty display. Create reuses matching idle displays by default; destroy retains an empty display by default. First creation and final release may move Dock.
 - \`await cua.getVirtualDisplay(sessionId)\`: join an existing macOS session and get its lifecycle controller. Use \`await cua.listVirtualDisplays()\` to discover sessions; each can contain multiple applications.
 - \`await cua.getApp(app, { sessionId, windowId? })\`: join an existing virtual session shown in the OCU GUI. Virtual sessions never activate apps, post global input or use the clipboard; drag is unsupported. Sessions survive client disconnect and turn-ended, but each new turn/resume needs a fresh state.
 - \`await app.getAXState({ emit?, textLimit?, maxTreeNodes?, maxTreeDepth? })\`
@@ -375,6 +375,7 @@ export function createCuaApi(native, activeOutput) {
     async prewarmVirtualDisplay(options = {}) {
       await requireVirtualSupport();
       const args = {};
+      if (options.reuseDisplay !== undefined) args.reuse_display = options.reuseDisplay;
       for (const key of ["width", "height", "scale"]) if (options[key] !== undefined) args[key] = options[key];
       return JSON.parse(toolResultText(await call("prewarm_virtual_display", args)));
     },

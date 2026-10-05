@@ -59,7 +59,7 @@ macOS 增加十个 MCP tools：
 | `get_virtual_display_state` | 可选 `session_id`；省略时返回所有 sessions、idle_displays 和 displays |
 | `pause_virtual_display` / `resume_virtual_display` | `session_id` |
 | `destroy_virtual_display` | `session_id`, `retain_display=true`；false 真正移除 |
-| `prewarm_virtual_display` | 可选 `width`, `height`, `scale`；相同空闲配置幂等 |
+| `prewarm_virtual_display` | 可选 `width`, `height`, `scale`, `reuse_display`（默认 true）；相同空闲配置默认幂等，false 预留新空屏 |
 | `delete_virtual_display` | `display_id`；安全结束关联会话后移除屏 |
 | `release_virtual_displays` | 可选 `display_id`；省略释放本 runtime 的全部空屏 |
 
@@ -178,7 +178,7 @@ Display scale 使用原生 AppKit NSPopUpButton，菜单覆盖其下方内容；
 
 空屏没有 session ID、可操作应用或捕获流；每次租用产生新的 session ID 和 capture 对象，读实际布局并重新发现 ScreenCaptureKit 对象、验证权限。不同客户端的旧 session snapshot 不会变成新会话缓存，旧 session ID 的请求失败。窗口恢复排除全部自有活动/空闲屏；断开客户端保留空屏，显式 Quit 清理全部，父进程崩溃依赖管道 EOF 退出 helper。切换不同构建时，已有空屏也阻止隐式替换 runtime。
 
-Swift worker API：`prewarm(configuration:) -> UInt32`、`create(configuration:reuseDisplay:)`、`destroy(sessionID:retainDisplay:)`、`idleDisplayStates()`、`releaseIdleDisplays(displayID:)`、`destroyAll()`。`activeDisplayIDs` 不包含空闲屏，`ownedDisplayIDs` 包含。预热权限与创建相同；重复预热只有在已有匹配的空闲屏时幂等，正在使用的屏不能被复用或通过 release 接口释放。想预热多个同配置屏，可显式 create(reuseDisplay:false) 后 destroy(retainDisplay:true)。
+Swift worker API：`prewarm(configuration:reuseDisplay:) -> UInt32`、`create(configuration:reuseDisplay:)`、`destroy(sessionID:retainDisplay:)`、`idleDisplayStates()`、`releaseIdleDisplays(displayID:)`、`destroyAll()`。`activeDisplayIDs` 不包含空闲屏，`ownedDisplayIDs` 包含。预热权限与创建相同；重复预热只有在已有匹配的空闲屏时幂等，正在使用的屏不能被复用或通过 release 接口释放。想预留多个同配置空屏，可直接 prewarm(reuseDisplay:false)，MCP 为 reuse_display:false、JS 为 reuseDisplay:false。
 
 ```bash
 open-computer-use call prewarm_virtual_display --args '{"scale":1}'

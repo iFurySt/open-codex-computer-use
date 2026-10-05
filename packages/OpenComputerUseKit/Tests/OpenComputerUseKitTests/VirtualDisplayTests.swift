@@ -8,6 +8,7 @@ final class VirtualDisplayTests: XCTestCase {
         for (tool, arguments) in [
             ("create_virtual_display", ["reuse_display": "false"] as [String: Any]),
             ("create_virtual_display", ["reuse_display": 1]),
+            ("prewarm_virtual_display", ["reuse_display": "false"]),
             ("destroy_virtual_display", ["session_id": "missing", "retain_display": 0]),
             ("release_virtual_displays", ["display_id": Int64(UInt32.max) + 1]),
             ("release_virtual_displays", ["display_id": -1]),
