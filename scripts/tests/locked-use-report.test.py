@@ -76,6 +76,18 @@ class ReportTests(unittest.TestCase):
                   event(3, 'AuthorizationMechanism', 'resultDelivered allowed=1 status=0')]
         self.assertTrue(report.authentication_windows(events)[0]['allowObserved'])
 
+    def testRepeatedAuthorizingTransitionDoesNotLeaveAnOpenWindow(self):
+        def event(at, message):
+            return {'elapsedSeconds': at, 'category': 'Broker', 'message': message}
+        windows = report.authentication_windows([
+            event(1, 'phase=authorizing stopReason=none'),
+            event(1.012, 'phase=authorizing stopReason=none'),
+            event(6, 'phase=relocking stopReason=unlockTimeout'),
+            event(6.012, 'phase=relocking stopReason=unlockTimeout')])
+        self.assertEqual(len(windows), 1)
+        self.assertEqual(windows[0]['startedAt'], 1)
+        self.assertEqual(windows[0]['endedAt'], 6)
+
     def testUnavailableStreamRemainsDiagnosticOnly(self):
         trace = report.LiveAuthenticationTrace(0)
         with patch.object(report.subprocess, 'Popen', side_effect=OSError): trace.start()

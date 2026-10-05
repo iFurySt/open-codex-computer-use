@@ -244,3 +244,5 @@ python3 scripts/run-locked-use-native-validation.py --observe-auth-only --observ
 ```
 
 该入口不需要安装验证 profile，不锁屏、不请求认证、不创建租约。空输入 / 合成点击候选尚未实现认证提交，建议先在隔离环境检验 Keychain 可用状态（报告未证明重设），详见 [认证时序复核](references/macos-locked-use-auth-transaction-timing-review.md)。
+
+`--confirm-wake-test` / `--confirm-recovery-test` 配合 `--wait-for-manual-unlock` 时，双方释放后继续最多 60 秒只读观察正常手动登录，不保留遮罩、不启动 GUI 验证。实时与历史日志可能重复报告同一阶段，重复 authorizing 不创建新许可窗口。

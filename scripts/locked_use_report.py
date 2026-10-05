@@ -95,6 +95,9 @@ def authentication_windows(events):
     for event in sorted(events, key=lambda item: item["elapsedSeconds"]):
         message = event["message"]
         if event["category"] == "Broker" and message == "phase=authorizing stopReason=none":
+            # Streaming and historical logs may report the same transition with
+            # slightly different timestamps. A repeated phase is not a new lease.
+            if current: continue
             current = {"startedAt": event["elapsedSeconds"], "endedAt": None,
                        "rightEvaluationObserved": False, "mechanismObserved": False,
                        "allowObserved": False, "localAuthenticationObserved": False}

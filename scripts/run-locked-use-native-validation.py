@@ -158,6 +158,10 @@ def main():
             completed = True
             record("bothGuardsRecoveryPassed" if args.confirm_recovery_test else "relockObserved",
                    transactionSeconds=round(time.monotonic()-started, 3), unlockPermitIssued=args.confirm_wake_test, guiActionsPerformed=False)
+            if args.wait_for_manual_unlock:
+                # Both guards have released; retain only diagnostic observation.
+                wait_for(guardian, "unlocked", timeout=60)
+                record("manualUnlockObserved", passed=True, guiActionsPerformed=False)
             return
         prepare = "prepare-legacy" if args.legacy_only else "prepare"
         result = rpc.call("ocu/locked-use/keychain/" + prepare)
