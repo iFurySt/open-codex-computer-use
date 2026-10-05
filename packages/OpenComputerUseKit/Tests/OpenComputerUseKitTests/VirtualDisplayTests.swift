@@ -72,6 +72,18 @@ final class VirtualDisplayTests: XCTestCase {
         XCTAssertEqual(registry.states().map(\.sessionID), before)
     }
 
+    func testHealthyEmptySessionStartsReadyAndLayoutFailureStillPauses() {
+        XCTAssertNil(VirtualDisplaySessionStartupPolicy.creationPauseReason(physicalLayoutPreserved: true))
+        XCTAssertNotNil(VirtualDisplaySessionStartupPolicy.creationPauseReason(physicalLayoutPreserved: false))
+    }
+
+    func testSpaceSetupNotificationDoesNotPauseEmptySessionButSafetyEventsDo() {
+        XCTAssertFalse(VirtualDisplaySessionStartupPolicy.shouldPauseForDesktopChange(onlyManagedApplications: true, hasManagedApplications: false))
+        XCTAssertTrue(VirtualDisplaySessionStartupPolicy.shouldPauseForDesktopChange(onlyManagedApplications: true, hasManagedApplications: true))
+        XCTAssertTrue(VirtualDisplaySessionStartupPolicy.shouldPauseForDesktopChange(onlyManagedApplications: false, hasManagedApplications: false))
+        XCTAssertTrue(VirtualDisplaySessionStartupPolicy.shouldPauseForDesktopChange(onlyManagedApplications: false, hasManagedApplications: true))
+    }
+
     func testBrowserCursorAssetLoadsFromPackageResources() throws {
         let image = try XCTUnwrap(BrowserUseCursorArtwork.image)
         XCTAssertEqual(image.width, 46)

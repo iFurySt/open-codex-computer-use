@@ -29,3 +29,5 @@ UI 状态在 MainActor 更新，显示器/AX/捕获生命周期在 worker 执行
 Add application sheet 的应用选择与进程/窗口选择分开：应用列表显示 bundle ID；Launch 默认只创建验证过的新实例，保持 sheet 并转入具体 PID/window 选择。候选列表完整展示同一 App 的多个进程，不默认选择首个窗口。Move selected window 说明仅该窗口暂时移动；借用应用不会隐藏或退出。专属实例如有多个窗口，逐个加入后才整体 reveal。
 
 侧栏项目容器使用 ScrollView + LazyVStack，固定外侧 padding，不再混用 sidebar List 自动 inset、contentMargins 和 listRowInsets。选中背景和 hover 背景由资源行绘制；选择与删除为并列原生 Button，隐藏删除图标仍保留固定占位。滚动条隐藏，避免内容溢出时产生横向 gutter。外层 NavigationSplitView、原生 toggle/toolbar/折叠动画保持不变。
+
+Sessions/Displays 标题的上下 8 points 为按钮内部 padding，外层 HStack 使用全宽 Rectangle contentShape 接收 hover；标题/箭头/间隙/右侧 + 同属热区，+ 固定 28×38 points。分组间额外 top spacing 仅为分组间隔。新建空会话通过捕获/布局检查后直接 ready，不因创建过程的前台/Dock 变化或空会话 Space 通知要求再点开始；锁屏/睡眠、布局/捕获异常及受管实例冲突仍暂停。

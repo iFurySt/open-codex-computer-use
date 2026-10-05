@@ -246,10 +246,6 @@ private enum WorkspaceSidebarLayout {
     static let childIndent: CGFloat = 12
     static let rowInset: CGFloat = 8
 
-    static func headerInsets(top: CGFloat) -> EdgeInsets {
-        EdgeInsets(top: top, leading: 0, bottom: 4, trailing: 0)
-    }
-
     static let resourceInsets = EdgeInsets(
         top: 0, leading: rowInset + childIndent, bottom: 0, trailing: rowInset
     )
@@ -266,7 +262,7 @@ struct VirtualDisplayWorkspaceView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
                     WorkspaceSidebarGroupHeader(title: "Sessions", expanded: $sessionsExpanded, busy: model.busy, create: showCreateSession)
-                        .padding(WorkspaceSidebarLayout.headerInsets(top: 8))
+
                     if sessionsExpanded {
                         ForEach(model.sessions, id: \.sessionID) { state in
                             WorkspaceSidebarResourceRow(title: model.name(state), subtitle: "\(state.phase.capitalized) · \(state.applications.count) apps", icon: "rectangle.stack", busy: model.busy,
@@ -280,7 +276,7 @@ struct VirtualDisplayWorkspaceView: View {
                         }
                     }
                     WorkspaceSidebarGroupHeader(title: "Displays", expanded: $displaysExpanded, busy: model.busy, create: showCreateSession)
-                        .padding(WorkspaceSidebarLayout.headerInsets(top: 16))
+                        .padding(.top, 8)
                     if displaysExpanded {
                         ForEach(model.displays) { display in
                             WorkspaceSidebarResourceRow(title: "Display \(display.displayID)", subtitle: displaySubtitle(display), icon: "display", busy: model.busy,
@@ -497,12 +493,19 @@ private struct WorkspaceSidebarGroupHeader: View {
                     Image(systemName: expanded ? "chevron.down" : "chevron.right")
                         .font(.system(size: 10, weight: .semibold)).opacity(hovering ? 1 : 0)
                     Spacer(minLength: 0)
-                }.contentShape(Rectangle())
+                }
+                .frame(minHeight: 22)
+                .padding(.vertical, 8)
+                .contentShape(Rectangle())
             }.buttonStyle(.plain).accessibilityLabel("\(expanded ? "Collapse" : "Expand") \(title)")
-            Button(action: create) { Image(systemName: "plus").frame(width: 22, height: 22) }
+            Button(action: create) { Image(systemName: "plus").frame(width: 28, height: 38).contentShape(Rectangle()) }
                 .buttonStyle(.plain).opacity(hovering ? 1 : 0).disabled(busy)
                 .help("New Session").accessibilityLabel("New Session in \(title)")
-        }.foregroundStyle(.secondary).onHover { hovering = $0 }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .foregroundStyle(.secondary)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
     }
 }
 

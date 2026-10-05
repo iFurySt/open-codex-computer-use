@@ -175,6 +175,16 @@ private func rectDictionary(_ frame: CGRect) -> [String: Double] {
     ["x": frame.minX, "y": frame.minY, "width": frame.width, "height": frame.height]
 }
 
+enum VirtualDisplaySessionStartupPolicy {
+    static func creationPauseReason(physicalLayoutPreserved: Bool) -> String? {
+        physicalLayoutPreserved ? nil : "Physical display layout changed during setup; inspect before resuming"
+    }
+
+    static func shouldPauseForDesktopChange(onlyManagedApplications: Bool, hasManagedApplications: Bool) -> Bool {
+        !onlyManagedApplications || hasManagedApplications
+    }
+}
+
 public enum VirtualDisplayCoordinates {
     public static func globalPoint(pixel: CGPoint, pixelSize: CGSize, bounds: CGRect) throws -> CGPoint {
         guard pixelSize.width.isFinite, pixelSize.height.isFinite, bounds.minX.isFinite, bounds.minY.isFinite,
@@ -437,6 +447,13 @@ private final class VirtualDisplaySession {
     private var targetPIDs: Set<Int32> = []
     func setPIDs(_ pids: Set<Int32>) { pauseLock.lock(); targetPIDs = pids; pauseLock.unlock() }
     func pauseIfActivated(_ pid: Int32) { pauseLock.lock(); if targetPIDs.contains(pid) { pauseReason = "Managed application became frontmost" }; pauseLock.unlock() }
+    func pauseForDesktopChange(onlyManagedApplications: Bool) {
+        pauseLock.lock(); defer { pauseLock.unlock() }
+        if VirtualDisplaySessionStartupPolicy.shouldPauseForDesktopChange(
+            onlyManagedApplications: onlyManagedApplications, hasManagedApplications: !targetPIDs.isEmpty) {
+            pauseReason = "Desktop changed or locked; inspect and resume explicitly"
+        }
+    }
     init(holder: VirtualDisplayHolder, configuration: VirtualDisplayConfiguration) {
         self.holder = holder; self.configuration = configuration; bounds = CGDisplayBounds(holder.displayID)
     }
@@ -486,7 +503,7 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
         recoveryURL = directory.appendingPathComponent("virtual-display-recovery.json")
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification, NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.activeSpaceDidChangeNotification] {
-            observers.append(center.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in self?.pauseForDesktopChange() })
+            observers.append(center.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in self?.pauseForDesktopChange(onlyManagedApplications: name == NSWorkspace.activeSpaceDidChangeNotification) })
         }
         observers.append(center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: nil) { [weak self] notification in
             guard let self, let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
@@ -499,9 +516,9 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
         timer.setEventHandler { [weak self] in self?.monitorSession() }
         timer.resume(); monitor = timer
     }
-    public func pauseForDesktopChange() {
+    public func pauseForDesktopChange(onlyManagedApplications: Bool = false) {
         controlLock.lock(); let current = Array(controlledSessions.values); controlLock.unlock()
-        current.forEach { $0.pause("Desktop changed or locked; inspect and resume explicitly") }
+        current.forEach { $0.pauseForDesktopChange(onlyManagedApplications: onlyManagedApplications) }
     }
     private func requireSession(_ id: String) throws -> VirtualDisplaySession {
         guard let session = sessions[id] else { throw ComputerUseError.message("Unknown virtual display session") }
@@ -591,9 +608,11 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
             s.desktopBefore = desktopBefore
             s.desktopAfter = VirtualDisplayDesktopObservation.current(excluding: ownedDisplayIDs.union([holder.displayID]))
             s.layoutPreserved = s.physicalLayout == originalPhysical
-            if !s.layoutPreserved { s.pause("Physical display layout changed during setup; inspect before resuming") }
-            if s.foregroundBefore != s.foregroundAfter { s.pause("Foreground changed during setup; inspect before resuming") }
-            if let dock = desktopBefore.dockDisplayID, s.desktopAfter?.dockDisplayID != dock { s.pause("Dock moved during display setup; inspect before resuming") }
+            // No app/window is authorized yet. Record setup focus/Dock observations,
+            // but do not require a manual resume for an otherwise healthy empty session.
+            if let reason = VirtualDisplaySessionStartupPolicy.creationPauseReason(physicalLayoutPreserved: s.layoutPreserved) {
+                s.pause(reason)
+            }
             sessions[s.id] = s; sessionOrder.append(s.id)
             controlLock.lock(); controlledSessions[s.id] = s; controlledOrder.append(s.id); controlLock.unlock()
             return state(s)

@@ -151,7 +151,7 @@ Runner 默认保持用户当前前台，真实 AppKit target 不自行激活；�
 
 创建/移除显示器本身仍会触发 WindowServer 重配置，不能承诺桌面零刷新。helper 使用稳定、未占用的 serial，读取实际布局，只修正有差异的 origin/mirror，不重写相同的物理屏配置。`creation_observation` 新增 `display_serial`、`additional_configuration_applied`、`desktop_before`/`desktop_after`、`main_display_preserved`/`dock_display_preserved`。主屏和物理 frame 没变，不代表 Dock 没移动；Dock 来自只读 AX/窗口几何观察，不用缓存的 NSScreen.visibleFrame 推断。
 
-当前上下屏排列已复现原实现创建后 Dock 从上屏移到下屏且销毁后不自动恢复。优化后 20 次生命周期保持主屏、物理 frame 和测试前的 Dock 所在屏，稳定 identity 后跳过额外配置；但该次基线的 Dock 已在下屏，不能据此声称保住上屏 Dock。创建时发现 Dock 迁移会暂停并显示原因，不修改 Dock/Spaces 偏好、不重启 Dock、不移动用户鼠标。上屏 Dock 保持验收仍开放。
+当前上下屏排列已复现原实现创建后 Dock 从上屏移到下屏且销毁后不自动恢复。优化后 20 次生命周期保持主屏、物理 frame 和测试前的 Dock 所在屏，稳定 identity 后跳过额外配置；但该次基线的 Dock 已在下屏，不能据此声称保住上屏 Dock。创建时的 Dock 迁移记入 creation_observation，不再仅因空会话的 Dock/前台变化暂停，不修改 Dock/Spaces 偏好、不重启 Dock、不移动用户鼠标。上屏 Dock 保持验收仍开放。
 
 专属应用请求隐藏启动，并在等待首个 AX 窗口期间维持 AXHidden；移动及读回全部窗口后才 unhide。TextEdit 文档作为隐藏应用启动的初始 OpenDocuments event 交给 LaunchServices，不使用 AppleScript、脚本输入或额外 Automation 授权。此操作仅针对返回的全新实例与 OCU 专属文件，既有实例仍拒绝隐式接管。这个策略减少可见启动窗口，但不保证任意第三方应用零闪现；隐藏/揭示失败会明确报错、暂停并保留清理记录。
 

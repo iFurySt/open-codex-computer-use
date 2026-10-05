@@ -170,7 +170,7 @@
 
 macOS tool registry 增加十个虚拟会话/显示器及候选查询 tools（共 19），原有 app tools 可选择 `session_id`，`get_app_state` 可明确选择 `window_id`。Windows/Linux 保持原有 9 个 tools。无 session 的旧调用不变。
 
-`apps/VirtualDisplayHost` 经 `packages/VirtualDisplayBridge` 创建并持有私有 CGVirtualDisplay 对象。每个显示器一个 helper；会话从本 runtime 的空屏池租用匹配配置的显示器，结束默认归还空屏，父进程管道关闭即退出；打包时复制到 `Contents/Helpers` 并先签 helper 后签主 bundle。AX、ScreenCaptureKit 与权限身份留在 OCU runtime。serial 使用跨 bundle/socket namespace 共用的固定 32 个身份槽位；跨 runtime 文件锁覆盖选择至 CG 上线，避开在线/本进程持有的 serial，耗尽时报错，IPC namespace 仍保持隔离；helper 仅在实际 origin/mirror 不一致时提交额外布局事务，不反复重写未变的物理屏。创建观察记录物理 frame、主屏、前台 PID 和 Dock 所在屏；Dock 迁移会暂停会话。
+`apps/VirtualDisplayHost` 经 `packages/VirtualDisplayBridge` 创建并持有私有 CGVirtualDisplay 对象。每个显示器一个 helper；会话从本 runtime 的空屏池租用匹配配置的显示器，结束默认归还空屏，父进程管道关闭即退出；打包时复制到 `Contents/Helpers` 并先签 helper 后签主 bundle。AX、ScreenCaptureKit 与权限身份留在 OCU runtime。serial 使用跨 bundle/socket namespace 共用的固定 32 个身份槽位；跨 runtime 文件锁覆盖选择至 CG 上线，避开在线/本进程持有的 serial，耗尽时报错，IPC namespace 仍保持隔离；helper 仅在实际 origin/mirror 不一致时提交额外布局事务，不反复重写未变的物理屏。创建观察记录物理 frame、主屏、前台 PID 和 Dock 所在屏；新建空会话的 Dock/前台变化仅记录创建观察，不要求额外 resume；真实物理布局异常仍暂停。
 
 `VirtualDisplaySessionRegistry` 串行服务 GUI、CLI、MCP 和 JS；多个独立会话，每会话多个应用和明确受管理窗口；同一进程只归属一个会话。每会话独立 capture 和恢复标记，物理布局检查排除本 runtime 的活动和空闲虚拟屏；activeDisplayIDs 只返回活动屏，ownedDisplayIDs 也包含空闲屏。窗口截图/AX 缓存按客户端、session、PID、window、布局与 turn epoch 隔离。暂停立即关闭输入门，布局/前台/桌面变化暂停；恢复必须重新 snapshot。session 不随客户端断开或 turn-ended 销毁。
 
