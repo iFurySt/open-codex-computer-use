@@ -241,7 +241,7 @@ final class VirtualDisplayWorkspaceModel: ObservableObject {
 }
 
 private enum WorkspaceSidebarLayout {
-    // Match the native selection background's outer gutter throughout the sidebar.
+    // One explicit gutter: avoid sidebar List's state-dependent automatic insets.
     static let outerInset: CGFloat = 10
     static let childIndent: CGFloat = 12
     static let rowInset: CGFloat = 8
@@ -263,37 +263,40 @@ struct VirtualDisplayWorkspaceView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            List(selection: Binding(get: { model.sidebarSelection }, set: { model.sidebarSelection = $0 })) {
-                WorkspaceSidebarGroupHeader(title: "Sessions", expanded: $sessionsExpanded, busy: model.busy, create: showCreateSession)
-                    .selectionDisabled().listRowSeparator(.hidden).listRowInsets(WorkspaceSidebarLayout.headerInsets(top: 8))
-                if sessionsExpanded {
-                    ForEach(model.sessions, id: \.sessionID) { state in
-                        WorkspaceSidebarResourceRow(title: model.name(state), subtitle: "\(state.phase.capitalized) · \(state.applications.count) apps", icon: "rectangle.stack", busy: model.busy,
-                            delete: { model.deleteSession(state.sessionID) })
-                            .listRowInsets(WorkspaceSidebarLayout.resourceInsets)
-                            .tag(WorkspaceSidebarSelection.session(state.sessionID))
-                            .contextMenu {
-                                Button("Delete Session", role: .destructive) { model.deleteSession(state.sessionID) }.disabled(model.busy)
-                                Button("Delete Session and Display", role: .destructive) { model.deleteSession(state.sessionID, deleteDisplay: true) }.disabled(model.busy)
-                            }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    WorkspaceSidebarGroupHeader(title: "Sessions", expanded: $sessionsExpanded, busy: model.busy, create: showCreateSession)
+                        .padding(WorkspaceSidebarLayout.headerInsets(top: 8))
+                    if sessionsExpanded {
+                        ForEach(model.sessions, id: \.sessionID) { state in
+                            WorkspaceSidebarResourceRow(title: model.name(state), subtitle: "\(state.phase.capitalized) · \(state.applications.count) apps", icon: "rectangle.stack", busy: model.busy,
+                                selected: model.sidebarSelection == .session(state.sessionID),
+                                select: { model.sidebarSelection = .session(state.sessionID) },
+                                delete: { model.deleteSession(state.sessionID) })
+                                .contextMenu {
+                                    Button("Delete Session", role: .destructive) { model.deleteSession(state.sessionID) }.disabled(model.busy)
+                                    Button("Delete Session and Display", role: .destructive) { model.deleteSession(state.sessionID, deleteDisplay: true) }.disabled(model.busy)
+                                }
+                        }
+                    }
+                    WorkspaceSidebarGroupHeader(title: "Displays", expanded: $displaysExpanded, busy: model.busy, create: showCreateSession)
+                        .padding(WorkspaceSidebarLayout.headerInsets(top: 16))
+                    if displaysExpanded {
+                        ForEach(model.displays) { display in
+                            WorkspaceSidebarResourceRow(title: "Display \(display.displayID)", subtitle: displaySubtitle(display), icon: "display", busy: model.busy,
+                                selected: model.sidebarSelection == .display(display.displayID),
+                                select: { model.sidebarSelection = .display(display.displayID) },
+                                delete: { model.deleteDisplay(display) })
+                                .contextMenu {
+                                    Button("Delete Display and Sessions", role: .destructive) { model.deleteDisplay(display) }.disabled(model.busy)
+                                }
+                        }
                     }
                 }
-                WorkspaceSidebarGroupHeader(title: "Displays", expanded: $displaysExpanded, busy: model.busy, create: showCreateSession)
-                    .selectionDisabled().listRowSeparator(.hidden).listRowInsets(WorkspaceSidebarLayout.headerInsets(top: 16))
-                if displaysExpanded {
-                    ForEach(model.displays) { display in
-                        WorkspaceSidebarResourceRow(title: "Display \(display.displayID)", subtitle: displaySubtitle(display), icon: "display", busy: model.busy,
-                            delete: { model.deleteDisplay(display) })
-                            .listRowInsets(WorkspaceSidebarLayout.resourceInsets)
-                            .tag(WorkspaceSidebarSelection.display(display.displayID))
-                            .contextMenu {
-                                Button("Delete Display and Sessions", role: .destructive) { model.deleteDisplay(display) }.disabled(model.busy)
-                            }
-                    }
-                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, WorkspaceSidebarLayout.outerInset)
             }
-            .listStyle(.sidebar)
-            .contentMargins(.horizontal, WorkspaceSidebarLayout.outerInset, for: .scrollContent)
+            .scrollIndicators(.hidden)
             .safeAreaInset(edge: .top, spacing: 0) {
                 HStack(spacing: 9) {
                     Image(nsImage: NSImage(named: NSImage.applicationIconName) ?? NSImage())
@@ -508,20 +511,36 @@ private struct WorkspaceSidebarResourceRow: View {
     let subtitle: String
     let icon: String
     let busy: Bool
+    let selected: Bool
+    let select: () -> Void
     let delete: () -> Void
     @State private var hovering = false
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: icon).frame(width: 20)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).lineLimit(1)
-                Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        HStack(spacing: 0) {
+            Button(action: select) {
+                HStack(spacing: 8) {
+                    Image(systemName: icon).frame(width: 20)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(title).lineLimit(1)
+                        Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, WorkspaceSidebarLayout.resourceInsets.leading)
+                .padding(.vertical, 8)
+                .contentShape(Rectangle())
             }
-            Spacer(minLength: 0)
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(selected ? .isSelected : [])
             Button(action: delete) { Image(systemName: "trash").frame(width: 22, height: 24) }
-                .buttonStyle(.borderless).opacity(hovering ? 1 : 0).disabled(busy)
+                .buttonStyle(.plain).opacity(hovering ? 1 : 0).disabled(busy)
+                .padding(.trailing, WorkspaceSidebarLayout.resourceInsets.trailing)
                 .help("Delete \(title)").accessibilityLabel("Delete \(title)")
-        }.padding(.vertical, 4).contentShape(Rectangle()).onHover { hovering = $0 }
+        }
+        .background(selected ? Color(nsColor: .unemphasizedSelectedContentBackgroundColor) : hovering ? Color.primary.opacity(0.04) : .clear,
+                    in: RoundedRectangle(cornerRadius: 9))
+        .contentShape(Rectangle()).onHover { hovering = $0 }
     }
 }
 
