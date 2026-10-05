@@ -63,6 +63,7 @@ extension VirtualDisplayNotebookKernel {
                     }
                 }
             }
+            try registry.arrangeExampleWindows(sessionID: sessionID)
             return try output(registry.state(sessionID: sessionID).dictionary)
         case "calculate":
             values.removeValue(forKey: "result"); values.removeValue(forKey: "expression")

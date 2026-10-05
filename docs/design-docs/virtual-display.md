@@ -242,3 +242,5 @@ ScreenCaptureKit 使用 [宿主排除 + 指定窗口例外](https://developer.ap
 `VirtualDisplayViewport` 独立于 snapshot/工具坐标：缩放保持指针下的图像位置、范围 0.25–8 倍，两指滑动（含系统惯性）与按住拖动共用平移路径，受图像边缘限制；精确滚动或带 phase/momentum 的手势归入平移，普通滚轮用于缩放。Original size 切换或双击重置。Retina 原始尺寸使用实际 backing scale。观看手势不调用任何远程输入工具。
 
 会话内光标 move 使用异步 MainActor continuation；工具 worker 最多等待 4 秒，travel 完成才继续真实输入，与普通 OCU 的动作先后顺序一致。暂停、turn-ended、关闭或捕获停止会取消等待；超时清除光标并拒绝本次输入，不因等待解除原有身份/窗口/后台校验。位置/朝向弹簧有逐帧参考模型测试，30 fps 取样也必须观察到弧线与转向；这不代替视频帧的像素级比对。
+
+示例的 prepare 阶段将专属 TextEdit 文档放到 Calculator 右侧，空间允许时留 40 points 间隔；保持文档完全在虚拟屏内，并读回 AX frame、更新布局版本。仅调整示例已授权的专属窗口。

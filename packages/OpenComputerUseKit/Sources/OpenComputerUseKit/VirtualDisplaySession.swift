@@ -1018,6 +1018,36 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
         try VirtualDisplayWindowAccess.place(window, frame: target)
         s.frames[window.info.id] = target
     }
+    /// Arrange only the dedicated, already-authorized example windows.
+    func arrangeExampleWindows(sessionID: String) throws {
+        lock.lock(); defer { lock.unlock() }
+        let s = try requireSession(sessionID)
+        guard s.reason == nil else { throw ComputerUseError.message("Session is paused") }
+        try validate(s, requireApp: true)
+        func selected(_ bundleID: String) throws -> VirtualDisplayWindow {
+            guard let app = s.applications.values.first(where: {
+                $0.owned && $0.application.bundleIdentifier == bundleID
+            }), let id = app.selected, s.frames[id] != nil,
+                  let window = VirtualDisplayWindowAccess.windows(pid: app.application.processIdentifier)
+                    .first(where: { $0.info.id == id }) else {
+                throw ComputerUseError.message("Example layout requires dedicated managed windows")
+            }
+            return window
+        }
+        let calculator = try selected("com.apple.calculator")
+        let editor = try selected("com.apple.TextEdit")
+        let available = s.bounds.insetBy(dx: 40, dy: 60)
+        var target = editor.info.frame
+        // Keep the document fully on screen, with a gap after Calculator where space allows.
+        target.origin.x = min(calculator.info.frame.maxX + 40, available.maxX - target.width)
+        target.origin.x = max(available.minX, target.origin.x)
+        guard VirtualDisplayWindowAccess.close(target, editor.info.frame) == false else { return }
+        try VirtualDisplayWindowAccess.place(editor, frame: target)
+        s.frames[editor.info.id] = target
+        s.version += 1
+        s.capture.setCursor(nil)
+    }
+
     public func selectWindow(sessionID: String, windowID: UInt32) throws -> VirtualDisplayState {
         lock.lock(); defer { lock.unlock() }
         let s = try requireSession(sessionID)
