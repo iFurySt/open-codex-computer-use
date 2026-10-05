@@ -1,0 +1,13 @@
+# Display performance causality demo — bounded experiment complete
+
+- Goal: separate query/capture/render workload, display hotplug and changing identities from persistent ColorSync/WindowServer state; retain reproducible evidence rather than equate correlation with cause.
+- Scope: independent native demo plus orchestration/metrics; no changes to the production runtime, its sessions, physical preferences, ColorSync profiles or daemons. Raw evidence stays outside the repository; sanitized report/history is versioned.
+- Baseline is already abnormal (ColorSync repeated profile processing); bracket workloads with recovery observations. CPU is measured from deltas, not ps lifetime averages.
+- User approved hotplug tests and accepted production sessions pausing on reconfiguration. The controlled run began with physical displays only. Only demo-owned helpers were stopped. No global cache cleanup or forced termination. Four creations used three bounded identities, not a default 20-cycle random-identity stress loop.
+- Observed ICC filenames/hashes, mixed WindowServer UUID/config counts, online display identities, physical geometry, daemon CPU and profile-processing log rates. Foreground/input continuity was outside this non-input experiment. Existing helper binary was reused read-only; allocation honors the production cross-runtime lock.
+- Root daemon stack sampling is currently denied by OS privileges; no automatic elevation. Report this causal gap explicitly.
+- Completed: standalone Swift probe, Python orchestration, four verified create/remove cycles, capture/render comparisons and extra 60-second physical-only recovery. Swift standalone compilation and three metrics/regression tests passed.
+- Invalid observe windows are documented: production topology changed during CG 2 Hz query; stale display ID caused capture failure. Capture now rechecks target; valid capture evidence comes from demo-owned hotplug display.
+- Results: identity changes added three persistent ICC files; repeated identity preserved UUID/profile. Online virtual display amplified existing ColorSync loop; query/capture/render did not show matching amplification. Loop persisted with no online virtual display/helper. Root trigger and residue contribution are not proven.
+- Deliverables: `experiments/DisplayPerformance/README.md`, sanitized `results-20261005.json`, and `docs/references/20261005-display-performance-causality.md`.
+- Remaining investigation requires a clean baseline and authorized daemon stacks/state isolation. This bounded demo is complete; historical root cause remains open in the report. Production app/bundle unchanged, so no main runtime restart.
