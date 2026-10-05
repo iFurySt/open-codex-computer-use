@@ -456,10 +456,20 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
             reused = true
         } else {
             guard displayID == nil else { throw ComputerUseError.message("Selected idle display disconnected; refresh displays before creating a session") }
-            let identity = (Bundle.main.bundleIdentifier ?? "com.ifuryst.opencomputeruse.cli") + "|" + (ProcessInfo.processInfo.environment[openComputerUseAppAgentSocketNamespaceEnvironmentKey] ?? "")
-            let occupied = Set(Self.onlineDisplayIDs().map(CGDisplaySerialNumber)).union(sessions.values.map { $0.holder.serial }).union(idleDisplays.map { $0.holder.serial })
-            let serial = try VirtualDisplayIdentity.availableSerial(identity: identity, occupied: occupied)
-            holder = try VirtualDisplayHolder(configuration: configuration, serial: serial)
+            holder = try VirtualDisplayIdentity.withCreationLock {
+                let occupied = Set(Self.onlineDisplayIDs().map(CGDisplaySerialNumber)).union(sessions.values.map { $0.holder.serial }).union(idleDisplays.map { $0.holder.serial })
+                let serial = try VirtualDisplayIdentity.availableSerial(occupied: occupied)
+                let created = try VirtualDisplayHolder(configuration: configuration, serial: serial)
+                let deadline = Date(timeIntervalSinceNow: 3)
+                while !Self.onlineDisplayIDs().contains(created.displayID), Date() < deadline {
+                    Thread.sleep(forTimeInterval: 0.02)
+                }
+                guard Self.onlineDisplayIDs().contains(created.displayID) else {
+                    created.stop()
+                    throw ComputerUseError.message("Display identity did not become visible before allocation completed")
+                }
+                return created
+            }
             reused = false
         }
         let s = VirtualDisplaySession(holder: holder, configuration: configuration)

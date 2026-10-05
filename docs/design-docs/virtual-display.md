@@ -207,3 +207,13 @@ await cua.releaseVirtualDisplays({displayId: idle[0].display_id});
 选中活动 Display 查看关联会话，空闲 Display 展示实际配置与 Create Session；该入口显式租用所选 ID，不能占用活动屏或静默替换失效屏。`create_virtual_display.display_id` 必须指向匹配 width/height/scale 的自有空闲资源；Swift 为 `create(configuration:reuseDisplay:displayID:)`。typed `displayStates()` 提供 displayID/helperPID/configuration/frame/sessionIDs/online。
 
 `delete_virtual_display({display_id})` / Swift `destroyDisplay(displayID:)` / JS `cua.deleteVirtualDisplay(displayId)` 在 registry 串行锁下完成安全级联，拒绝未知或其他 runtime 的屏。它与只允许空屏的 release_virtual_displays 区分。已成功退出的应用/已恢复的窗口不能回滚，因此失败保留剩余状态，不承诺事务 all-or-nothing。`get_virtual_display_state` 未指定 session 时新增 displays；JS `cua.listDisplayResources()` 查询资源，create 的 displayId 可精确选择。所有实际移除依然可能重置 Dock。
+
+## ColorSync / WindowServer 持久残留
+
+进程退出和 CG 列表为空不等于系统没有历史状态。macOS 会保存虚拟显示器 ICC，WindowServer 也会保留显示器布局记录。曾使用 namespace 哈希 serial，独立测试 namespace 导致不同物理身份不断累积；现在固定跨 runtime/bundle 共用 32 个 serial 槽位，创建锁持有到 CG 上线，在线身份不可重用。会话继续优先复用空屏。身份迁移不会自动删除旧 ICC，也不能保证 macOS 永不重建同身份 profile；禁止把“有界身份”宣称成 ICC 数量绝对上限。
+
+只读诊断：`python3 scripts/diagnose-virtual-display-residue.py`。报告 OCU 名称+payload 双重匹配 ICC 数量、混合归属 WindowServer UUID 数量、在线屏和服务 CPU；不改配置/缓存，不创建屏。当前实机观察 139 份 OCU ICC，100 个混合归属 UUID；ColorSync 拔屏后趋近空闲，WindowServer 仍偏高。残留与 CPU 循环存在关联线索，尚无清理前后因果验收。系统服务栈采样因权限不可用；不冒称已定位栈。
+
+恢复前先备份并核对 profile 内容、哈希及无在线 OCU 屏。定向隔离旧 OCU profile 需要管理员授权和恢复方案；不能无条件清空 ColorSync 全局设备缓存、删除 WindowServer prefs、重启 WindowServer 或改变物理屏色彩配置。暂停额外 hotplug 压力测试，直到桌面稳定并协调恢复验证。
+
+参考：[MirageKit 原始排查](https://github.com/EthanLipnik/MirageKit/blob/main/If-Your-Computer-Feels-Stuttery.md)、[同版本 macOS 的 ColorSync / registry 调查](https://github.com/dripster82/ar_workspace_manager_for_xreal/blob/main/Docs/ColorSync-AirII-investigation.md)。这些是项目观察，不能直接等同本机根因。

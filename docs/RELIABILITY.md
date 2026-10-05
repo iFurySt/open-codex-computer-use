@@ -62,8 +62,17 @@ CI/CD 流程结构和 release 自动化的默认方案，统一写在 `docs/CICD
 
 IOKit assertions 随协调器进程退出释放。合盖 helper 在修改 pmset 前持久化恢复记录，验证偏好和运行内核一致；协调器失联、租约过期或正常关闭均恢复。helper 启动先恢复 journal，不重建旧许可；失败保留记录并拒绝 acquire。status 的 requested/confirmed 和 lid_state_known 区分许可、最近确认及未知状态。
 
-独立 package 20 项测试、普通断言跨进程 smoke、签名负例和开盖真实 AX/SCK 已通过；已批准 helper 的真实 pmset 定时与协调器 SIGKILL 后恢复也已通过。物理合盖重试通过：30 秒内 11 次 AX 点击、计数读回及 SCK 截图变化，内核确认 lid=true，结束后 SleepDisabled=0 且 fixture 退出。该证据限于本机当前配置；helper 自身崩溃/launchd、插拔电源和功耗仍待验证。入口与限制见 [电源保活](power-hold.md)。
+独立 package 30 项测试、普通断言跨进程 smoke、签名负例和开盖真实 AX/SCK 已通过；已批准 helper 的真实 pmset 定时与协调器 SIGKILL 后恢复也已通过。物理合盖重试通过：30 秒内 11 次 AX 点击、计数读回及 SCK 截图变化，内核确认 lid=true，结束后 SleepDisabled=0 且 fixture 退出。该证据限于本机当前配置；helper 自身崩溃/launchd、插拔电源和跨设备功率校准仍待验证。入口与限制见 [电源保活](power-hold.md)。
 
 复用 smoke 增加两个同配置空屏的精确租用、活动/不匹配资源租用拒绝、typed 资源关联、显示器级删除会话与 helper、仅删除所选资源、未知 ID 拒绝。macOS 26.5.1 的真实签名 release/dist 测试通过；GUI 检查 Sessions/Displays 分组、折叠与空闲屏页面。独立副本测试曾在最后预热发生权限失败，级联断言此前已通过；固定签名 dist 路径重跑全套通过，不修改 TCC 或放宽权限检查。
 
 电源 metrics 使用独立串行采集/SQLite 队列；采集不持有 IOKit wake assertion，不续期合盖许可。缺失指标带 source/quality/reason；主库 32 MiB、10,000 条、单条 8 KiB，查询最多 100 条，默认保留 1 小时。数据库失败不阻断保活，collection_error 可见，后续采样重试；停机期间无采样/主动清理，不补造睡眠时间内的读数。`scripts/run-power-metrics-smoke.py` 使用隔离数据库验证 native 传感器、无 holds、配置/历史重启、关闭和清空。
+## ColorSync / WindowServer 持久残留
+
+进程退出和 CG 列表为空不等于系统没有历史状态。macOS 会保存虚拟显示器 ICC，WindowServer 也会保留显示器布局记录。曾使用 namespace 哈希 serial，独立测试 namespace 导致不同物理身份不断累积；现在固定跨 runtime/bundle 共用 32 个 serial 槽位，创建锁持有到 CG 上线，在线身份不可重用。会话继续优先复用空屏。身份迁移不会自动删除旧 ICC，也不能保证 macOS 永不重建同身份 profile；禁止把“有界身份”宣称成 ICC 数量绝对上限。
+
+只读诊断：`python3 scripts/diagnose-virtual-display-residue.py`。报告 OCU 名称+payload 双重匹配 ICC 数量、混合归属 WindowServer UUID 数量、在线屏和服务 CPU；不改配置/缓存，不创建屏。当前实机观察 139 份 OCU ICC，100 个混合归属 UUID；ColorSync 拔屏后趋近空闲，WindowServer 仍偏高。残留与 CPU 循环存在关联线索，尚无清理前后因果验收。系统服务栈采样因权限不可用；不冒称已定位栈。
+
+恢复前先备份并核对 profile 内容、哈希及无在线 OCU 屏。定向隔离旧 OCU profile 需要管理员授权和恢复方案；不能无条件清空 ColorSync 全局设备缓存、删除 WindowServer prefs、重启 WindowServer 或改变物理屏色彩配置。暂停额外 hotplug 压力测试，直到桌面稳定并协调恢复验证。
+
+参考：[MirageKit 原始排查](https://github.com/EthanLipnik/MirageKit/blob/main/If-Your-Computer-Feels-Stuttery.md)、[同版本 macOS 的 ColorSync / registry 调查](https://github.com/dripster82/ar_workspace_manager_for_xreal/blob/main/Docs/ColorSync-AirII-investigation.md)。这些是项目观察，不能直接等同本机根因。
