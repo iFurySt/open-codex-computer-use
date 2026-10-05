@@ -416,20 +416,22 @@ struct VirtualDisplayWorkspaceView: View {
                         }
                     }
                     ToolbarItemGroup(placement: .primaryAction) {
-                        if let state = model.state, !state.windows.isEmpty {
-                            Picker("Target", selection: Binding(get: { state.selectedWindowID ?? 0 }, set: { model.selectManagedWindow($0) })) {
-                                ForEach(state.windows) { window in
-                                    let owner = state.applications.first { $0.pid == window.pid }?.name ?? "Application"
-                                    Text("\(owner) — \(window.title)").tag(window.id)
-                                }
-                            }.frame(maxWidth: 220).disabled(model.busy)
+                        if model.selectedDisplay == nil, model.creating == nil, model.state != nil {
+                            if let state = model.state, !state.windows.isEmpty {
+                                Picker("Target", selection: Binding(get: { state.selectedWindowID ?? 0 }, set: { model.selectManagedWindow($0) })) {
+                                    ForEach(state.windows) { window in
+                                        let owner = state.applications.first { $0.pid == window.pid }?.name ?? "Application"
+                                        Text("\(owner) — \(window.title)").tag(window.id)
+                                    }
+                                }.frame(maxWidth: 220).disabled(model.busy)
+                            }
+                            Button { model.showingAddApp = true } label: { Label("Add application", systemImage: "plus.app") }
+                                .disabled(model.busy || model.state == nil || model.state?.phase == "paused")
+                            Button { model.pauseOrResume() } label: { Label(model.state?.phase == "paused" ? "Resume" : "Pause", systemImage: model.state?.phase == "paused" ? "play" : "pause") }
+                                .disabled(model.creating != nil || model.state == nil || (model.busy && model.state?.phase == "paused"))
+                            Button { model.end() } label: { Label("End session", systemImage: "stop") }.disabled(model.busy || model.state == nil)
+                            Toggle("Original size", isOn: $model.originalSize).help("Display capture pixels at their original size")
                         }
-                        Button { model.showingAddApp = true } label: { Label("Add application", systemImage: "plus.app") }
-                            .disabled(model.busy || model.state == nil || model.state?.phase == "paused")
-                        Button { model.pauseOrResume() } label: { Label(model.state?.phase == "paused" ? "Resume" : "Pause", systemImage: model.state?.phase == "paused" ? "play" : "pause") }
-                            .disabled(model.creating != nil || model.state == nil || (model.busy && model.state?.phase == "paused"))
-                        Button { model.end() } label: { Label("End session", systemImage: "stop") }.disabled(model.busy || model.state == nil)
-                        Toggle("Original size", isOn: $model.originalSize).help("Display capture pixels at their original size")
                     }
                 }
             }
@@ -647,9 +649,9 @@ private struct WorkspaceSidebarGroupHeader: View {
                 .frame(minHeight: 22)
                 .padding(.vertical, 8)
                 .contentShape(Rectangle())
-            }.buttonStyle(.plain).accessibilityLabel("\(expanded ? "Collapse" : "Expand") \(title)")
+            }.buttonStyle(WorkspaceIconButtonStyle()).accessibilityLabel("\(expanded ? "Collapse" : "Expand") \(title)")
             Button(action: create) { Image(systemName: "plus").frame(width: 28, height: 38).contentShape(Rectangle()) }
-                .buttonStyle(.plain).opacity(hovering ? 1 : 0).disabled(busy)
+                .buttonStyle(WorkspaceIconButtonStyle()).opacity(hovering ? 1 : 0).disabled(busy)
                 .help(title == "Displays" ? "New Display" : "New Session")
                 .accessibilityLabel(title == "Displays" ? "New Display" : "New Session")
         }
@@ -688,7 +690,7 @@ private struct WorkspaceSidebarResourceRow: View {
             .buttonStyle(.plain)
             .accessibilityAddTraits(selected ? .isSelected : [])
             Button(action: delete) { Image(systemName: "trash").frame(width: 22, height: 24) }
-                .buttonStyle(.plain).opacity(hovering ? 1 : 0).disabled(busy)
+                .buttonStyle(WorkspaceIconButtonStyle()).opacity(hovering ? 1 : 0).disabled(busy)
                 .padding(.trailing, WorkspaceSidebarLayout.resourceInsets.trailing)
                 .help("Delete \(title)").accessibilityLabel("Delete \(title)")
         }
@@ -743,7 +745,7 @@ struct WorkspaceCommandCellView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Button(action: run) { Image(systemName: "play.fill") }.help("Run cell").accessibilityLabel("Run \(cell.title)").disabled(busy)
+                Button(action: run) { Image(systemName: "play.fill").frame(width: 28, height: 24) }.buttonStyle(WorkspaceIconButtonStyle()).help("Run cell").accessibilityLabel("Run \(cell.title)").disabled(busy)
                 TextField("Cell title", text: $cell.title).textFieldStyle(.plain).font(.headline)
                 if cell.running { ProgressView().controlSize(.small) }
                 else if let duration = cell.duration {
@@ -751,7 +753,7 @@ struct WorkspaceCommandCellView: View {
                         .foregroundStyle(cell.isError ? .red : .secondary).font(.caption)
                     Text(String(format: "%.2fs", duration)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 }
-                Button(action: remove) { Image(systemName: "trash") }.help("Remove cell").disabled(busy)
+                Button(action: remove) { Image(systemName: "trash").frame(width: 28, height: 24) }.buttonStyle(WorkspaceIconButtonStyle()).help("Remove cell").disabled(busy)
             }
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 6) {

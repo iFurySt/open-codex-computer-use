@@ -39,10 +39,9 @@ private struct WorkspaceCopyButton: View {
             copied = NSPasteboard.general.setString(value, forType: .string)
         } label: {
             Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                .foregroundStyle(copied ? .green : .secondary)
                 .frame(width: 18, height: 20)
         }
-        .buttonStyle(.plain).help(copied ? "Copied" : label)
+        .buttonStyle(WorkspaceIconButtonStyle(tint: copied ? .green : nil)).help(copied ? "Copied" : label)
         .accessibilityLabel(copied ? "Copied" : label)
         .opacity(visible || copied ? 1 : 0)
         .disabled(value.isEmpty)

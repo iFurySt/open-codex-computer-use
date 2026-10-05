@@ -8,3 +8,5 @@
 - Validation: Swift tests, signed build, actual idle-display selection without repeated hotplug, header status/clipboard feedback, command editing and result rendering.
 - Status: implementation, Swift regression, signed build and normal App restart complete. Live GUI verification pending manual unlock; automatic unlock failed. One online idle display was reserved for exact-ID selection testing, without a hotplug loop.
 - Results: 193 Swift tests (1 skip), no failures; Developer ID bundle/helper and deep/strict verification passed. Copy feedback, editing/undo and header layout still require unlocked UI verification.
+
+- Follow-up: GUI is now unlocked. Icon hover styling and session-only toolbar visibility were added; actual AX confirms the empty workspace exposes no primary action group. Header copy/editing and exact display selection checks remain pending; the previous idle test display was safely released by normal App restart.
