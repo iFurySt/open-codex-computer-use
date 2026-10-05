@@ -42,6 +42,11 @@ enum WorkspaceSidebarSelection: Hashable {
     case display(UInt32)
 }
 
+enum WorkspaceCreationKind {
+    case session, display
+    var title: String { self == .session ? "New session" : "New display" }
+}
+
 @MainActor
 final class VirtualDisplayWorkspaceModel: ObservableObject {
     @Published var applications: [VirtualDisplayAppChoice] = []
@@ -66,6 +71,8 @@ final class VirtualDisplayWorkspaceModel: ObservableObject {
     @Published var sessionName = ""
     @Published var originalSize = false
     @Published var busy = false
+    @Published private(set) var creating: WorkspaceCreationKind?
+    @Published private(set) var creationToast: String?
     @Published var message: String?
     @Published var permissionsGranted = false
     @Published var showingCreate = false
@@ -122,7 +129,7 @@ final class VirtualDisplayWorkspaceModel: ObservableObject {
     }
     func create() {
         guard !busy else { return }
-        busy = true; message = nil
+        beginCreation(.session)
         let scale = scale; let title = sessionName.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayID = preferredDisplay
         let configuration = displays.first(where: { $0.displayID == displayID })?.configuration ?? .init(scale: scale)
@@ -130,14 +137,15 @@ final class VirtualDisplayWorkspaceModel: ObservableObject {
             do {
                 let created = try await Task.detached { [registry] in try registry.create(configuration: configuration, displayID: displayID) }.value
                 names[created.sessionID] = title.isEmpty ? "Session \(sessions.count + 1)" : title
-                selectedDisplay = nil; selectedSession = created.sessionID; showingCreate = false
-            } catch { message = error.localizedDescription }
-            busy = false; await refresh()
+                selectedDisplay = nil; selectedSession = created.sessionID
+                await refresh()
+                creating = nil; busy = false
+            } catch { await creationFailed(error, kind: .session) }
         }
     }
     func createDisplay() {
         guard !busy else { return }
-        busy = true; message = nil
+        beginCreation(.display)
         let configuration = VirtualDisplayConfiguration(scale: scale)
         let title = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         Task {
@@ -146,10 +154,24 @@ final class VirtualDisplayWorkspaceModel: ObservableObject {
                     try registry.prewarm(configuration: configuration, reuseDisplay: false)
                 }.value
                 if !title.isEmpty { displayNames[id] = title }
-                selectedDisplay = id; selectedSession = nil; showingCreateDisplay = false
-            } catch { message = error.localizedDescription }
-            busy = false; await refresh()
+                selectedDisplay = id; selectedSession = nil
+                await refresh()
+                creating = nil; busy = false
+            } catch { await creationFailed(error, kind: .display) }
         }
+    }
+    private func beginCreation(_ kind: WorkspaceCreationKind) {
+        creating = kind; busy = true; message = nil; creationToast = nil
+        showingCreate = false; showingCreateDisplay = false
+    }
+    private func creationFailed(_ error: Error, kind: WorkspaceCreationKind) async {
+        creationToast = error.localizedDescription
+        // Keep the skeleton and error together briefly, then restore the unmodified draft.
+        // This also lets AppKit finish dismissing a sheet when creation fails immediately.
+        try? await Task.sleep(for: .seconds(2.5))
+        await refresh()
+        creationToast = nil; creating = nil; busy = false
+        if kind == .session { showingCreate = true } else { showingCreateDisplay = true }
     }
     func addApplication() {
         guard !busy, let app = chosen, let state else { return }
@@ -335,7 +357,9 @@ struct VirtualDisplayWorkspaceView: View {
         } detail: {
             NavigationStack {
                 VStack(spacing: 0) {
-                    if let state = model.state, let capture = try? VirtualDisplaySessionRegistry.shared.capture(sessionID: state.sessionID) {
+                    if let creating = model.creating {
+                        WorkspaceCreationSkeleton(kind: creating)
+                    } else if let state = model.state, let capture = try? VirtualDisplaySessionRegistry.shared.capture(sessionID: state.sessionID) {
                         VSplitView {
                             VStack(spacing: 0) {
                                 VirtualDisplayPreview(capture: capture, originalSize: model.originalSize).id(state.sessionID)
@@ -384,16 +408,27 @@ struct VirtualDisplayWorkspaceView: View {
                             createSessionButton
                         }
                     }
-                    if let message = model.message ?? model.state?.reason {
+                    if model.creating == nil, let message = model.message ?? model.state?.reason {
                         Text(message).foregroundStyle(.secondary).padding(10).frame(maxWidth: .infinity, alignment: .leading).background(.bar)
                     }
-                }.navigationTitle(model.selectedDisplay.map { "Display \($0)" } ?? model.state.map(model.name) ?? "Virtual sessions")
+                }
+                .overlay(alignment: .top) {
+                    if let error = model.creationToast {
+                        Label(error, systemImage: "exclamationmark.circle.fill")
+                            .font(.callout).lineLimit(3).help(error)
+                            .padding(.horizontal, 16).padding(.vertical, 12)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                            .shadow(color: .black.opacity(0.08), radius: 8, y: 3)
+                            .padding(20).accessibilityLabel("Creation failed: \(error)")
+                    }
+                }
+                .navigationTitle(model.creating?.title ?? model.selectedDisplay.map { "Display \($0)" } ?? model.state.map(model.name) ?? "Virtual sessions")
                 .toolbar {
                     ToolbarItemGroup(placement: .primaryAction) {
                         Button { model.showingAddApp = true } label: { Label("Add application", systemImage: "plus.app") }
                             .disabled(model.busy || model.state == nil || model.state?.phase == "paused")
                         Button { model.pauseOrResume() } label: { Label(model.state?.phase == "paused" ? "Resume" : "Pause", systemImage: model.state?.phase == "paused" ? "play" : "pause") }
-                            .disabled(model.state == nil || (model.busy && model.state?.phase == "paused"))
+                            .disabled(model.creating != nil || model.state == nil || (model.busy && model.state?.phase == "paused"))
                         Button { model.end() } label: { Label("End session", systemImage: "stop") }.disabled(model.busy || model.state == nil)
                         Toggle("Original size", isOn: $model.originalSize).help("Display capture pixels at their original size")
                     }
@@ -466,12 +501,6 @@ struct VirtualDisplayWorkspaceView: View {
                 DisplayScalePopUp(selection: $model.scale, enabled: !model.busy && model.preferredDisplay == nil)
                     .frame(width: 230, height: 34)
             }
-            if model.busy {
-                HStack(spacing: 10) {
-                    ProgressView().controlSize(.small)
-                    Text("Waiting for macOS to create and capture the display…").foregroundStyle(.secondary)
-                }
-            }
             HStack {
                 if !model.permissionsGranted { Button("Set up permissions") { model.showingCreate = false; requestPermissions() } }
                 Spacer()
@@ -492,7 +521,6 @@ struct VirtualDisplayWorkspaceView: View {
                     .frame(width: 230, height: 34)
             }
             Text("Create an empty display, then select it when creating a session.").foregroundStyle(.secondary)
-            if model.busy { ProgressView("Creating display…").controlSize(.small) }
             HStack {
                 if !model.permissionsGranted {
                     Button("Set up permissions") { model.showingCreateDisplay = false; requestPermissions() }
@@ -543,6 +571,52 @@ struct VirtualDisplayWorkspaceView: View {
         }.padding(24).frame(width: 500)
         .onChange(of: model.selectedApp) { _, _ in model.selectedWindow = nil; model.selectedProcessPID = nil; Task { await model.refresh() } }
         .onChange(of: model.selectedProcessPID) { _, _ in model.selectedWindow = nil; Task { await model.refresh() } }
+    }
+}
+
+private struct WorkspaceCreationSkeleton: View {
+    let kind: WorkspaceCreationKind
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dimmed = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(.primary.opacity(0.06))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            HStack(spacing: 12) {
+                bar(width: 90, height: 12)
+                Spacer()
+                bar(width: 180, height: 12)
+            }
+            if kind == .session {
+                Divider()
+                HStack {
+                    bar(width: 110, height: 14)
+                    Spacer()
+                    bar(width: 72, height: 24)
+                }
+                ForEach(0..<2) { _ in
+                    HStack(spacing: 16) {
+                        RoundedRectangle(cornerRadius: 8).fill(.primary.opacity(0.06))
+                        RoundedRectangle(cornerRadius: 8).fill(.primary.opacity(0.06))
+                    }.frame(height: 82)
+                }
+            }
+        }
+        .padding(20)
+        .opacity(dimmed && !reduceMotion ? 0.55 : 1)
+        .onAppear {
+            if !reduceMotion {
+                withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { dimmed = true }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(kind == .session ? "Creating virtual session" : "Creating virtual display")
+    }
+    private func bar(width: CGFloat, height: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 4).fill(.primary.opacity(0.09)).frame(width: width, height: height)
     }
 }
 

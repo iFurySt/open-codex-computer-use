@@ -35,3 +35,5 @@ Sessions/Displays 标题的上下 8 points 为按钮内部 padding，外层 HSta
 创建会话与显示器的名称输入均标注 optional；名称是 GUI 工作区标签，不改变系统显示身份。会话创建提供 Display 菜单：默认自动复用或创建，也可精确选择在线空闲屏（一个屏同时只租给一个活动会话），选择后沿用该屏配置。Displays 的 + 强制预留新空屏，不生成持久会话。
 
 会话创建的 Display 与 Display scale 使用同一 NSPopUpButton bridge（参考 HeyYo Microphone），右侧固定 230×34 points，菜单最小宽度包含额外的原生勾选列空间，完整覆盖触发框及右侧箭头；原生 selected-row 菜单覆盖触发框，不改 sheet 布局。空闲屏选项未变化时不重建菜单，避免轮询干扰展开。移除创建会话的 Reuse/Applications 辅助说明。
+
+创建会话/空屏提交后立即关闭 sheet，主区域显示预览与动作布局的 skeleton（空屏仅预览），所有创建输入保持 busy 禁用。成功先刷新真实资源再切换；失败在 skeleton 上展示 2.5 秒 material toast，之后恢复对应创建弹窗，保留名称、display ID 和 scale 草稿。无固定 loading 文案或持久错误栏；减少动态效果偏好下 skeleton 静止。
