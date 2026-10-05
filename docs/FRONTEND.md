@@ -37,3 +37,9 @@ Sessions/Displays 标题的上下 8 points 为按钮内部 padding，外层 HSta
 会话创建的 Display 与 Display scale 使用同一 NSPopUpButton bridge（参考 HeyYo Microphone），右侧固定 230×34 points，菜单最小宽度包含额外的原生勾选列空间，完整覆盖触发框及右侧箭头；原生 selected-row 菜单覆盖触发框，不改 sheet 布局。空闲屏选项未变化时不重建菜单，避免轮询干扰展开。移除创建会话的 Reuse/Applications 辅助说明。
 
 创建会话/空屏提交后立即关闭 sheet，主区域显示预览与动作布局的 skeleton（空屏仅预览），所有创建输入保持 busy 禁用。成功先刷新真实资源再切换；失败在 skeleton 上展示 2.5 秒 material toast，之后恢复对应创建弹窗，保留名称、display ID 和 scale 草稿。无固定 loading 文案或持久错误栏；减少动态效果偏好下 skeleton 静止。
+
+创建空屏移除说明段落；skeleton 底色增强，0.85 秒在 25%–100% 透明度间呼吸，减少动态效果时静止。Display 菜单显示全部资源，在线空闲屏可选，占用/断开资源标注状态并禁用；已选资源失效时保留不可用条目，避免看似自动却仍绑定旧 ID。
+
+会话标题左侧状态点：ready/attached 绿色，paused/awaiting_window_selection 黄色，未来 error/failed 红色；当前暂停原因仍通过既有状态说明呈现，不把所有暂停当成错误。标题旁显示 session ID，hover 显示复制按钮，复制成功打勾 1.5 秒；这是用户主动复制，不参与后台输入。正文 Ready/ID 行删除，受管 Target 选择移到 toolbar。
+
+Actions Command/Result 共用原生 NSTextView JSON 代码块：语言栏、圆角边框、等宽字体、双向滚动、轻量 token 高亮与 hover 复制。Command 可编辑、支持 undo，Result 只读可选择；关闭系统智能引号/替换，保留原始 JSON。轮询未改变文本时不重写文本存储，超过 200k UTF-16 字符只用等宽文本避免高亮过载。评估 https://github.com/mchakravarty/CodeEditorView 后，本轮采用小型原生封装，不新增完整编辑器依赖。

@@ -366,20 +366,6 @@ struct VirtualDisplayWorkspaceView: View {
                                     .overlay(alignment: .topLeading) {
                                         if state.phase == "paused" { Label("Paused", systemImage: "pause.fill").padding(8).background(.regularMaterial).padding() }
                                     }.frame(minHeight: 180)
-                                Divider()
-                                HStack {
-                                    Text(state.phase.capitalized)
-                                    if !state.windows.isEmpty {
-                                        Picker("Target", selection: Binding(get: { state.selectedWindowID ?? 0 }, set: { model.selectManagedWindow($0) })) {
-                                            ForEach(state.windows) { window in
-                                                let owner = state.applications.first { $0.pid == window.pid }?.name ?? "Application"
-                                                Text("\(owner) — \(window.title)").tag(window.id)
-                                            }
-                                        }.frame(maxWidth: 380).disabled(model.busy)
-                                    }
-                                    Spacer()
-                                    Text(state.sessionID).font(.caption.monospaced()).textSelection(.enabled)
-                                }.padding(10)
                             }.frame(minHeight: 240)
                             if let notebook = model.notebooks[state.sessionID] {
                                 WorkspaceNotebookView(notebook: notebook, busy: model.busy, selectedApp: state.app, run: { model.runNotebook(sessionID: state.sessionID, cellID: $0) }, stop: { model.stopNotebook(sessionID: state.sessionID) })
@@ -422,9 +408,22 @@ struct VirtualDisplayWorkspaceView: View {
                             .padding(20).accessibilityLabel("Creation failed: \(error)")
                     }
                 }
-                .navigationTitle(model.creating?.title ?? model.selectedDisplay.map { "Display \($0)" } ?? model.state.map(model.name) ?? "Virtual sessions")
+                .navigationTitle(model.creating?.title ?? (model.state == nil ? model.selectedDisplay.map { "Display \($0)" } ?? "Virtual sessions" : ""))
                 .toolbar {
+                    ToolbarItem(placement: .navigation) {
+                        if model.creating == nil, let state = model.state {
+                            WorkspaceSessionHeader(name: model.name(state), sessionID: state.sessionID, phase: state.phase)
+                        }
+                    }
                     ToolbarItemGroup(placement: .primaryAction) {
+                        if let state = model.state, !state.windows.isEmpty {
+                            Picker("Target", selection: Binding(get: { state.selectedWindowID ?? 0 }, set: { model.selectManagedWindow($0) })) {
+                                ForEach(state.windows) { window in
+                                    let owner = state.applications.first { $0.pid == window.pid }?.name ?? "Application"
+                                    Text("\(owner) — \(window.title)").tag(window.id)
+                                }
+                            }.frame(maxWidth: 220).disabled(model.busy)
+                        }
                         Button { model.showingAddApp = true } label: { Label("Add application", systemImage: "plus.app") }
                             .disabled(model.busy || model.state == nil || model.state?.phase == "paused")
                         Button { model.pauseOrResume() } label: { Label(model.state?.phase == "paused" ? "Resume" : "Pause", systemImage: model.state?.phase == "paused" ? "play" : "pause") }
@@ -471,6 +470,18 @@ struct VirtualDisplayWorkspaceView: View {
             button.buttonStyle(.bordered)
         }
     }
+    private var displayChoices: [WorkspaceChoicePopUp.Choice] {
+        var choices: [WorkspaceChoicePopUp.Choice] = [.init(value: 0, title: "Automatic — reuse or create")]
+        choices += model.displays.map { display in
+            let available = display.online && display.sessionIDs.isEmpty
+            let suffix = !display.online ? " · Disconnected" : display.sessionIDs.isEmpty ? "" : " · In use"
+            return .init(value: Int(display.displayID), title: model.name(display) + suffix, enabled: available)
+        }
+        if let id = model.preferredDisplay, !model.displays.contains(where: { $0.displayID == id }) {
+            choices.append(.init(value: Int(id), title: "Display \(id) · Unavailable", enabled: false))
+        }
+        return choices
+    }
     private var createSheet: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Create virtual session").font(.title2)
@@ -483,10 +494,7 @@ struct VirtualDisplayWorkspaceView: View {
                         get: { model.preferredDisplay.map(Int.init) ?? 0 },
                         set: { model.preferredDisplay = $0 == 0 ? nil : UInt32($0) }
                     ),
-                    choices: [.init(value: 0, title: "Automatic — reuse or create")] +
-                        model.displays.filter { $0.online && $0.sessionIDs.isEmpty }.map {
-                            .init(value: Int($0.displayID), title: model.name($0))
-                        },
+                    choices: displayChoices,
                     accessibilityLabel: "Display", enabled: !model.busy
                 ).frame(width: 230, height: 34)
             }
@@ -520,7 +528,6 @@ struct VirtualDisplayWorkspaceView: View {
                 DisplayScalePopUp(selection: $model.scale, enabled: !model.busy)
                     .frame(width: 230, height: 34)
             }
-            Text("Create an empty display, then select it when creating a session.").foregroundStyle(.secondary)
             HStack {
                 if !model.permissionsGranted {
                     Button("Set up permissions") { model.showingCreateDisplay = false; requestPermissions() }
@@ -582,7 +589,7 @@ private struct WorkspaceCreationSkeleton: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             RoundedRectangle(cornerRadius: 12)
-                .fill(.primary.opacity(0.06))
+                .fill(.primary.opacity(0.14))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             HStack(spacing: 12) {
                 bar(width: 90, height: 12)
@@ -598,17 +605,17 @@ private struct WorkspaceCreationSkeleton: View {
                 }
                 ForEach(0..<2) { _ in
                     HStack(spacing: 16) {
-                        RoundedRectangle(cornerRadius: 8).fill(.primary.opacity(0.06))
-                        RoundedRectangle(cornerRadius: 8).fill(.primary.opacity(0.06))
+                        RoundedRectangle(cornerRadius: 8).fill(.primary.opacity(0.14))
+                        RoundedRectangle(cornerRadius: 8).fill(.primary.opacity(0.14))
                     }.frame(height: 82)
                 }
             }
         }
         .padding(20)
-        .opacity(dimmed && !reduceMotion ? 0.55 : 1)
+        .opacity(dimmed && !reduceMotion ? 0.25 : 1)
         .onAppear {
             if !reduceMotion {
-                withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { dimmed = true }
+                withAnimation(.easeInOut(duration: 0.85).repeatForever(autoreverses: true)) { dimmed = true }
             }
         }
         .allowsHitTesting(false)
@@ -616,7 +623,7 @@ private struct WorkspaceCreationSkeleton: View {
         .accessibilityLabel(kind == .session ? "Creating virtual session" : "Creating virtual display")
     }
     private func bar(width: CGFloat, height: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: 4).fill(.primary.opacity(0.09)).frame(width: width, height: height)
+        RoundedRectangle(cornerRadius: 4).fill(.primary.opacity(0.22)).frame(width: width, height: height)
     }
 }
 
@@ -748,22 +755,17 @@ struct WorkspaceCommandCellView: View {
             }
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Command").font(.caption).foregroundStyle(.secondary)
-                    TextEditor(text: $cell.source).font(.system(size: 12, design: .monospaced))
-                        .scrollContentBackground(.hidden).padding(4).background(.quaternary.opacity(0.3))
-                        .frame(height: 164).accessibilityLabel("Command \(cell.title)").disabled(cell.running)
+                    WorkspaceCodeBlock(text: $cell.source, title: "Command", editable: !cell.running)
+                        .frame(height: 194).accessibilityLabel("Command \(cell.title)")
                     if cell.executedSource != nil && cell.executedSource != cell.source {
                         Text("Edited since last run").font(.caption).foregroundStyle(.orange)
                     }
                 }.frame(minWidth: 200, maxWidth: 320)
                 Divider()
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Result · JSON").font(.caption).foregroundStyle(.secondary)
+                    WorkspaceCodeBlock(text: .constant(cell.executedSource == nil ? "" : cell.output), title: "Result", editable: false)
+                        .frame(height: cell.uiTree == nil ? 194 : 130)
                     if cell.executedSource != nil {
-                        ScrollView([.horizontal, .vertical]) {
-                            Text(cell.output).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }.frame(height: cell.uiTree == nil ? 164 : 100)
                         if cell.uiTree != nil || !cell.images.isEmpty {
                             HStack(alignment: .top, spacing: 12) {
                                 if let tree = cell.uiTree {
@@ -787,9 +789,6 @@ struct WorkspaceCommandCellView: View {
                                 }
                             }.frame(height: 240)
                         }
-                    } else {
-                        Text("Run this cell to inspect its result.").font(.callout).foregroundStyle(.tertiary)
-                            .frame(maxWidth: .infinity, minHeight: 164, alignment: .topLeading)
                     }
                 }.frame(minWidth: 230, maxWidth: .infinity, alignment: .leading)
             }.fixedSize(horizontal: false, vertical: true)
@@ -869,6 +868,7 @@ private struct WorkspaceChoicePopUp: NSViewRepresentable {
     struct Choice: Equatable {
         let value: Int
         let title: String
+        var enabled = true
     }
     @Binding var selection: Int
     let choices: [Choice]
@@ -898,13 +898,15 @@ private struct WorkspaceChoicePopUp: NSViewRepresentable {
             for choice in choices {
                 button.addItem(withTitle: choice.title)
                 button.lastItem?.tag = choice.value
+                button.lastItem?.isEnabled = choice.enabled
             }
+            button.menu?.autoenablesItems = false
             context.coordinator.choices = choices
         }
         // Native menus reserve a leading checkmark gutter while anchoring the title.
         // Include that gutter so the menu also covers the trigger’s trailing arrows.
         button.menu?.minimumWidth = 246
-        button.selectItem(withTag: selection)
+        if button.selectedItem?.tag != selection { button.selectItem(withTag: selection) }
         button.isEnabled = enabled
         button.setAccessibilityLabel(accessibilityLabel)
         button.cell?.lineBreakMode = .byTruncatingMiddle
