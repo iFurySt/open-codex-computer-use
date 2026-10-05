@@ -190,18 +190,28 @@ struct VirtualDisplayWorkspaceView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            VStack(spacing: 0) {
-                List(model.sessions, id: \.sessionID, selection: $model.selectedSession) { state in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Label(model.name(state), systemImage: "display")
-                        Text("\(state.phase.capitalized) · \(state.applications.count) apps").font(.caption).foregroundStyle(.secondary)
-                    }.padding(.vertical, 4).tag(state.sessionID)
-                }.listStyle(.sidebar)
-                Divider()
-                Button { model.sessionName = ""; model.showingCreate = true } label: { Label("New session", systemImage: "plus") }
-                    .buttonStyle(.borderless).padding().disabled(model.busy)
-            }.navigationTitle("Sessions")
-            .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
+            List(model.sessions, id: \.sessionID, selection: $model.selectedSession) { state in
+                VStack(alignment: .leading, spacing: 4) {
+                    Label(model.name(state), systemImage: "display")
+                    Text("\(state.phase.capitalized) · \(state.applications.count) apps").font(.caption).foregroundStyle(.secondary)
+                }.padding(.vertical, 4).tag(state.sessionID)
+            }
+            .listStyle(.sidebar)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                HStack(spacing: 12) {
+                    Image(nsImage: NSImage(named: NSImage.applicationIconName) ?? NSImage())
+                        .resizable().frame(width: 40, height: 40)
+                    Text("Open\nComputer Use").font(.system(size: 20, weight: .semibold))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 24)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Button { model.sessionName = ""; model.showingCreate = true } label: {
+                    Label("New session", systemImage: "plus").frame(maxWidth: .infinity)
+                }.buttonStyle(.borderless).padding(18).disabled(model.busy)
+            }
+            .navigationSplitViewColumnWidth(min: 240, ideal: 260, max: 320)
         } detail: {
             NavigationStack {
                 VStack(spacing: 0) {
@@ -247,19 +257,8 @@ struct VirtualDisplayWorkspaceView: View {
                     if let message = model.message ?? model.state?.reason {
                         Text(message).foregroundStyle(.secondary).padding(10).frame(maxWidth: .infinity, alignment: .leading).background(.bar)
                     }
-                }.navigationTitle(model.state.map(model.name) ?? "Open Computer Use")
-                .toolbar(removing: .sidebarToggle)
+                }.navigationTitle(model.state.map(model.name) ?? "Virtual sessions")
                 .toolbar {
-                    ToolbarItem(placement: .navigation) {
-                        HStack(spacing: 16) {
-                            Button {
-                                withAnimation { columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly }
-                            } label: { Image(systemName: "sidebar.left") }
-                            .help(columnVisibility == .detailOnly ? "Show Sidebar" : "Hide Sidebar")
-                            .accessibilityLabel(columnVisibility == .detailOnly ? "Show Sidebar" : "Hide Sidebar")
-                            Text(model.state.map(model.name) ?? "Open Computer Use").font(.headline)
-                        }
-                    }
                     ToolbarItemGroup(placement: .primaryAction) {
                         Button { model.showingAddApp = true } label: { Label("Add application", systemImage: "plus.app") }
                             .disabled(model.busy || model.state == nil || model.state?.phase == "paused")
@@ -271,8 +270,6 @@ struct VirtualDisplayWorkspaceView: View {
                 }
             }
         }
-        .toolbar(removing: .sidebarToggle)
-
         .sheet(isPresented: $model.showingCreate) { createSheet }
         .sheet(isPresented: $model.showingAddApp) { addAppSheet }
         .frame(minWidth: 900, minHeight: 660)
@@ -443,9 +440,10 @@ final class VirtualDisplayWorkspaceController: NSObject, NSWindowDelegate {
         if window == nil {
             NSWindow.allowsAutomaticWindowTabbing = false
             let view = VirtualDisplayWorkspaceView(model: model) { PermissionOnboardingApp.present() }
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1240, height: 880), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1240, height: 880), styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
             window.title = "Open Computer Use"; window.isReleasedWhenClosed = false; window.delegate = self
-            window.titleVisibility = .hidden
+            window.titleVisibility = .visible
+            window.titlebarAppearsTransparent = true
             window.toolbarStyle = .unified
             window.titlebarSeparatorStyle = .none
             window.contentView = NSHostingView(rootView: view)

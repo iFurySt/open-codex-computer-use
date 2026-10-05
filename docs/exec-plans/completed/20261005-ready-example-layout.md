@@ -10,7 +10,7 @@ Seed each new session with an editable, executable real example: compute a value
 - [x] Default example cells with semantic AX selection and result binding.
 - [x] Paired command/output, tree/screenshot layout and native toolbar placement.
 - [x] Swift/Node tests, live example, signed build, docs/history and local commit.
-- [ ] Final signed GUI collapsed/expanded check after manual unlock.
+- [x] Final signed GUI collapsed/expanded check after manual unlock and native sidebar structure correction.
 
 ## Constraints
 
@@ -20,4 +20,6 @@ No global input, activation recovery, pasteboard, AppleScript or simulated succe
 
 Swift 180 tests (1 opt-in skip), Node 24 contracts, existing smoke pass. The production example runner verifies all six cells, actual Calculator 714, TextEdit AX content, SCK screenshots, unchanged frontmost PID, zero runner global events and removal of both owned apps/temp document/display. Background TextEdit Cmd-S did not save and its AX Save menu is disabled after set_value; omitted unrequested file persistence from the default example and documented this limitation.
 
-Signed GUI has created the session and started Run all with two real applications and paired JSON/tree/image output. The Mac then locked and the session paused. Final toolbar uses an explicit native navigation item/sidebar visibility binding and trailing primary actions to avoid automatic toolbar migration; compile passes. Final signed collapsed/expanded GUI check awaits an unlocked desktop. Broader hardware acceptance remains open.
+Signed GUI has created the session and started Run all with two real applications and paired JSON/tree/image output. The Mac then locked and the session paused. The earlier explicit navigation item produced duplicate toggles and a sidebar below the toolbar. Corrected to HeyYo's native sidebar List + top/bottom safeAreaInset, fullSizeContentView and visible native page title, retaining only the system toggle. Final signed expanded/collapsed screenshots and AX confirm full-height sidebar, sidebar brand, one toggle and trailing actions. Broader hardware acceptance remains open in the desktop-containment plan; this layout/example delivery plan is complete.
+
+Completion note: the later strict launch-containment runner detects occasional TextEdit startup samples on physical screens. This completion covers the runnable example and paired/native GUI layout, and does not assert strict zero-flash acceptance. See the active desktop-containment plan.

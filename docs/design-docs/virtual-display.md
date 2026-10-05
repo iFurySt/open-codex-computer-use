@@ -159,3 +159,7 @@ node scripts/run-app-agent-lifecycle-smoke.mjs --with-session
 ```
 
 退出协议回归使用独立 socket namespace，启动实际签名 bundle，创建会话后请求 terminate，确认 runtime/helper 正常退出；失败保留进程供诊断，不强杀用户应用。创建 sheet 显示等待 macOS 的进度提示。已定位并修复曾使创建看似卡死的退出嵌套事件循环死锁；Quit 调度与回复使用 RunLoop，清理在 worker 执行。
+
+## 侧栏与窗口布局
+
+参考 HeyYo Dictionary 的原生方案：sidebar 使用 List 作为根视图，在 top/bottom safeAreaInset 放品牌和 New session；AppKit 窗口启用 fullSizeContentView、透明标题栏与可见页面标题。侧栏背景覆盖窗口顶部，品牌图标及 Open Computer Use 文字独立留在侧栏，标题栏仅显示当前会话或 Virtual sessions。删除手动折叠按钮及 sidebarToggle 移除规则，只保留系统提供的一个按钮；展开/折叠都保持页面标题靠左、操作靠右。macOS 26.5.1 / arm64 Release bundle 的两种状态已通过真实 AX 与截图检查。

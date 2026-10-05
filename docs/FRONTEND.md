@@ -10,10 +10,10 @@ open "dist/Open Computer Use (Dev).app"
 ./scripts/run-virtual-display-tests.sh --lab
 ```
 
-使用原生 NavigationSplitView 会话 sidebar、创建/添加应用 sheet、detail NavigationStack 内的系统 toolbar（参考 HeyYo Dictionary，保留左侧原生 sidebar toggle）、权限引导与错误说明。桌面和 action notebook 使用 VSplitView；单元提供可编辑 JSON、播放、Run all、Stop and pause 和格式化 JSON 输出。新建 notebook 默认提供 Calculator → TextEdit 真实 case；命令/结果横向配对，UI Tree/截图横向配对。最低 macOS 14，新增系统效果须有 availability fallback。预览通过共享 `VirtualDisplayPreview` / Metal 渲染最新 CVPixelBuffer，正式 GUI 与 lab 不维护独立显示器实现。预览第一版只观看，不转发用户键鼠。
+使用原生 NavigationSplitView 会话 sidebar、创建/添加应用 sheet、detail NavigationStack 内的系统 toolbar。与 HeyYo 一样，sidebar List 使用顶部/底部 safeAreaInset 固定品牌和 New session，窗口启用 fullSizeContentView/透明标题栏，让侧栏背景延伸到窗口顶部。只保留系统生成的一个 sidebar toggle；品牌图标和 Open Computer Use 文字放在侧栏，标题栏展示当前会话或 Virtual sessions，操作按钮在右侧。界面提供权限引导与错误说明。桌面和 action notebook 使用 VSplitView；单元提供可编辑 JSON、播放、Run all、Stop and pause 和格式化 JSON 输出。新建 notebook 默认提供 Calculator → TextEdit 真实 case；命令/结果横向配对，UI Tree/截图横向配对。最低 macOS 14，新增系统效果须有 availability fallback。预览通过共享 `VirtualDisplayPreview` / Metal 渲染最新 CVPixelBuffer，正式 GUI 与 lab 不维护独立显示器实现。预览第一版只观看，不转发用户键鼠。
 
 UI 状态在 MainActor 更新，显示器/AX/捕获生命周期在 worker 执行；不可在主线程等待会调用 AppKit 主线程的同步操作。暂停必须先关闭输入门。主窗口关闭不结束会话，Quit 只有安全清理完成才退出。权限未完成时禁用创建；签名 dev/release bundle 的权限分别确认。
 
 验收包括会话创建/切换、多应用搜索、明确 PID/window 选择、暂停/继续/结束、单元编辑/运行/失败停止、原始尺寸、权限错误、窗口重开和未保存内容阻止 Quit。使用实际 AX/ScreenCaptureKit 验证，截图或事件投递本身不能证明目标状态改变。详见 [工作区设计与操作指南](design-docs/virtual-display.md)。
 
-创建 sheet 在 worker 等待 macOS 期间显示进度；Quit 时禁用新 GUI 操作并请求 notebook 停止。退出/reply 使用可在 AppKit 嵌套循环中执行的 RunLoop 调度，避免界面能点击但新 MainActor 任务不执行的死锁。原生 sidebar 自动 toggle 与显式 navigation item 在 macOS 26 仍有重复项，最终折叠工具栏验收保持开放。
+创建 sheet 在 worker 等待 macOS 期间显示进度；Quit 时禁用新 GUI 操作并请求 notebook 停止。退出/reply 使用可在 AppKit 嵌套循环中执行的 RunLoop 调度，避免界面能点击但新 MainActor 任务不执行的死锁。macOS 26.5.1 的签名 GUI 已确认展开/折叠均只有一个原生 toggle，展开时侧栏延伸至标题栏、品牌留在侧栏，折叠时页面标题留在左侧、操作按钮留在右侧。
