@@ -25,9 +25,18 @@ scripts/build-locked-use-guardian.sh --identity "$identity"
 ditto '.build/locked-use/Open Computer Use Guardian (Dev).app' "$output/Open Computer Use Guardian (Dev).app"
 bundle="$output/OpenComputerUseLockedUseAuthorizationPlugin.bundle"
 mkdir -p "$bundle/Contents/MacOS"
+native_arch="$(uname -m)"
+xcrun swiftc -parse-as-library -emit-object -target "$native_arch-apple-macos14.0" \
+  -module-name OCULockedUseTaskVerifier experiments/LockedUse/AuthorizationPlugin/TaskVerifier.swift \
+  -o "$output/task-verifier.o"
 xcrun clang -fobjc-arc -std=gnu11 -Wall -Wextra -Werror -fvisibility=hidden -mmacosx-version-min=14.0 \
-  "-DOCU_SIGNING_TEAM=\"$team\"" -I packages/LockedUseNative/include -bundle -framework Security -framework Foundation -lbsm \
-  experiments/LockedUse/AuthorizationPlugin/RemotePlugin.m packages/LockedUseNative/PeerIdentity.c \
+  "-DOCU_SIGNING_TEAM=\"$team\"" -I packages/LockedUseNative/include -c \
+  experiments/LockedUse/AuthorizationPlugin/RemotePlugin.m -o "$output/remote-plugin.o"
+xcrun clang -std=gnu11 -Wall -Wextra -Werror -mmacosx-version-min=14.0 \
+  -I packages/LockedUseNative/include -c packages/LockedUseNative/PeerIdentity.c -o "$output/plugin-peer.o"
+xcrun swiftc -emit-library -Xlinker -bundle -target "$native_arch-apple-macos14.0" \
+  -framework Security -framework Foundation -lbsm \
+  "$output/remote-plugin.o" "$output/plugin-peer.o" "$output/task-verifier.o" \
   -o "$bundle/Contents/MacOS/OpenComputerUseLockedUseAuthorizationPlugin"
 cat > "$bundle/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -46,6 +55,34 @@ codesign --verify --strict "$output/OpenComputerUseLockedUseBroker"
 xcrun clang -std=c11 -Wall -Wextra -Werror -mmacosx-version-min=14.0 -framework Security \
   experiments/LockedUse/AuthorizationPlugin/RemotePluginTests.c -o "$output/remote-plugin-abi-tests"
 "$output/remote-plugin-abi-tests" "$bundle/Contents/MacOS/OpenComputerUseLockedUseAuthorizationPlugin"
+# Exercise the modern kernel verifier against independently signed live code.
+# These executables are diagnostic artifacts, never installed or used as peers.
+# Fresh inodes prevent kernel signature caches from seeing an in-place update.
+test_output="$(mktemp -d "$output/task-verifier-checks.XXXXXX")"
+xcrun clang -Wall -Wextra -Werror -mmacosx-version-min=14.0 "-DOCU_SIGNING_TEAM=\"$team\"" -c \
+  experiments/LockedUse/AuthorizationPlugin/TaskVerifierTests.c -o "$test_output/task-verifier-tests.o"
+xcrun swiftc -target "$native_arch-apple-macos14.0" "$test_output/task-verifier-tests.o" "$output/task-verifier.o" \
+  -o "$test_output/task-verifier-tests"
+codesign --force --options runtime --timestamp --identifier dev.opencomputeruse.locked-use.broker \
+  --sign "$identity" "$test_output/task-verifier-tests"
+"$test_output/task-verifier-tests" match
+rm -f "$test_output/task-verifier-wrong-id"
+cp "$test_output/task-verifier-tests" "$test_output/task-verifier-wrong-id"
+codesign --force --options runtime --timestamp --identifier dev.opencomputeruse.locked-use.wrong \
+  --sign "$identity" "$test_output/task-verifier-wrong-id"
+"$test_output/task-verifier-wrong-id" reject
+rm -f "$test_output/task-verifier-adhoc"
+cp "$test_output/task-verifier-tests" "$test_output/task-verifier-adhoc"
+codesign --force --options runtime --identifier dev.opencomputeruse.locked-use.broker --sign - "$test_output/task-verifier-adhoc"
+"$test_output/task-verifier-adhoc" reject
+cat > "$test_output/task-verifier-debug.plist" <<'PLIST'
+<plist version="1.0"><dict><key>com.apple.security.get-task-allow</key><true/></dict></plist>
+PLIST
+rm -f "$test_output/task-verifier-debug"
+cp "$test_output/task-verifier-tests" "$test_output/task-verifier-debug"
+codesign --force --options runtime --timestamp --identifier dev.opencomputeruse.locked-use.broker \
+  --entitlements "$test_output/task-verifier-debug.plist" --sign "$identity" "$test_output/task-verifier-debug"
+"$test_output/task-verifier-debug" reject
 echo 'Signed Broker, Guardian and remote plugin built. No system files or authorization rules changed.'
 
 fixture="$output/Locked Use Native Fixture (Dev).app"

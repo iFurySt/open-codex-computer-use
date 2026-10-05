@@ -54,3 +54,5 @@
 - 两个保护进程各持有遮罩、输入过滤和硬件活动检测；只有撤销许可、排空动作 / 解锁事务并观测同会话锁定后才释放。停止 deadline 只结束自身 automation agent，不能提前杀保护或按时间撤罩。
 - 人工 recovery-only 入口只对验证 profile 开放，在准备双保护后、签发许可前结束事务。准备失败的快速收束不能冒充双保护完整通过。
 - 当前自动解锁、完整 Keychain、Secure Input、进程 / 服务故障和显示器变化仍未全部通过。两个物理屏幕 preview 和已解锁遮罩下 AX / SCK 的结果不能替代这些门槛。详见 [实验与恢复说明](locked-use.md)。
+
+- macOS 14.4+ 的授权插件用 public LightweightCodeRequirements 对 socket audit token 建立 SecTask 验证：固定 signing ID / 团队、Developer ID validation category、动态签名有效、已签名、hardened runtime 和 Library Validation。逐项拒绝危险 entitlement，并重校验运行中的任务；现代验证失败不回退到字符串或磁盘检查。旧系统保留原 SecCode 路径。独立签名测试验证合法身份通过、错误 ID / 团队 / ad hoc / get-task-allow 被拒绝；实机锁屏表现仍须单独记录。

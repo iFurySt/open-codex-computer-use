@@ -54,6 +54,7 @@ public struct LockedUseBrokerCoordinator: Sendable {
     private var recoveryProbe = false
     private var recoveryProbePrepared = false
     public var phase: LockedUseStateMachine.Phase { machine.phase }
+    public var stopReason: LockedUseStateMachine.StopReason? { machine.stopReason }
     public var owner: LockedUseStateMachine.Owner? { machine.owner ?? connectionOwner }
 
     public init(enabled: Bool, backendValidated: Bool, requiresWatchdog: Bool = false, recovery: LockedUseRecoveryRecord? = nil, bootSessionID: String = UUID().uuidString, validationMode: Bool = false) {

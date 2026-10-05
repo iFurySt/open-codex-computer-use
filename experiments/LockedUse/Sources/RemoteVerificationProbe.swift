@@ -5,7 +5,10 @@ import CoreGraphics
 // Isolated non-locking diagnostic. No lease is created or permit requested.
 // Run only while normally unlocked, with the explicit validation installation.
 guard let session = CGSessionCopyCurrentDictionary() as? [String: Any],
-      (session["CGSSessionScreenIsLocked"] as? Bool) == false else { exit(2) }
+      session[kCGSessionOnConsoleKey as String] as? Bool == true,
+      session[kCGSessionLoginDoneKey as String] as? Bool == true,
+      (session[kCGSessionUserIDKey as String] as? NSNumber)?.uint32Value == getuid(),
+      session["CGSSessionScreenIsLocked"] == nil || session["CGSSessionScreenIsLocked"] as? Bool == false else { exit(2) }
 var reference: AuthorizationRef?
 let created = AuthorizationCreate(nil, nil, [], &reference)
 guard created == errAuthorizationSuccess, let reference else { exit(2) }

@@ -83,7 +83,7 @@ python3 scripts/run-locked-use-rehearsal.py --confirm-watchdog-test
 
 ### Broker 认证组件
 
-- `LockedUseAuthorizationRules` 生成离线安装 / 恢复计划，只对现有 OR rule 添加本项目 branch，保留原 fallback 和其他语义字段。旧计划或原规则被更改、阈值不兼容、已有本项目引用时拒绝；没有执行系统写入。Installer 已实现 root 存储、互斥和写入前后校验，系统效果仍需实测。认证事务的 opaque ID 不能当作 audit session，详见 [认证边界](references/macos-locked-use-authentication.md)。
+- `LockedUseAuthorizationRules` 生成离线安装 / 恢复计划，只对现有 OR rule 添加本项目 branch，保留原 fallback 和其他语义字段。旧计划或原规则被更改、阈值不兼容、已有本项目引用时拒绝；规划本身不执行系统写入。Installer 已实现 root 存储、互斥和写入前后校验；验证 profile 的安装 / 卸载与原规则恢复已实测，生产和故障链仍待验证。认证事务的 opaque ID 不能当作 audit session，详见 [认证边界](references/macos-locked-use-authentication.md)。
 
 - `LockedUseNative` 用 `LOCAL_PEERTOKEN` 获得 kernel audit token，包含 PID version；不把客户端自报 PID 转成身份。
 - `LockedUsePeerIdentity` 用 token 查询动态 SecCode，并验证 administrator-approved requirement。
@@ -231,3 +231,7 @@ xcrun swiftc -framework Security -framework CoreGraphics experiments/LockedUse/S
 ```
 
 它仅评估本项目独立 remote right，不创建租约、不请求 screensaver right、不提交密码；无租约时预期 denied。通过仍须核对实际机制日志、Broker 签名返回码和无许可 claim 被拒绝，不能仅凭 denied 判定成功。快速测试失败后，控制器先检查双保护已释放；指定自动观测手动解锁时，随后等待正常登录并重试隔离测试项清理，再保存报告，以纳入手动认证阶段的诊断。
+
+授权插件在 macOS 14.4+ 使用 `SecTaskValidateForRequirement` 的内核进程检查，要求正确 signing ID / Team、Developer ID 验证类别、动态有效签名、hardened runtime 与 Library Validation，拒绝危险 entitlement。旧系统保留 SecCode；现代检查失败不回退。构建流程含独立签名的正确 / 错误 ID / ad hoc / get-task-allow 反例，不安装这些测试 executable。单轮日志分别记录连接、task verification、claim、consume、SetResult、阶段和停止原因；authd 原始账号 / caller 字段仅归一化为系统 right 成败布尔事件。
+
+共享遮罩采用不激活的 NSPanel（borderless + nonactivatingPanel、关闭 hidesOnDeactivate；主遮罩位于 CGShieldingWindowLevel + 1，备用低一层），避免普通窗口参与登录切换的缩放；实际 WindowServer 全屏 bounds / layer / owner / alpha 检查仍严格保留，动画时覆盖不合格也必须重锁。

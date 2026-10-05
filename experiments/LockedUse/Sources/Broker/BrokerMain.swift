@@ -245,7 +245,10 @@ private final class BrokerServer: @unchecked Sendable {
                         detail: "Request denied by Broker policy")
                 }
                 if previousPhase != coordinator.phase {
-                    logger.notice("phase=\(self.coordinator.phase.rawValue, privacy: .public)")
+                    logger.notice("phase=\(self.coordinator.phase.rawValue, privacy: .public) stopReason=\(self.coordinator.stopReason?.rawValue ?? "none", privacy: .public)")
+                }
+                if [.pluginClaim, .pluginConsume, .pluginFinished].contains(request.operation) {
+                    logger.notice("pluginDecision operation=\(request.operation.rawValue, privacy: .public) result=\(reply.result.rawValue, privacy: .public) phase=\(self.coordinator.phase.rawValue, privacy: .public) sessionMatches=\(connection.context.auditSessionID == self.coordinator.owner?.auditSessionID, privacy: .public) auditUserMatches=\(connection.identity.auditUserID == self.coordinator.owner?.userID, privacy: .public)")
                 }
                 if reply.result == .denied { logger.notice("denied operation=\(request.operation.rawValue, privacy: .public) sessionMatches=\(connection.context.auditSessionID == self.coordinator.owner?.auditSessionID, privacy: .public) auditUserMatches=\(connection.identity.auditUserID == self.coordinator.owner?.userID, privacy: .public)") }
                 // Persist before exposing a consumed authorization or active

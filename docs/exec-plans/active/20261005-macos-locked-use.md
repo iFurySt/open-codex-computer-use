@@ -30,7 +30,7 @@
 - [x] 内核 audit-token / 动态签名认证、root 批准记录读取与短期一次性 permit registry；签名 / 角色实机自检与离线策略回归。
 - [x] 保留现有认证 fallback 的离线安装规划；拒绝不同阈值、规则变化与篡改备份，未执行系统写入。
 - [ ] 真正 loginwindow 解锁、独立保护与 Keychain 保持实验（阻塞生产 backend 开放）。
-- [x] 签名 Broker 控制面、限定角色 IPC、remote 插件一次性放行与锁屏 Guardian 接入；离线验证通过，已安装验证 profile，真实自动解锁尚未通过。
+- [x] 签名 Broker 控制面、限定角色 IPC、remote 插件一次性放行与锁屏 Guardian 接入；离线验证通过，已安装验证 profile，真实许可消费与 SetResult(Allow) 已通过，解锁切换被严格遮罩尺寸检查中止；完整 GUI 闭环仍未通过。
 - [x] 管理员安装 / 卸载入口、同团队原生客户端登记与 OCU 自动租约接入；已编译，系统验证 profile 安装与卸载已通过。
 - [x] JS reset / timeout / EOF 停止通道与独立 Keychain 自有测试项 API。
 - [x] 安装失败恢复入口、Broker 崩溃 journal / 双 Guardian release ACK、同团队原生客户端登记和验证转生产入口；离线通过，系统效果待实测。
@@ -125,3 +125,10 @@ Apple DTS 确认过 screensaver authorization plugin 的 Data Protection Keychai
 - 2026-10-05：首轮快速真实流程找到 14 节点、唯一 FocusedUser，但预查询不可写而未执行固定值探测，未触发机制 / 自动解锁；失败后进入 awaitingManualUnlock、双方保护退出。移除将可写性预查询作为写入前置条件的差异，保持其仅作诊断；实际写入仍仅限固定 AXValue、取消与同会话检查。
 
 - 2026-10-05：第二轮固定 AXValue 实际写入返回成功，但未触发认证机制 / 自动解锁；约 6.6 秒保护事务失败结束，控制器确认双保护释放。正常手动登录中的 Broker 校验出现 -67061；另一个不锁屏、无租约的 remote-only 探测中全部签名校验成功，Broker 正确拒绝无许可 claim。暂不能归因于签名材料本身，需继续核对认证宿主环境与认证发起时序。新增独立不锁屏诊断入口，Python 报告过滤 4 项通过。尚未完成 / 合并。
+
+- 2026-10-05：核对两级认证规则、4-byte length + JSON 协议与显式 SetResult；独立 remote 分支在真实 SecurityAgent 已可达。新增 macOS 14.4+ public SecTask / ProcessCodeRequirement 验证，签名类别 + 固定 ID / Team + 动态有效 / runtime / LV + 注入 entitlement 检查，不做 identifier-only 放宽。独立签名合法 / 错误 ID / ad hoc / get-task-allow 正反检查与原 ABI 通过；Python 白名单报告 6 项通过。
+- 2026-10-05：实机裁决链第一次通过：同 audit session claim 成功、consume 返回 authorized、SetResult(Allow) 返回成功；约 1 秒后因遮罩尺寸缩为 90% 而 guardLost，中止重锁并确认双保护退出。正常手动解锁与自有 Keychain 清理通过。仍不能记作完整 GUI 闭环通过；遮罩改为 nonactivating NSPanel，等待切换复测。
+
+- 2026-10-05：nonactivating NSPanel + 主屏蔽层级 +1 的不锁屏 surface 自检通过；完整 Swift 249 项、1 跳过、0 失败。下一轮真实切换仍待系统管理员完成旧验证版卸载认证后安装新版，不将尺寸自检记为解锁切换覆盖证明。
+
+- 待查：独立诊断中的合成 PID-version 实验发生进程退出未完成，已撤销该注入用例；生产前仍必须覆盖真实 Broker 死亡 / socket token 过期时 verifier 和认证宿主的有界恢复。合法 / 错误身份 / ad hoc / debug 的实际签名测试通过。

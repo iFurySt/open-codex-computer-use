@@ -123,3 +123,10 @@ root Broker 增加 boot-bound crash journal，回复授权前 fsync，不保存 
 - 2026-10-05：首轮快速真实流程找到 14 节点、唯一 FocusedUser，但预查询不可写而未执行固定值探测，未触发机制 / 自动解锁；失败后进入 awaitingManualUnlock、双方保护退出。移除将可写性预查询作为写入前置条件的差异，保持其仅作诊断；实际写入仍仅限固定 AXValue、取消与同会话检查。
 
 - 2026-10-05：第二轮固定 AXValue 实际写入返回成功，但未触发认证机制 / 自动解锁；约 6.6 秒保护事务失败结束，控制器确认双保护释放。正常手动登录中的 Broker 校验出现 -67061；另一个不锁屏、无租约的 remote-only 探测中全部签名校验成功，Broker 正确拒绝无许可 claim。暂不能归因于签名材料本身，需继续核对认证宿主环境与认证发起时序。新增独立不锁屏诊断入口，Python 报告过滤 4 项通过。尚未完成 / 合并。
+
+- 2026-10-05：核对两级认证规则、4-byte length + JSON 协议与显式 SetResult；独立 remote 分支在真实 SecurityAgent 已可达。新增 macOS 14.4+ public SecTask / ProcessCodeRequirement 验证，签名类别 + 固定 ID / Team + 动态有效 / runtime / LV + 注入 entitlement 检查，不做 identifier-only 放宽。独立签名合法 / 错误 ID / ad hoc / get-task-allow 正反检查与原 ABI 通过；Python 白名单报告 6 项通过。
+- 2026-10-05：实机裁决链第一次通过：同 audit session claim 成功、consume 返回 authorized、SetResult(Allow) 返回成功；约 1 秒后因遮罩尺寸缩为 90% 而 guardLost，中止重锁并确认双保护退出。正常手动解锁与自有 Keychain 清理通过。仍不能记作完整 GUI 闭环通过；遮罩改为 nonactivating NSPanel，等待切换复测。
+
+- 2026-10-05：nonactivating NSPanel + 主屏蔽层级 +1 的不锁屏 surface 自检通过；完整 Swift 249 项、1 跳过、0 失败。下一轮真实切换仍待系统管理员完成旧验证版卸载认证后安装新版，不将尺寸自检记为解锁切换覆盖证明。
+
+- 补充诊断边界：合成修改 PID-version 的独立内核 verifier 实验出现诊断进程退出未完成，未计为通过；撤销该实验用例并记录原生异常待查，不据此开放故障认证。实际 socket audit-token 路径、合法 / 错误身份 / ad hoc / debug 的完整签名构建与 ABI 检查通过；测试制品改用每轮独立目录和 fresh inode，避免原地重签的内核缓存歧义。

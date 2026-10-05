@@ -7,7 +7,7 @@
 | 先唤醒锁屏 UI，在系统认证事务中由插件放行 | 值得验证。用公开 IOPMAssertionDeclareUserActivity 做一次显示器唤醒，再观察实际机制调用、许可消费和会话解锁。API 只承诺电源活动，不能据此宣称会发起认证。 |
 | AX 树在认证之前不存在，提前查必然为空 | 不能作绝对判断；本机实际读到 loginwindow 窗口 / 按钮结构，但没有唯一 secure field。新版参考补充 identifier 路径：按名字定位并验证 loginwindow，AXChildren 深度 ≤8，优先 UserPasswordTextField、回退 FocusedUser。只对完整扫描的唯一候选写固定 AXValue；不读取内容或输入密码，不执行认证 action / Return。真实效果须分阶段日志证实。 |
 | 早版将 MechanismInvoke 返回 0 当作放行；新版已修正 | 采用新版修正。OSStatus 表示调用状态，授权结果必须通过 callbacks.SetResult 报告。现有插件已经显式报告 Allow / Deny。 |
-| 仅靠签名 ID / Team ID，且必须 SecTask | 不采用这种收缩。继续使用内核 audit token 和动态 SecCode requirement 验证，检查 hardened runtime、危险 entitlement、角色与会话；不能仅把签名字符串当作有效签名证明。 |
+| 仅靠签名 ID / Team ID，且必须 SecTask | 不采用这种收缩。继续使用内核 audit token 和动态 签名 requirement 验证（macOS 14.4+ 使用 SecTask + ProcessCodeRequirement 的内核验证，包含 Developer ID 验证类别、正确 ID / 团队和有效运行时标志；旧系统保留 SecCode），检查 hardened runtime、危险 entitlement、角色与会话；不能仅把签名字符串当作有效签名证明。 |
 | 单向固定 ALLOW 字串即可 | 不采用。继续使用有界协议、双向签名验证、一次性随机许可及会话 / 原客户端 / 租约绑定；短字串不能表达取消和排空。 |
 | 整体 screensaver rule 改为 evaluate-mechanisms | 不覆盖原认证流程；保持原 OR fallback，只添加独立 remote right。插件不可用时仍须保留系统密码认证路径。 |
 | 不读写 Keychain 就能保证 Keychain 正常 | 未被证明。login 与 Data Protection Keychain 是不同实现，必须用自身测试项覆盖临时解锁、重锁、正常解锁后的访问；不能仅凭插件代码没有 Keychain API 宣称无影响。 |
@@ -33,3 +33,9 @@
 系统行为随 macOS 版本变化。以上 API 文档不能替代本机真实锁屏和正常密码 / Touch ID 恢复验证。
 
 用户补充的二进制分析只观察到固定 AXValue 写入，没有密码输入、Keychain 或输入事件合成调用；这是参考样本的结论，不是本项目自动解锁已通过的证据。本项目将其实现为取消可阻断的有界探测，并增加单轮完整短流程与私有白名单诊断时间线。Keychain API 仅存在于隔离验证测试项路径，不参与解锁。
+
+## 探针与裁决链的证据区分
+
+固定 AXValue 写入成功记录为锁屏 UI 探针成功，不能单独证明插件已执行、许可被消费或 GUI 会话已解锁。此前将缺少机制日志直接称为“认证没有开始”不够准确；应区分界面可交互、authd right 求值、机制调用、Broker 裁决、SetResult 回报及真实会话。
+
+本项目不是只有 screensaver 的两分支数组：独立 remote right 已定义 class=evaluate-mechanisms 和 mechanisms。正常手动登录与不锁屏探测都曾实际调用插件，证明分支 / bundle 可达。wire 是 4 字节网络序长度加 JSON，不采用 ALLOW 文本或换行协议。插件显式 SetResult；新的正负裁决日志不保留 nonce、身份或原始字段。历史恢复握手的预期拒绝和无租约诊断不能混算为一次解锁的失败原因。

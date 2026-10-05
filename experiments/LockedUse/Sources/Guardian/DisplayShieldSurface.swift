@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-private final class ShieldWindow: NSWindow {
+private final class ShieldWindow: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
     // AppKit may constrain ordinary windows to the menu/Dock visible frame
@@ -48,10 +48,13 @@ final class DisplayShieldSurface {
         guard !screens.isEmpty else { throw GuardianError.message("No display available") }
         topology = displayTopology()
         for (id, screen) in screens {
-            let window = ShieldWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false, screen: screen)
+            let window = ShieldWindow(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false, screen: screen)
             window.animationBehavior = .none
+            window.hidesOnDeactivate = false
+            window.isFloatingPanel = true
+            window.becomesKeyOnlyIfNeeded = true
             window.setFrame(screen.frame, display: true)
-            window.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + levelOffset)
+            window.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 1 + levelOffset)
             // Default user windows disappear at loginwindow. Both protection
             // surfaces must remain onscreen across the lock/unlock transition.
             window.canBecomeVisibleWithoutLogin = true

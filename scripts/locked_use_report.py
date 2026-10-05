@@ -12,14 +12,14 @@ import uuid
 BOOL = r"(?:true|false)"
 PHASE = r"(?:idle|preparing|authorizing|unlocking|active|relocking|awaitingManualUnlock)"
 PATTERNS = {
-    "Broker": [rf"phase={PHASE}", rf"denied operation=[A-Za-z]+ sessionMatches={BOOL} auditUserMatches={BOOL}",
+    "Broker": [rf"pluginDecision operation=(?:pluginClaim|pluginConsume|pluginFinished) result=(?:ok|waiting|denied|authorized|active|relock|release) phase={PHASE} sessionMatches={BOOL} auditUserMatches={BOOL}", rf"phase={PHASE}(?: stopReason=[A-Za-z]+)?", rf"denied operation=[A-Za-z]+ sessionMatches={BOOL} auditUserMatches={BOOL}",
                r"peerRejected endpoint=(?:agent|guardian|plugin|observer|admin)", "installationPolicyInvalidated"],
     "UnlockTrigger": [r"displayWakeReturned status=-?[0-9]+ authenticationRequested=false",
                       rf"lockUISettled elapsed=[0-9.]+ notificationObserved={BOOL}",
                       rf"AXProbe nodes=[0-9]+ primaryMatches=[0-9]+ fallbackMatches=[0-9]+ complete={BOOL}",
                       rf"AXProbe writable={BOOL} status=-?[0-9]+", r"AXProbe fixedValueWrite status=-?[0-9]+",
                       r"AXProbe process(?:Unavailable|SignatureRejected)=true"],
-    "AuthorizationMechanism": ["mechanismInvoked", "brokerVerified", r"resultDelivered allowed=[01] status=-?[0-9]+",
+    "AuthorizationMechanism": [r"brokerTaskVerification status=-?[0-9]+", r"brokerConnect connected=[01]", r"pluginClaim replied=[01] authorizing=[01] denied=[01]", r"pluginConsume replied=[01] allowed=[01]", "mechanismInvoked", "brokerVerified", r"resultDelivered allowed=[01] status=-?[0-9]+",
                                r"brokerVerification guest=-?[0-9]+ requirement=-?[0-9]+ validity=-?[0-9]+ static=-?[0-9]+ info=-?[0-9]+"],
     "AgentRecovery": ["actionDrainSubmitting", "recoveryProbeAcquireEnded",
                       rf"actionDrainReply phase={PHASE} denied={BOOL}",
@@ -29,6 +29,7 @@ PATTERNS = {
                          "fixtureChanged counterIncremented=true imageChanged=true",
                          rf"isolatedKeychainVerified dataProtectionIncluded={BOOL}"],
     "WatchdogBroker": ["registered"],
+    "Watchdog": [r"stopping reason=shieldBoundsMismatch expected=[0-9.,{} -]+ actual=[0-9.,{} -]+", r"stopping reason=(?:topologyChanged|shieldNotVisible|shieldNotInWindowServer|shieldLayerMismatch|hardwareMonitorUnhealthy|inputTapDisabled|parentDisconnected)"],
 }
 
 
@@ -39,6 +40,15 @@ def curate(records, started):
         if not isinstance(entry, dict): continue
         if not all(isinstance(entry.get(key, ""), str) for key in ["processImagePath", "category", "eventMessage", "timestamp"]): continue
         process = pathlib.Path(entry.get("processImagePath", "")).name
+        if process == "authd" and "system.login.screensaver" in entry.get("eventMessage", ""):
+            message = entry["eventMessage"]
+            action = "systemRightSucceeded" if "Succeeded authorizing right" in message else "systemRightFailed" if "Failed authorizing right" in message else None
+            if action:
+                try: timestamp = datetime.datetime.fromisoformat(entry["timestamp"]).timestamp()
+                except (KeyError, ValueError): continue
+                if timestamp >= started:
+                    events.append({"elapsedSeconds": round(timestamp-started, 3), "category": "SystemAuthorization", "message": action})
+            continue
         if process not in {"OpenComputerUse", "OpenComputerUseGuardian", "OpenComputerUseLockedUseBroker",
                            "SecurityAgentHelper-arm64", "SecurityAgentHelper-x86_64"}: continue
         category = entry.get("category", "")
@@ -55,7 +65,7 @@ def write_report(root, started, events, error=None):
     records = []
     try:
         result = subprocess.run(["/usr/bin/log", "show", "--last", f"{math.ceil(time.time()-started)+2}s",
-                                 "--style", "json", "--predicate", 'subsystem == "dev.opencomputeruse.locked-use"'],
+                                 "--style", "json", "--predicate", 'subsystem == "dev.opencomputeruse.locked-use" OR (process == "authd" AND eventMessage CONTAINS "system.login.screensaver")'],
                                 capture_output=True, timeout=5, check=True)
         if len(result.stdout) <= 4*1024*1024: records = json.loads(result.stdout)
     except (subprocess.SubprocessError, ValueError): pass

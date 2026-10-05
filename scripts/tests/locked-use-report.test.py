@@ -24,6 +24,16 @@ class ReportTests(unittest.TestCase):
                         "AXProbe writable=true status=0 AXTitle=User Name"]:
             self.assertEqual(report.curate([self.entry(message)], 0), [])
 
+    def testSystemRuleEventsDoNotRetainCallerOrAccount(self):
+        entry = self.entry("Succeeded authorizing right 'system.login.screensaver' by client /private/example user=secret-account", process="authd")
+        result = report.curate([entry], 0)
+        self.assertEqual(result[0]["message"], "systemRightSucceeded")
+        self.assertNotIn("secret-account", str(result))
+
+    def testPluginPositiveAndNegativeResultsArePreserved(self):
+        for message in ["brokerTaskVerification status=1", "pluginConsume replied=1 allowed=1", "resultDelivered allowed=1 status=0"]:
+            self.assertEqual(len(report.curate([self.entry(message, "AuthorizationMechanism")], 0)), 1)
+
     def testMalformedLogsAreDiscarded(self):
         self.assertEqual(report.curate({"unexpected": "object"}, 0), [])
         self.assertEqual(report.curate([None, {"processImagePath": 3}, {"timestamp": []}], 0), [])

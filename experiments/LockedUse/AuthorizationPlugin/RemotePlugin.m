@@ -17,6 +17,8 @@
 #error "Remote mechanism requires a fixed Developer ID signing team"
 #endif
 
+extern int32_t ocu_verify_broker_task(const void *auditToken, const char *team);
+
 static const char *socketPath = "/Library/Application Support/OpenComputerUse/LockedUse/run/plugin.sock";
 static double monotonic(void) {
     struct timespec value;
@@ -51,6 +53,12 @@ static bool transfer(int fd, void *bytes, size_t length, bool sending, double de
 static bool verifyBroker(int fd) {
     OCUPeerIdentity peer;
     if (ocu_copy_peer_identity(fd, &peer) != 0 || peer.effective_user_id != 0) return false;
+    int32_t taskStatus = ocu_verify_broker_task(peer.audit_token, OCU_SIGNING_TEAM);
+    os_log_t taskLogger = os_log_create("dev.opencomputeruse.locked-use", "AuthorizationMechanism");
+    os_log_with_type(taskLogger, OS_LOG_TYPE_DEFAULT, "brokerTaskVerification status=%{public}d", taskStatus);
+    // Older systems retain the legacy verifier. A modern failure never falls
+    // back to a weaker identifier-only or on-disk check.
+    if (taskStatus != -1) return taskStatus == 1;
     NSData *audit = [NSData dataWithBytes:peer.audit_token length:sizeof(peer.audit_token)];
     NSDictionary *attributes = @{(__bridge NSString *)kSecGuestAttributeAudit: audit};
     SecCodeRef guest = NULL;
@@ -174,15 +182,18 @@ static OSStatus mechanismInvoke(AuthorizationMechanismRef ref) {
                 socklen_t size = sizeof(failure);
                 if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &failure, &size) == 0 && failure == 0) result = 0;
             }
+            os_log_with_type(logger, OS_LOG_TYPE_DEFAULT, "brokerConnect connected=%{public}d", result == 0);
             if (result == 0 && verifyBroker(fd)) {
                 os_log_with_type(logger, OS_LOG_TYPE_DEFAULT, "brokerVerified");
                 NSDictionary *claim = exchange(fd, @"pluginClaim", nil, deadline);
+                os_log_with_type(logger, OS_LOG_TYPE_DEFAULT, "pluginClaim replied=%{public}d authorizing=%{public}d denied=%{public}d", claim != nil, [claim[@"phase"] isEqual:@"authorizing"], [claim[@"result"] isEqual:@"denied"]);
                 NSString *lease = [claim[@"leaseID"] isKindOfClass:NSString.class] ? claim[@"leaseID"] : nil;
                 NSString *token = [claim[@"token"] isKindOfClass:NSString.class] ? claim[@"token"] : nil;
                 NSData *nonce = token ? [[NSData alloc] initWithBase64EncodedString:token options:0] : nil;
                 if ([claim[@"phase"] isEqual:@"authorizing"] && lease && [[NSUUID alloc] initWithUUIDString:lease] && nonce.length == 32) {
                     NSDictionary *reply = exchange(fd, @"pluginConsume", @{@"leaseID": lease, @"token": token}, deadline);
                     allowed = [reply[@"result"] isEqual:@"authorized"] && [reply[@"phase"] isEqual:@"unlocking"];
+                    os_log_with_type(logger, OS_LOG_TYPE_DEFAULT, "pluginConsume replied=%{public}d allowed=%{public}d", reply != nil, allowed);
                 }
             }
         }
