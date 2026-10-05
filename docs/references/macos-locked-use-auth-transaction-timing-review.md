@@ -30,10 +30,18 @@
 
 ## 下一轮实际验证条件
 
-先在独立测试账户 / 测试 Mac 或 macOS VM 验证空字符串清理与合成点击的作用，逐步确认认证求值是否开始、插件是否放行及会话是否真正可用；没有证据前不发送 Return。每轮继续使用短许可和已验证双保护释放，失败不延长锁屏循环。使用隔离 Keychain 测试项并检查正常登录后的访问，不能因为插件没有调用 Keychain 就认为系统没有改变它。
+先在独立测试账户 / 测试 Mac 或 macOS VM 验证空字符串清理与合成点击的作用（隔离环境是开发建议，不是 Apple API 的规定），逐步确认认证求值是否开始、插件是否放行及会话是否真正可用；没有证据前不发送 Return。每轮继续使用短许可和已验证双保护释放，失败不延长锁屏循环。使用隔离 Keychain 测试项并检查正常登录后的访问，不能因为插件没有调用 Keychain 就认为系统没有改变它。
 
-已有[上游真实故障报告](https://github.com/openai/codex/issues/40226)记录空输入授权路径可能导致 login Keychain 重设及 Data Protection 关联故障；它不是所有系统版本的保证，但足以要求这条新路径先离开日常账户验证。之前日常账户上的固定探针 / 保护实验授权不应被当作已验证的新认证入口。
+重新完整核对[上游故障报告](https://github.com/openai/codex/issues/40226)：它记录插件介入后 SecKeychainLogin 失败、后续屏幕解锁跳过 Keychain 解锁，导致当前登录会话无法访问凭据；报告者明确称文件完整、哈希稳定、重启并密码登录恢复。报告没有空输入证据，也没有证明 Keychain 被重设。此前将它写成空输入导致重设不准确，已纠正。隔离环境仍是减少开发故障影响的建议，不能引用此报告宣称会永久丢失凭据或强制该环境。
 
 [Apple DTS 的 screenUnlockMode 说明](https://developer.apple.com/forums/thread/737268)针对旧式 SFAuthorizationPluginView 插件与 UI 兼容问题，不证明本项目非 UI remote 机制必须设置该全局偏好。本轮不修改它。[trycua 的提案](https://github.com/trycua/cua/issues/1744)也不是已验证的自动解锁实现。
 
 生产保持关闭；Data Protection Keychain、Secure Input、真实进程 / Broker 故障、显示器变化与完整自动闭环仍未完成，不能合并或开放生产。
+
+## 官方 API 核对补充
+
+[SetResult](https://developer.apple.com/documentation/security/authorizationcallbacks/setresult) 定义机制授权结果：Allow 后继续剩余机制，全部允许才授权成功；没有承诺会解锁 GUI / Keychain，也没有规定重设 Keychain。
+
+[Apple Security 公开源码](https://github.com/apple-oss-distributions/Security/blob/main/OSX/libsecurity_keychain/lib/SecKeychain.cpp) 区分 SecKeychainLogin 的 login / stash 路径与 SecKeychainResetLogin 的重设路径。公开代码说明登录关联的 Keychain 处理存在，但不是当前 macOS loginwindow 的完整源码，不能据此断言每次屏幕解锁如何选择分支。
+
+[Apple Support](https://support.apple.com/guide/keychain-access/kyca2429/mac) 说明用户登录密码与 login Keychain 密码及重设的关系；其上下文是登录 / 密码变更，不能直接外推为插件 Allow 会重设。当前应验证的是 GUI 解锁后 Keychain 是否保持可用，而不是把它当作实现所需的凭据环节。本轮仅资料核对，未执行认证 / 锁屏 / Keychain API。

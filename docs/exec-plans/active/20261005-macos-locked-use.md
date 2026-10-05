@@ -135,4 +135,6 @@ Apple DTS 确认过 screensaver authorization plugin 的 Data Protection Keychai
 
 - 2026-10-05：新版 NSPanel 的真实快速闭环复测未自动解锁。双保护准备成功；单次显示器唤醒与固定 AXValue 写入成功，但整个 5 秒 authorizing 窗口没有机制调用，随后 unlockTimeout。锁定观测后约 7.1 秒确认双方释放。正常手动登录时机制调用、现代签名验证成功，过期 claim 被拒绝，原系统 fallback 成功；自有 legacy 测试项验证与清理通过。这轮没有进入 active / native AX-SCK，不能证明 NSPanel 在自动解锁切换时的覆盖修复。下一步定位系统认证事务启动时机差异，不能靠延长许可或重复锁屏宣称修复；生产仍关闭，尚未合并。
 
-- 2026-10-05：复核新认证时序资料与本机 Guardian build 1001365，发现参考路径实际写空字符串、AXValue 是属性名，并调用 SynthesizedEvent.click / send；未确认 Return 或真实认证效果，未照搬到日常账户。历史 SetResult(Allow) 不排除人工认证重叠，不能算自动唤醒成功。新增锁屏前只读实时白名单采集、schema 2 许可 / 手动恢复分窗和不锁屏被动入口，缺失日志不证明缺失事务。遮罩使用 Quartz 全局坐标完整包含，仍拒绝任何未覆盖边缘和 90% 缩小。Swift 251 项（1 跳过、0 失败）、Python 报告 10 项 / rehearsal 5 项、签名组件 / ABI / 内核签名正反例、不锁屏 surface 自检通过；被动采集完成。本轮没有安装 / 真实解锁；空输入新认证路径因已有 Keychain 故障报告等待隔离环境。生产关闭，未合并。
+- 2026-10-05：复核新认证时序资料与本机 Guardian build 1001365，发现参考路径实际写空字符串、AXValue 是属性名，并调用 SynthesizedEvent.click / send；未确认 Return 或真实认证效果，未照搬到日常账户。历史 SetResult(Allow) 不排除人工认证重叠，不能算自动唤醒成功。新增锁屏前只读实时白名单采集、schema 2 许可 / 手动恢复分窗和不锁屏被动入口，缺失日志不证明缺失事务。遮罩使用 Quartz 全局坐标完整包含，仍拒绝任何未覆盖边缘和 90% 缩小。Swift 251 项（1 跳过、0 失败）、Python 报告 10 项 / rehearsal 5 项、签名组件 / ABI / 内核签名正反例、不锁屏 surface 自检通过；被动采集完成。本轮没有安装 / 真实解锁；新认证路径的 Keychain 可用状态尚待验证（后续复核纠正了重设归因）。生产关闭，未合并。
+
+- 2026-10-05：用户要求按官方 API 复核 Keychain 风险。纠正此前错误归因：上游 #40226 是插件介入后的会话级访问失败，明确排除文件损坏并称重启恢复，没有空输入或重设证据。SetResult 只定义授权结果；Apple 公开 Security 源码区分登录处理与显式重设，不能当作当前 loginwindow 完整调用链。同步修正文档，将隔离环境明确为开发建议而非 API 要求；本轮无代码或系统认证变更。

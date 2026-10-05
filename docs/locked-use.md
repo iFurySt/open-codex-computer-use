@@ -243,4 +243,4 @@ xcrun swiftc -framework Security -framework CoreGraphics experiments/LockedUse/S
 python3 scripts/run-locked-use-native-validation.py --observe-auth-only --observe-seconds 5
 ```
 
-该入口不需要安装验证 profile，不锁屏、不请求认证、不创建租约。空输入 / 合成点击候选尚未实现认证提交，须先在隔离环境检验 Keychain 影响，详见 [认证时序复核](references/macos-locked-use-auth-transaction-timing-review.md)。
+该入口不需要安装验证 profile，不锁屏、不请求认证、不创建租约。空输入 / 合成点击候选尚未实现认证提交，建议先在隔离环境检验 Keychain 可用状态（报告未证明重设），详见 [认证时序复核](references/macos-locked-use-auth-transaction-timing-review.md)。
