@@ -41,13 +41,17 @@ final class PowerAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
     var server: PowerSocketServer?
     var timer: DispatchSourceTimer?
     var signalSource: DispatchSourceSignal?
+    var metricsTimer: DispatchSourceTimer?
     var window: NSWindow?
     var text: NSTextView?
     let visible: Bool
-    init(visible: Bool) { self.visible = visible }
+    let metricsPath: String
+    init(visible: Bool, metricsPath: String = MetricsStore.defaultPath) { self.visible = visible; self.metricsPath = metricsPath }
     func applicationDidFinishLaunching(_ notification: Notification) {
         do {
             let server = PowerSocketServer(registry: registry)
+            do { server.metricsService = try MetricsService(store: MetricsStore(path: metricsPath)) }
+            catch { server.metricsError = error.localizedDescription }
             server.onShutdown = { [weak self] in self?.server?.stop(); NSApplication.shared.terminate(nil) }
             try server.start(); self.server = server
         } catch { fputs("\(error.localizedDescription)\n", stderr); NSApplication.shared.terminate(nil); return }
@@ -58,6 +62,13 @@ final class PowerAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
             DispatchQueue.main.async { [weak self] in self?.updateText() }
         }
         timer.resume(); self.timer = timer
+        let metricsTimer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "power.metrics"))
+        metricsTimer.schedule(deadline: .now(), repeating: 1, leeway: .milliseconds(250))
+        metricsTimer.setEventHandler { [weak self] in
+            guard let self else { return }
+            self.server?.metricsService?.tick(status: try? self.registry.status(uid: getuid()))
+        }
+        metricsTimer.resume(); self.metricsTimer = metricsTimer
         signal(SIGTERM, SIG_IGN)
         let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
         source.setEventHandler { NSApplication.shared.terminate(nil) }; source.resume(); signalSource = source
@@ -105,7 +116,12 @@ do {
     switch command {
     case "app", "serve":
         let app = NSApplication.shared; app.setActivationPolicy(.accessory)
-        let delegate = PowerAppDelegate(visible: command == "app"); app.delegate = delegate
+        var metricsPath = MetricsStore.defaultPath
+        if args.count > 1 {
+            guard command == "serve", args.count == 3, args[1] == "--metrics-path" else { throw PowerFailure.invalid("serve accepts only --metrics-path PATH") }
+            metricsPath = args[2]
+        }
+        let delegate = PowerAppDelegate(visible: command == "app", metricsPath: metricsPath); app.delegate = delegate
         withExtendedLifetime(delegate) { app.run() }
     case "help", "--help", "-h":
         print("""
@@ -115,8 +131,11 @@ do {
         release ID                  Release one hold
         run [--options JSON] -- COMMAND [ARGS...]   Connection-bound hold
         shutdown                    Release all holds and stop this user's coordinator
-        serve                       Foreground coordinator (unbundled development)
+        serve [--metrics-path PATH]  Foreground coordinator (unbundled development)
         install / uninstall         Manage the signed lid helper
+        metrics [--query JSON]        Recent samples (epoch seconds, limit <=100)
+        metrics-configure JSON       enabled, interval_seconds, retention_seconds
+        metrics-clear                Delete stored samples
         doctor                      Read-only coordinator, helper and power diagnostics
         gui-smoke [--closed-lid] [--seconds N] [--display-id ID]  Attended real AX/SCK test
         Options: prevent_idle_sleep, prevent_display_sleep, prevent_lid_sleep,
@@ -196,6 +215,19 @@ do {
             }
         }
         try PowerGUIProbe.run(waitForClosedLid: closed, seconds: seconds, displayID: displayID, connection: client())
+    case "metrics":
+        var query = MetricsQuery()
+        if args.count > 1 {
+            guard args.count == 3, args[1] == "--query" else { throw PowerFailure.invalid("metrics accepts --query JSON") }
+            query = try JSONDecoder().decode(MetricsQuery.self, from: Data(args[2].utf8))
+        }
+        try output(client().metrics(query))
+    case "metrics-configure":
+        guard args.count == 2 else { throw PowerFailure.invalid("metrics-configure requires JSON") }
+        try output(client().configureMetrics(JSONDecoder().decode(MetricsConfiguration.self, from: Data(args[1].utf8))))
+    case "metrics-clear":
+        guard args.count == 1 else { throw PowerFailure.invalid("metrics-clear accepts no arguments") }
+        try client().clearMetrics(); try output(["cleared": true])
     case "doctor":
         var result: [String: Any] = ["bundle": Bundle.main.bundleURL.pathExtension == "app", "registration_status": service().status.rawValue, "developer_id_valid": ocu_power_is_signed_host() == 1, "accessibility": AXIsProcessTrusted(), "screen_recording": CGPreflightScreenCaptureAccess()]
         result["coordinator_running"] = (try? client(autostart: false)) != nil

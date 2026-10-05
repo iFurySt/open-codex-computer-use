@@ -82,10 +82,48 @@ lid smoke 要求已批准的签名 helper、初始 SleepDisabled=0 和没有活�
 
 GUI probe 启动独立真实 AppKit 进程，通过 AXPress 更新计数器，读回 AX 值，并验证前后 ScreenCaptureKit 窗口截图不同。可选择已有显示器，不创建虚拟屏幕，也不依赖 FixtureBridge。开盖测试会检查前台应用未改变；`--closed-lid` 在请求合盖保活后等待最多 60 秒供用户合盖，要求整个采样区间保持合盖，结束或失败均释放自身请求。窗口截图仅在内存。Power App 必须单独获得 Accessibility / Screen Recording；探针不会自动请求权限或解锁。
 
-当前已通过 20 项自动测试、真实普通保活跨进程 smoke，以及签名 host 接受 / 可注入副本拒绝 / 错误角色拒绝。开盖下真实 GUI AXPress / AX 值读回 / ScreenCaptureKit 前后截图验证已通过，且前台应用未改变。特权服务已获系统批准并通过签名 XPC 状态查询；真实 pmset 开关、8 秒定时恢复及强制结束协调器后的恢复均已通过。2026-10-05 在 macOS 26.5.1 / Apple Silicon 上的物理合盖验收通过：内核 AppleClamshellState=true、SleepDisabled=true，30 秒合盖采样完成 11 次 AXPress、计数读回及前后 SCK 截图变化验证。探针结束后 hold=ended/released、SleepDisabled=0、helper_confirmed=false，fixture 退出；随后关闭空闲协调器。此次只证明本机当前配置下的 30 秒真实合盖 GUI 工作流，不代表所有设备、电源模式、锁屏状态或一分钟持续运行。helper 自身 SIGKILL/launchd 恢复、电源切换与功耗仍待验收。功能作为实验模块交付。
+当前已通过 30 项自动测试（含 10 项 metrics 测试）、真实普通保活跨进程 smoke，以及签名 host 接受 / 可注入副本拒绝 / 错误角色拒绝。开盖下真实 GUI AXPress / AX 值读回 / ScreenCaptureKit 前后截图验证已通过，且前台应用未改变。特权服务已获系统批准并通过签名 XPC 状态查询；真实 pmset 开关、8 秒定时恢复及强制结束协调器后的恢复均已通过。2026-10-05 在 macOS 26.5.1 / Apple Silicon 上的物理合盖验收通过：内核 AppleClamshellState=true、SleepDisabled=true，30 秒合盖采样完成 11 次 AXPress、计数读回及前后 SCK 截图变化验证。探针结束后 hold=ended/released、SleepDisabled=0、helper_confirmed=false，fixture 退出；随后关闭空闲协调器。此次只证明本机当前配置下的 30 秒真实合盖 GUI 工作流，不代表所有设备、电源模式、锁屏状态或一分钟持续运行。helper 自身 SIGKILL/launchd 恢复、电源切换与功耗仍待验收。功能作为实验模块交付。
 
 ## 后续与其他模块合并
 
 Virtual Display / Locked Use 只持有和释放请求 ID，不直接修改电源开关。电源心跳不能续期解锁许可；显示器变化后的重新验证仍由虚拟会话负责。联合模式退出先关闭输入与处理重锁，再释放电源请求，同时保留各组件独立的异常恢复路径。
 
 来源：[Amphetamine Power Protect](https://github.com/x74353/Amphetamine)、[Apple SMAppService](https://developer.apple.com/documentation/servicemanagement/smappservice)、[Apple 睡眠通知与断言](https://developer.apple.com/library/archive/qa/qa1340/_index.html)。实现不复制第三方源码，无新增外部依赖。
+
+## Metrics：短期电源数据
+
+协调器启动时默认启用统一 metrics，每 5 秒读取一次，只保留最近 1 小时；不需要 root，不启动 powermetrics，也不创建或续期任何防休眠许可。机器睡眠、协调器停止时没有样本，不补造这些区间。调用方需要持续保活时自行 acquire。
+
+```sh
+OCUPowerHost metrics
+OCUPowerHost metrics --query '{"since":1791180000,"until":1791180300,"limit":20}'
+OCUPowerHost metrics-configure '{"enabled":true,"interval_seconds":5,"retention_seconds":3600}'
+OCUPowerHost metrics-configure '{"enabled":false,"interval_seconds":5,"retention_seconds":3600}'
+OCUPowerHost metrics-clear
+python3 scripts/run-power-metrics-smoke.py
+```
+
+`metrics` 返回 configuration、samples、truncated、collection_error 和 sensor_freshness；样本按时间升序，截断时选取范围内最新 N 条，可用更早的 until 查询前一段。since/until 为 Unix 秒，默认 limit=100，上限 100；不支持 hold ID 过滤或把全机耗电归因于某个调用方。SDK 提供 `PowerClient.metrics(MetricsQuery)`、`configureMetrics(MetricsConfiguration)` 和 `clearMetrics()`；返回 `MetricsReport`。`MetricsCollector` / `MetricsSample.readings` 可扩展其他采集器，当前生产 collector 只记录下面的白名单。
+
+| 字段 | 单位 / 含义 | 来源与边界 |
+| --- | --- | --- |
+| system_power_watts | W，整机供电轨读数 | Apple Silicon AppleSMC.PSTR，只读 metadata/read；无该 key、格式未知、访问拒绝或非有限数值时 unavailable。未用外接功率计校准，不承诺所有设备都支持。 |
+| battery_net_power_watts | W，正值充入电池、负值从电池放出 | AppleSmartBattery 平均电流 × 电压，derived_sensor；电池净功率不是整机功率，AC 满电时可为 0。 |
+| battery_voltage_volts | V | 电池电压；不是适配器额定功率。 |
+| battery_percent | % | IOPowerSources 当前电量。 |
+| battery_temperature_celsius | °C | AppleSmartBattery 温度，不代表 CPU 温度；越界时 unavailable。 |
+| collection_duration_seconds | s | monotonic clock 测得本次 native 采集耗时，不含 SQLite 写入、队列等待或查询传输。 |
+| thermal_state / on_battery / charging / lid_closed | 状态 | 热压力、供电、充电与硬件合盖状态，未知保持缺失。 |
+| active_holds / requested / confirmed / lid_state_known | 状态 | 本协调器许可数量与实际确认能力，不含用户其他 App 的 assertions。 |
+
+每个 reading 带 source、unit、quality（reported_sensor / derived_sensor / reported_state / measured_interval / unavailable）；缺失 value 与 unavailable_reason 显式区分于数值 0。timestamp 是读取时的墙钟 Unix 秒，uptime_seconds 为 continuous monotonic clock；硬件自身刷新周期未知，同值连续读取不意味着传感器每 5 秒刷新。没有 CPU/GPU/ANE 模型估算或 per-process Energy Impact，避免把子系统和整机功率混合为一个数字。
+
+本地数据库位于用户 Application Support 的 `OpenComputerUsePower[.dev]/Metrics/metrics.sqlite3`。目录 0700、文件 0600，拒绝非本用户、symlink、硬链接与 extended ACL；debug/release 分开。使用系统 sqlite3，无外部依赖。schema version=1，事务写入；主数据库最多 32 MiB、最多 10,000 条、单条最多 8 KiB。使用 DELETE journal 和 secure_delete，避免长期积累 WAL；事务中的临时 journal 可能额外占用不超过数据库规模的空间。达到容量限制时 collection_error 可见，普通保活不受影响。
+
+采样间隔允许 1...300 秒，保留时间允许 60...86400 秒，配置必须完整提供三个字段并跨重启保留。缩短保留立即删除过期记录；运行期间即使禁用采集也每分钟清理，查询/重启时再次清理。协调器停止期间没有后台清理进程，过期数据在下一次启动/查询删除；墙钟回退时删除未来记录。空间可复用，clear 会 VACUUM；要保持数据为空，先禁用采集再 clear，否则下一次采样会重新写入。
+
+采集、写入在独立串行队列运行，错误不影响保活生命周期；写入后续采样重试，启动初始化失败通过 metrics IPC 返回错误。metrics 仅读取/存储设备数值与固定状态，不记录输入、窗口、应用列表、截图、硬件序列号或证书，不联网发送。
+
+2026-10-05 本机 rootless smoke 获得有效 PSTR 读数（一个样本约 38.1 W），同时电池净功率为 0 W；验证无保活请求、SQLite 持久化、限量查询、禁用/重启/clear。真实电池放电与跨硬件功率校准尚未验证；单位、符号和无效输入有自动测试。
+
+接口调研来源：[Apple 电池驱动实现](https://github.com/apple-oss-distributions/PowerManagement/blob/main/AppleSmartBatteryManager/AppleSmartBattery.cpp)、[power-monitor 的 SMC/IOReport 接口研究](https://github.com/electricapp/power-monitor)。仅参考 ABI 和传感器含义，未引入或复制其实现；没有新增第三方库。

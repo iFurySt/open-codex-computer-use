@@ -189,3 +189,5 @@ App-agent Quit 使用 RunLoop 调度 terminate/reply 与 worker 清理：termina
 `packages/OpenComputerUsePower` 为独立 SwiftPM package，不改变根构建或虚拟/锁屏模块。`PowerCore` SDK 和 `OCUPowerHost` 提供 manual（无限持续）、timed、connection 请求；用户态 coordinator 聚合 IOKit 闲置/显示器断言，签名 root `OCUPowerHelper` 管理 pmset 合盖开关、30 秒内部租约和恢复 journal。用户态请求不自动关联外部 Agent 任务，电量/温度截止默认关闭。独立 App 通过 SMAppService 安装，需系统后台项批准。真实 AX/SCK 探针和验证脚本见 [电源保活](power-hold.md)；保活本身不解锁会话，也不保证合盖后图形会话可用。
 
 侧栏将 Sessions 与 Displays 分组，显示器资源通过 typed `displayStates()` 查询活动/空闲状态及 sessionIDs。当前每屏零或一个活动会话、多应用；分组折叠不清除当前桌面选择，原生整体侧栏 toolbar/动画保留。精确租用传 create 的 displayID（必须匹配配置且空闲），显示器级 destroyDisplay 在 registry 串行锁内安全结束关联会话后再释放；应用退出与窗口恢复不可回滚，不承诺跨这些操作的 all-or-nothing。失败保留未完成状态，不终止其他屏或强杀应用。
+
+电源 coordinator 内置统一 metrics：`MetricsCollector` 读取固定 SMC/电池传感器与保活状态，`MetricsService` 独立队列采样，系统 sqlite3 `MetricsStore` 持久化短期记录与配置。默认 5 秒/1 小时，限 10,000 条/32 MiB 主库；SDK/CLI 支持范围查询、configure、clear。采集不创建防休眠许可，错误与保活隔离，未知传感器不伪装为零。详细功率口径和接口见 [电源保活 metrics](power-hold.md#metrics短期电源数据)。
