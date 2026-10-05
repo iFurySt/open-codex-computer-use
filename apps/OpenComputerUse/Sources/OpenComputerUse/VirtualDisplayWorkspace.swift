@@ -217,6 +217,21 @@ final class VirtualDisplayWorkspaceModel: ObservableObject {
     }
 }
 
+private enum WorkspaceSidebarLayout {
+    // Match the native selection background's outer gutter throughout the sidebar.
+    static let outerInset: CGFloat = 10
+    static let childIndent: CGFloat = 12
+    static let rowInset: CGFloat = 8
+
+    static func headerInsets(top: CGFloat) -> EdgeInsets {
+        EdgeInsets(top: top, leading: 0, bottom: 4, trailing: 0)
+    }
+
+    static let resourceInsets = EdgeInsets(
+        top: 0, leading: rowInset + childIndent, bottom: 0, trailing: rowInset
+    )
+}
+
 struct VirtualDisplayWorkspaceView: View {
     @ObservedObject var model: VirtualDisplayWorkspaceModel
     var requestPermissions: () -> Void
@@ -227,11 +242,12 @@ struct VirtualDisplayWorkspaceView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             List(selection: Binding(get: { model.sidebarSelection }, set: { model.sidebarSelection = $0 })) {
                 WorkspaceSidebarGroupHeader(title: "Sessions", expanded: $sessionsExpanded, busy: model.busy, create: showCreateSession)
-                    .selectionDisabled().listRowSeparator(.hidden).listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 4, trailing: 12))
+                    .selectionDisabled().listRowSeparator(.hidden).listRowInsets(WorkspaceSidebarLayout.headerInsets(top: 8))
                 if sessionsExpanded {
                     ForEach(model.sessions, id: \.sessionID) { state in
                         WorkspaceSidebarResourceRow(title: model.name(state), subtitle: "\(state.phase.capitalized) · \(state.applications.count) apps", icon: "rectangle.stack", busy: model.busy,
                             delete: { model.deleteSession(state.sessionID) })
+                            .listRowInsets(WorkspaceSidebarLayout.resourceInsets)
                             .tag(WorkspaceSidebarSelection.session(state.sessionID))
                             .contextMenu {
                                 Button("Delete Session", role: .destructive) { model.deleteSession(state.sessionID) }.disabled(model.busy)
@@ -240,11 +256,12 @@ struct VirtualDisplayWorkspaceView: View {
                     }
                 }
                 WorkspaceSidebarGroupHeader(title: "Displays", expanded: $displaysExpanded, busy: model.busy, create: showCreateSession)
-                    .selectionDisabled().listRowSeparator(.hidden).listRowInsets(EdgeInsets(top: 16, leading: 12, bottom: 4, trailing: 12))
+                    .selectionDisabled().listRowSeparator(.hidden).listRowInsets(WorkspaceSidebarLayout.headerInsets(top: 16))
                 if displaysExpanded {
                     ForEach(model.displays) { display in
                         WorkspaceSidebarResourceRow(title: "Display \(display.displayID)", subtitle: displaySubtitle(display), icon: "display", busy: model.busy,
                             delete: { model.deleteDisplay(display) })
+                            .listRowInsets(WorkspaceSidebarLayout.resourceInsets)
                             .tag(WorkspaceSidebarSelection.display(display.displayID))
                             .contextMenu {
                                 Button("Delete Display and Sessions", role: .destructive) { model.deleteDisplay(display) }.disabled(model.busy)
@@ -253,6 +270,7 @@ struct VirtualDisplayWorkspaceView: View {
                 }
             }
             .listStyle(.sidebar)
+            .contentMargins(.horizontal, WorkspaceSidebarLayout.outerInset, for: .scrollContent)
             .safeAreaInset(edge: .top, spacing: 0) {
                 HStack(spacing: 9) {
                     Image(nsImage: NSImage(named: NSImage.applicationIconName) ?? NSImage())
@@ -261,7 +279,7 @@ struct VirtualDisplayWorkspaceView: View {
                         .lineLimit(1).minimumScaleFactor(0.9)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 20)
+                .padding(.horizontal, WorkspaceSidebarLayout.outerInset).padding(.top, 12).padding(.bottom, 20)
             }
             .toolbar {
                 ToolbarItem(placement: .automatic) {
