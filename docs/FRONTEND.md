@@ -15,3 +15,5 @@ open "dist/Open Computer Use (Dev).app"
 UI 状态在 MainActor 更新，显示器/AX/捕获生命周期在 worker 执行；不可在主线程等待会调用 AppKit 主线程的同步操作。暂停必须先关闭输入门。主窗口关闭不结束会话，Quit 只有安全清理完成才退出。权限未完成时禁用创建；签名 dev/release bundle 的权限分别确认。
 
 验收包括会话创建/切换、多应用搜索、明确 PID/window 选择、暂停/继续/结束、单元编辑/运行/失败停止、原始尺寸、权限错误、窗口重开和未保存内容阻止 Quit。使用实际 AX/ScreenCaptureKit 验证，截图或事件投递本身不能证明目标状态改变。详见 [工作区设计与操作指南](design-docs/virtual-display.md)。
+
+创建 sheet 在 worker 等待 macOS 期间显示进度；Quit 时禁用新 GUI 操作并请求 notebook 停止。退出/reply 使用可在 AppKit 嵌套循环中执行的 RunLoop 调度，避免界面能点击但新 MainActor 任务不执行的死锁。原生 sidebar 自动 toggle 与显式 navigation item 在 macOS 26 仍有重复项，最终折叠工具栏验收保持开放。

@@ -49,3 +49,9 @@ CI/CD 流程结构和 release 自动化的默认方案，统一写在 `docs/CICD
 当前 macOS 26.5.1/arm64 AppKit 真交互、1×/2× 与 20 次循环有实机证据；TextEdit 默认启动无普通窗口、Chrome 专用启动自行激活属于兼容性失败。Calculator 正式签名 GUI / CLI 共享会话、预览、暂停/继续、关窗保活和清理已实测；前台 AppKit 焦点保持、锁屏/睡眠、Space/Stage Manager、主进程崩溃等还需实测，不能以单元测试宣称支持。详见 [兼容性矩阵](design-docs/virtual-display.md)。
 
 多会话使用独立 holder/capture；registry 仍串行调度输入，暂停门按会话隔离，Quit 遍历所有会话并在清理失败时保留 runtime。`--multi-session` runner 验证两个显示器、同显示器两个真实 AppKit 进程、跨会话归属拒绝、notebook 实际 AX 变化以及暂停/销毁隔离。Notebook Run all 首个失败即停止，Stop and pause 不取消已投递事件，要求当前操作按既有检查安全退出。
+
+## 虚拟显示器桌面隔离回归
+
+`--desktop-lifecycle --cycles 20` 检查实际物理坐标、主屏和 Dock 屏归属。当前通过的上下排列基线中 Dock 已在下屏，不能替代上屏 Dock 保持验收。`--example` 加入 16ms 新目标窗口元数据采样，非零物理窗口样本直接失败；TextEdit 启动仍存在偶发单样本，严格零闪现尚未通过。静态最终 frame 或前台 PID 保持均不能替代瞬时窗口检查。
+
+`node scripts/run-app-agent-lifecycle-smoke.mjs --with-session` 验证签名 bundle 私有退出协议及活动 helper 清理（需要已有 AX/捕获权限）；不加参数验证空 runtime。独立 namespace 不接管已有会话。不要从 Swift Task 或正在执行的主 dispatch block 同步调用 terminate 并等待同一 executor 回复 terminateLater；使用 RunLoop 调度和后台清理。失败不强杀目标应用。

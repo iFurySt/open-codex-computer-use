@@ -142,3 +142,20 @@ Runner 默认保持用户当前前台，真实 AppKit target 不自行激活；�
 多物理屏/负坐标在当前桌面观察；负坐标和 Retina 映射有单元测试。Spaces、Stage Manager、持续并行人工输入的 AppKit 焦点验收、锁屏/睡眠恢复、权限撤销、主进程崩溃恢复、跨架构与其他 macOS 版本尚未完整实机验收。当前能力不是独立登录桌面，应用兼容性由逐项测试确认。
 
 参考来源与采用边界见 [虚拟显示器参考](../references/macos-virtual-display.md)。
+
+## 桌面重配置与启动窗口的回归记录（2026-10-05）
+
+创建/移除显示器本身仍会触发 WindowServer 重配置，不能承诺桌面零刷新。helper 使用稳定、未占用的 serial，读取实际布局，只修正有差异的 origin/mirror，不重写相同的物理屏配置。`creation_observation` 新增 `display_serial`、`additional_configuration_applied`、`desktop_before`/`desktop_after`、`main_display_preserved`/`dock_display_preserved`。主屏和物理 frame 没变，不代表 Dock 没移动；Dock 来自只读 AX/窗口几何观察，不用缓存的 NSScreen.visibleFrame 推断。
+
+当前上下屏排列已复现原实现创建后 Dock 从上屏移到下屏且销毁后不自动恢复。优化后 20 次生命周期保持主屏、物理 frame 和测试前的 Dock 所在屏，稳定 identity 后跳过额外配置；但该次基线的 Dock 已在下屏，不能据此声称保住上屏 Dock。创建时发现 Dock 迁移会暂停并显示原因，不修改 Dock/Spaces 偏好、不重启 Dock、不移动用户鼠标。上屏 Dock 保持验收仍开放。
+
+专属应用请求隐藏启动，并在等待首个 AX 窗口期间维持 AXHidden；移动及读回全部窗口后才 unhide。TextEdit 文档作为隐藏应用启动的初始 OpenDocuments event 交给 LaunchServices，不使用 AppleScript、脚本输入或额外 Automation 授权。此操作仅针对返回的全新实例与 OCU 专属文件，既有实例仍拒绝隐式接管。这个策略减少可见启动窗口，但不保证任意第三方应用零闪现；隐藏/揭示失败会明确报错、暂停并保留清理记录。
+
+真实六单元例子完成 Calculator 714、TextEdit AX 内容及 SCK 捕获；16ms 元数据采样中 Calculator 未落在物理屏、两个应用未激活，成功样本为零物理窗口样本/零全局事件。重复测试仍捕获 TextEdit 启动的一次物理窗口样本，严格 `--example` 因此失败，不能声称零闪现验收通过。观察只记录新目标进程的窗口几何/归属，不读取用户键盘内容或保存物理屏像素。该 runner 会因前台 PID 改变或窗口样本非零而失败，不能通过只检查最后 frame 放宽验收。
+
+```bash
+./scripts/run-virtual-display-tests.sh --desktop-lifecycle --cycles 20
+node scripts/run-app-agent-lifecycle-smoke.mjs --with-session
+```
+
+退出协议回归使用独立 socket namespace，启动实际签名 bundle，创建会话后请求 terminate，确认 runtime/helper 正常退出；失败保留进程供诊断，不强杀用户应用。创建 sheet 显示等待 macOS 的进度提示。已定位并修复曾使创建看似卡死的退出嵌套事件循环死锁；Quit 调度与回复使用 RunLoop，清理在 worker 执行。

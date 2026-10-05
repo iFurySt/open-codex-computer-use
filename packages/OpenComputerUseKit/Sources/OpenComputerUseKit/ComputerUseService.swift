@@ -777,6 +777,7 @@ public final class ComputerUseService {
            let rawAction = record.rawActions.first(where: { $0.caseInsensitiveCompare("AXScroll\(normalized.capitalized)ByPage") == .orderedSame }),
            let element = record.element {
             for _ in 0..<repeatCount {
+                try verifyVirtualInput()
                 _ = AXUIElementPerformAction(element, rawAction as CFString)
                 Thread.sleep(forTimeInterval: 0.05)
             }
@@ -2042,7 +2043,8 @@ public final class ComputerUseService {
                 windowID: windowID,
                 clickCount: clickCount,
                 pid: snapshot.app.pid,
-                isolateModifiers: virtualContext != nil
+                isolateModifiers: virtualContext != nil,
+                allowSyntheticFocus: virtualContext == nil
             )
         case .global:
             guard globalPointerFallbacksEnabled(environment: inputEnvironment) else {

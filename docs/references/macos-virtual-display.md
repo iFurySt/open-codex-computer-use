@@ -14,3 +14,5 @@
 第三方材料用于方向和接口核对。若后续复制源码，必须单独保留其许可证、版权和来源。私有 API 实际支持范围以本仓库 runner 的系统/架构测试证据为准。
 
 实现、使用和兼容性矩阵见 [设计文档](../design-docs/virtual-display.md)。
+
+Dock 问题另核对 [DockKeeper 的 separate-spaces 实验](https://github.com/blamechris/DockKeeper/blob/main/docs/spikes/separate-spaces-pinning.md)：修改主屏不等于可靠固定 bottom Dock。其偏好/光标干预方案不用于 OCU；材料是该项目的实验线索，不能据此宣称全部 macOS 版本的规律。

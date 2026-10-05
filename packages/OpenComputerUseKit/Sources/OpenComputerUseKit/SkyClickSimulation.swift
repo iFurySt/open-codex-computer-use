@@ -97,6 +97,10 @@ func skyClickWindowMatchesTarget(
     }
 }
 
+func skyClickNeedsSyntheticFocus(frontmostPID: pid_t?, targetPID: pid_t, allowSyntheticFocus: Bool) -> Bool {
+    allowSyntheticFocus && frontmostPID != targetPID
+}
+
 enum SkyClickDispatcher {
     private static let primerScreenPoint = CGPoint(x: -1, y: -1)
     private static let primerWindowPoint = CGPoint(x: -1, y: -1)
@@ -119,7 +123,8 @@ enum SkyClickDispatcher {
         target: SkyClickTarget,
         clickCount: Int,
         spi: SkyLightSPI = .shared,
-        isolateModifiers: Bool = false
+        isolateModifiers: Bool = false,
+        allowSyntheticFocus: Bool = true
     ) throws {
         guard spi.capability.isAvailable else {
             throw ComputerUseError.message(
@@ -134,7 +139,7 @@ enum SkyClickDispatcher {
 
         try validate(target: target)
         let recipe = try skyClickEventRecipe(clickCount: clickCount)
-        guard let source = CGEventSource(stateID: .hidSystemState) else {
+        guard let source = CGEventSource(stateID: allowSyntheticFocus ? .hidSystemState : .privateState) else {
             throw ComputerUseError.message("Failed to create SkyLight HID event source.")
         }
 
@@ -145,7 +150,7 @@ enum SkyClickDispatcher {
 
         let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let focusContext: SkyLightSyntheticFocusContext?
-        if frontmostPID == target.pid {
+        if !skyClickNeedsSyntheticFocus(frontmostPID: frontmostPID, targetPID: target.pid, allowSyntheticFocus: allowSyntheticFocus) {
             focusContext = nil
         } else {
             focusContext = try spi.beginSyntheticTargetFocus(
@@ -156,7 +161,7 @@ enum SkyClickDispatcher {
 
         do {
             for step in recipe {
-                let screenPoint = step.pointKind == .target ? target.screenPoint : primerScreenPoint
+                let screenPoint = step.pointKind == .target || !allowSyntheticFocus ? target.screenPoint : primerScreenPoint
                 let windowPoint = step.pointKind == .target ? target.windowPoint : primerWindowPoint
                 guard let event = CGEvent(
                     mouseEventSource: source,

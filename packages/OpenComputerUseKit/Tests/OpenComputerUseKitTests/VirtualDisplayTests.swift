@@ -3,6 +3,22 @@ import XCTest
 @testable import OpenComputerUseKit
 
 final class VirtualDisplayTests: XCTestCase {
+    func testStableDisplaySlotsNeverReuseAnOccupiedIdentity() throws {
+        let first = try VirtualDisplayIdentity.availableSerial(identity: "release|test", occupied: [])
+        let second = try VirtualDisplayIdentity.availableSerial(identity: "release|test", occupied: [first])
+        XCTAssertNotEqual(first, second)
+        XCTAssertEqual(try VirtualDisplayIdentity.availableSerial(identity: "release|test", occupied: []), first)
+        XCTAssertNotEqual(first, try VirtualDisplayIdentity.availableSerial(identity: "dev|test", occupied: []))
+        let occupied = Set((UInt32(0)..<256).map { VirtualDisplayIdentity.serial(identity: "release|test", slot: $0) })
+        XCTAssertFalse(occupied.contains(0))
+        XCTAssertThrowsError(try VirtualDisplayIdentity.availableSerial(identity: "release|test", occupied: occupied))
+    }
+    func testVirtualSkyClickCannotSynthesizeActivationEvenWhenTargetIsInactive() {
+        XCTAssertFalse(skyClickNeedsSyntheticFocus(frontmostPID: 10, targetPID: 20, allowSyntheticFocus: false))
+        XCTAssertFalse(skyClickNeedsSyntheticFocus(frontmostPID: nil, targetPID: 20, allowSyntheticFocus: false))
+        XCTAssertTrue(skyClickNeedsSyntheticFocus(frontmostPID: 10, targetPID: 20, allowSyntheticFocus: true))
+        XCTAssertFalse(skyClickNeedsSyntheticFocus(frontmostPID: 20, targetPID: 20, allowSyntheticFocus: true))
+    }
     func testExampleCommandsBindToSessionAndRejectMalformedOperands() throws {
         for cell in VirtualDisplayExample.cells {
             let spec = try VirtualDisplayNotebookKernel.boundCommand(source: cell.source, sessionID: "example")

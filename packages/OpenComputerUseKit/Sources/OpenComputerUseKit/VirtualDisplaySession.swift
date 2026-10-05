@@ -60,6 +60,10 @@ public struct VirtualDisplayState: Sendable {
     public let foregroundBeforeCreation: Int32?
     public let foregroundAfterCreation: Int32?
     public let physicalLayoutPreserved: Bool
+    public let displaySerial: UInt32
+    public let additionalConfigurationApplied: Bool
+    public let desktopBeforeCreation: VirtualDisplayDesktopObservation?
+    public let desktopAfterCreation: VirtualDisplayDesktopObservation?
     public let captureIsRunning: Bool
     public let lastFrameDate: Date?
     public let captureError: String?
@@ -82,6 +86,14 @@ public struct VirtualDisplayState: Sendable {
         var observation: [String: Any] = ["physical_layout_preserved": physicalLayoutPreserved]
         observation["foreground_before_pid"] = foregroundBeforeCreation
         observation["foreground_after_pid"] = foregroundAfterCreation
+        observation["display_serial"] = displaySerial
+        observation["additional_configuration_applied"] = additionalConfigurationApplied
+        observation["desktop_before"] = desktopBeforeCreation?.dictionary
+        observation["desktop_after"] = desktopAfterCreation?.dictionary
+        if let before = desktopBeforeCreation, let after = desktopAfterCreation {
+            observation["main_display_preserved"] = before.mainDisplayID == after.mainDisplayID
+            if let dock = before.dockDisplayID { observation["dock_display_preserved"] = dock == after.dockDisplayID }
+        }
         value["creation_observation"] = observation
         value["reason"] = reason; value["pid"] = pid; value["app"] = app; value["selected_window_id"] = selectedWindowID
         return value
@@ -185,7 +197,10 @@ private final class VirtualDisplayHolder {
     let input = Pipe()
     let output = Pipe()
     var displayID: UInt32 = 0
-    init(configuration: VirtualDisplayConfiguration) throws {
+    let serial: UInt32
+    var additionalConfigurationApplied = false
+    init(configuration: VirtualDisplayConfiguration, serial: UInt32) throws {
+        self.serial = serial
         let bundled = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/VirtualDisplayHost")
         let sibling = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.deletingLastPathComponent().appendingPathComponent("VirtualDisplayHost")
         process.executableURL = FileManager.default.isExecutableFile(atPath: bundled.path) ? bundled : sibling
@@ -194,14 +209,15 @@ private final class VirtualDisplayHolder {
         try process.run()
         do {
             var value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(configuration)) as! [String: Any]
-            // Unique simultaneous identity, stable only for this lease. Layout is explicitly applied.
-            value["serial"] = UInt32.random(in: 1...UInt32.max)
+            // Reuse an unoccupied stable identity so WindowServer can remember its arrangement.
+            value["serial"] = serial
             var data = try JSONSerialization.data(withJSONObject: value); data.append(10)
             try input.fileHandleForWriting.write(contentsOf: data)
             let reply = try readReply(timeout: 10)
             if let error = reply["error"] as? String { throw ComputerUseError.message(error) }
             guard let id = reply["display_id"] as? NSNumber, id.uint32Value != 0 else { throw ComputerUseError.message("Invalid display-holder response") }
             displayID = id.uint32Value
+            additionalConfigurationApplied = reply["configuration_applied"] as? Bool ?? true
         } catch { stop(); throw error }
     }
     private func readReply(timeout: TimeInterval) throws -> [String: Any] {
@@ -289,6 +305,8 @@ private final class VirtualDisplaySession {
     var bounds: CGRect
     var version = 1
     var physicalLayout: [UInt32: CGRect] = [:]
+    var desktopBefore: VirtualDisplayDesktopObservation?
+    var desktopAfter: VirtualDisplayDesktopObservation?
     var foregroundBefore: Int32?
     var foregroundAfter: Int32?
     var layoutPreserved = true
@@ -390,7 +408,7 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
                      selectedWindowID: s.selected, windows: windows,
                      applications: apps.map { .init(pid: $0.application.processIdentifier, app: $0.application.bundleIdentifier ?? $0.application.localizedName ?? "Unknown", name: $0.application.localizedName ?? "Application", owned: $0.owned, documentURL: $0.documentURL, selectedWindowID: $0.selected) },
                      layoutVersion: s.version, foregroundBeforeCreation: s.foregroundBefore, foregroundAfterCreation: s.foregroundAfter,
-                     physicalLayoutPreserved: s.layoutPreserved, captureIsRunning: s.capture.isRunning, lastFrameDate: s.capture.latestFrameDate, captureError: s.capture.error)
+                     physicalLayoutPreserved: s.layoutPreserved, displaySerial: s.holder.serial, additionalConfigurationApplied: s.holder.additionalConfigurationApplied, desktopBeforeCreation: s.desktopBefore, desktopAfterCreation: s.desktopAfter, captureIsRunning: s.capture.isRunning, lastFrameDate: s.capture.latestFrameDate, captureError: s.capture.error)
     }
     public func create(configuration: VirtualDisplayConfiguration = .init()) throws -> VirtualDisplayState {
         lock.lock(); defer { lock.unlock() }
@@ -399,8 +417,12 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
         guard AXIsProcessTrusted(), CGPreflightScreenCaptureAccess() else { throw ComputerUseError.permissionDenied("Accessibility and Screen Recording permissions are required") }
         if sessions.isEmpty { try recoverWindows() }
         let originalPhysical = physicalLayout()
-        let originalForeground = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        let holder = try VirtualDisplayHolder(configuration: configuration)
+        let desktopBefore = VirtualDisplayDesktopObservation.current(excluding: activeDisplayIDs)
+        let originalForeground = desktopBefore.foregroundPID
+        let identity = (Bundle.main.bundleIdentifier ?? "com.ifuryst.opencomputeruse.cli") + "|" + (ProcessInfo.processInfo.environment[openComputerUseAppAgentSocketNamespaceEnvironmentKey] ?? "")
+        let occupied = Set(Self.onlineDisplayIDs().map(CGDisplaySerialNumber)).union(sessions.values.map { $0.holder.serial })
+        let serial = try VirtualDisplayIdentity.availableSerial(identity: identity, occupied: occupied)
+        let holder = try VirtualDisplayHolder(configuration: configuration, serial: serial)
         let s = VirtualDisplaySession(holder: holder, configuration: configuration)
         do {
             let deadline = Date(timeIntervalSinceNow: 10)
@@ -417,8 +439,12 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
             s.bounds = CGDisplayBounds(holder.displayID)
             s.physicalLayout = physicalLayout(excluding: holder.displayID)
             s.foregroundBefore = originalForeground; s.foregroundAfter = NSWorkspace.shared.frontmostApplication?.processIdentifier
+            s.desktopBefore = desktopBefore
+            s.desktopAfter = VirtualDisplayDesktopObservation.current(excluding: activeDisplayIDs.union([holder.displayID]))
             s.layoutPreserved = s.physicalLayout == originalPhysical
             if !s.layoutPreserved { s.pause("Physical display layout changed during setup; inspect before resuming") }
+            if s.foregroundBefore != s.foregroundAfter { s.pause("Foreground changed during setup; inspect before resuming") }
+            if let dock = desktopBefore.dockDisplayID, s.desktopAfter?.dockDisplayID != dock { s.pause("Dock moved during display setup; inspect before resuming") }
             sessions[s.id] = s; sessionOrder.append(s.id)
             controlLock.lock(); controlledSessions[s.id] = s; controlledOrder.append(s.id); controlLock.unlock()
             return state(s)
@@ -510,16 +536,29 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
             let launchDocument = documentURL
             DispatchQueue.main.async {
                 let config = NSWorkspace.OpenConfiguration()
-                config.activates = false; config.createsNewApplicationInstance = true; config.addsToRecentItems = false
+                config.activates = false; config.hides = true; config.createsNewApplicationInstance = true; config.addsToRecentItems = false
                 if let profile = launchProfile { config.arguments = ["--user-data-dir=\(profile.path)", "--no-first-run", "--no-default-browser-check"] }
                 let completion: @Sendable (NSRunningApplication?, Error?) -> Void = { app, error in
-                    launchBox.app = app; launchBox.error = error; semaphore.signal()
+                    DispatchQueue.main.async {
+                        // Opening documents can override LaunchServices' hides flag.
+                        // Only hide the verified new, background instance we requested.
+                        if let app, !before.contains(app.processIdentifier),
+                           NSWorkspace.shared.frontmostApplication?.processIdentifier != app.processIdentifier {
+                            _ = app.hide()
+                        }
+                        launchBox.app = app; launchBox.error = error; semaphore.signal()
+                    }
                 }
                 if let document = launchDocument {
-                    NSWorkspace.shared.open([document], withApplicationAt: url, configuration: config, completionHandler: completion)
-                } else {
-                    NSWorkspace.shared.openApplication(at: url, configuration: config, completionHandler: completion)
+                    // Supply the initial document event with the hidden app launch,
+                    // rather than a later URL-open operation that can unhide it.
+                    let event = NSAppleEventDescriptor(eventClass: AEEventClass(kCoreEventClass), eventID: AEEventID(kAEOpenDocuments), targetDescriptor: nil, returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
+                    let documents = NSAppleEventDescriptor.list()
+                    documents.insert(NSAppleEventDescriptor(fileURL: document), at: 1)
+                    event.setParam(documents, forKeyword: AEKeyword(keyDirectObject))
+                    config.appleEvent = event
                 }
+                NSWorkspace.shared.openApplication(at: url, configuration: config, completionHandler: completion)
             }
             guard semaphore.wait(timeout: .now() + 15) == .success else { throw ComputerUseError.message("Application launch timed out; inspect running applications before retrying") }
             if let error = launchBox.error { throw error }
@@ -561,9 +600,18 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
             let deadline = Date(timeIntervalSinceNow: 8)
             var candidates: [VirtualDisplayWindow] = []
             repeat {
-                candidates = VirtualDisplayWindowAccess.windows(pid: application.processIdentifier)
+                if launch {
+                    guard NSWorkspace.shared.frontmostApplication?.processIdentifier != pid else {
+                        throw ComputerUseError.message("Dedicated app activated while opening its window")
+                    }
+                    // NSDocumentController may unhide after the launch callback.
+                    // Maintain the hidden state while waiting for the first AX window,
+                    // using AX directly rather than cached NSRunningApplication state.
+                    _ = AXUIElementSetAttributeValue(AXUIElementCreateApplication(pid), kAXHiddenAttribute as CFString, kCFBooleanTrue)
+                }
+                candidates = VirtualDisplayWindowAccess.windows(pid: application.processIdentifier, includeOffscreen: launch)
                 if !candidates.isEmpty { break }
-                Thread.sleep(forTimeInterval: 0.1)
+                Thread.sleep(forTimeInterval: launch ? 0.01 : 0.1)
             } while Date() < deadline
             guard let chosen = windowID.flatMap({ id in candidates.first { $0.info.id == id } }) ?? (launch ? candidates.first : nil) else {
                 throw ComputerUseError.message("No exact movable on-screen window found")
@@ -571,10 +619,33 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
             guard NSWorkspace.shared.frontmostApplication?.processIdentifier != application.processIdentifier else {
                 throw ComputerUseError.message("Target application is frontmost; switch to another app before attaching")
             }
+            if launch {
+                // A document may finish opening after the launch callback and unhide
+                // its app again. Contain it before changing any window geometry.
+                if !application.isHidden { _ = DispatchQueue.main.sync { application.hide() } }
+                let hideDeadline = Date(timeIntervalSinceNow: 3)
+                while !application.isHidden, Date() < hideDeadline { Thread.sleep(forTimeInterval: 0.02) }
+                guard application.isHidden else { throw ComputerUseError.message("Dedicated app declined to hide; cannot contain its windows") }
+            }
             try manage(chosen, session: s)
             attached.selected = chosen.info.id; s.selectedPID = pid; s.version += 1
             if launch {
                 for candidate in candidates where candidate.info.id != chosen.info.id { try manage(candidate, session: s) }
+                // Read back every hidden window before revealing. Do not rely on the first window alone.
+                for window in VirtualDisplayWindowAccess.windows(pid: pid, includeOffscreen: true) {
+                    guard let expected = s.frames[window.info.id], s.bounds.contains(window.info.frame), VirtualDisplayWindowAccess.close(expected, window.info.frame) else {
+                        throw ComputerUseError.message("A launch window escaped the verified virtual frame; app remains hidden")
+                    }
+                }
+                if let reason = s.reason { throw ComputerUseError.message("Paused before revealing the dedicated app: \(reason)") }
+                guard NSWorkspace.shared.frontmostApplication?.processIdentifier != pid else {
+                    throw ComputerUseError.message("Dedicated app activated before reveal")
+                }
+                if application.isHidden { _ = DispatchQueue.main.sync { application.unhide() } }
+                let revealDeadline = Date(timeIntervalSinceNow: 3)
+                while application.isHidden, Date() < revealDeadline { Thread.sleep(forTimeInterval: 0.02) }
+                guard !application.isHidden else { throw ComputerUseError.message("Dedicated app declined to unhide") }
+                try validate(s, requireApp: true)
             }
             return state(s)
         } catch { s.pause("Attach failed: \(error.localizedDescription). End the session to restore any moved windows."); throw error }

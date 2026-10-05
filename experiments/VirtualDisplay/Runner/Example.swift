@@ -8,11 +8,23 @@ func exampleChecks() throws {
     let originalDisplays = Set(VirtualDisplaySessionRegistry.onlineDisplayIDs())
     let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier
     let observer = InputObservation(); observer.start(); defer { observer.stop() }
+    let containment = WindowContainmentObservation(); containment.start()
+    defer { _ = containment.stop(targets: []) }
     let session = try registry.create()
     defer { try? registry.destroy(sessionID: session.sessionID) }
+    var ownedPIDs: Set<Int32> = []
+    var containmentReported = false
+    defer {
+        if !containmentReported {
+            let observation = containment.stop(targets: ownedPIDs)
+            report("window_containment", ["physical_window_samples": observation.physicalSamples, "owned_app_activated": observation.activated, "sample_interval_ms": 16])
+        }
+    }
     let kernel = VirtualDisplayNotebookKernel(sessionID: session.sessionID)
     for cell in VirtualDisplayExample.cells {
         let result = try kernel.run(source: cell.source)
+        ownedPIDs = Set(try registry.state(sessionID: session.sessionID).applications.map(\.pid))
+        report("window_containment_checkpoint", ["title": cell.title, "physical_samples_by_pid": containment.counts(targets: ownedPIDs)])
         let output = VirtualDisplayNotebookOutput(result)
         report("example_cell", ["title": cell.title, "result": output.json, "has_tree": output.uiTree != nil, "screenshots": output.images.count])
         try ensure(!result.isError, "Example cell failed: \(cell.title)")
@@ -23,6 +35,10 @@ func exampleChecks() throws {
     }
     let document = try registry.ownedDocument(sessionID: session.sessionID, app: "com.apple.TextEdit")
     let pids = try registry.state(sessionID: session.sessionID).applications.map(\.pid)
+    let visibility = containment.stop(targets: Set(pids))
+    containmentReported = true
+    report("window_containment", ["physical_window_samples": visibility.physicalSamples, "owned_app_activated": visibility.activated, "sample_interval_ms": 16])
+    try ensure(visibility.physicalSamples == 0 && !visibility.activated, "An owned app flashed on a physical screen or activated")
     let observation = observer.observation()
     try ensure(observation.available && observation.global == 0, "Global input reached the physical desktop")
     try registry.destroy(sessionID: session.sessionID)

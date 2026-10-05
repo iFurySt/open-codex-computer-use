@@ -248,6 +248,7 @@ struct VirtualDisplayWorkspaceView: View {
                         Text(message).foregroundStyle(.secondary).padding(10).frame(maxWidth: .infinity, alignment: .leading).background(.bar)
                     }
                 }.navigationTitle(model.state.map(model.name) ?? "Open Computer Use")
+                .toolbar(removing: .sidebarToggle)
                 .toolbar {
                     ToolbarItem(placement: .navigation) {
                         HStack(spacing: 16) {
@@ -285,6 +286,12 @@ struct VirtualDisplayWorkspaceView: View {
                 Text("2× · 3840 × 2160").tag(2)
             }
             Text("Each session has its own virtual display. Applications can be added after creation.").foregroundStyle(.secondary)
+            if model.busy {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text("Waiting for macOS to create and capture the display…").foregroundStyle(.secondary)
+                }
+            }
             HStack {
                 if !model.permissionsGranted { Button("Set up permissions") { model.showingCreate = false; requestPermissions() } }
                 Spacer()

@@ -86,7 +86,8 @@ enum InputSimulation {
         windowID: CGWindowID,
         clickCount: Int,
         pid: pid_t,
-        isolateModifiers: Bool = false
+        isolateModifiers: Bool = false,
+        allowSyntheticFocus: Bool = true
     ) throws {
         try SkyClickDispatcher.click(
             target: SkyClickTarget(
@@ -97,7 +98,8 @@ enum InputSimulation {
                 pid: pid
             ),
             clickCount: clickCount,
-            isolateModifiers: isolateModifiers
+            isolateModifiers: isolateModifiers,
+            allowSyntheticFocus: allowSyntheticFocus
         )
     }
 

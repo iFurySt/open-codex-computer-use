@@ -203,6 +203,7 @@ private final class MacOSAppAgentRuntime: NSObject, NSApplicationDelegate {
     private var listener: AppAgentSocketListener?
     private var turnEndedObserver: NSObjectProtocol?
     private var showWorkspaceAtLaunch = false
+    private var terminationInProgress = false
 
     private init(socketPath: String) {
         self.socketPath = socketPath
@@ -254,17 +255,30 @@ private final class MacOSAppAgentRuntime: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        Task {
+        guard !terminationInProgress else { return .terminateLater }
+        terminationInProgress = true
+        let model = VirtualDisplayWorkspaceController.shared.model
+        model.busy = true
+        for notebook in model.notebooks.values { notebook.stopRequested = true }
+        // terminateLater runs a nested AppKit event loop. Neither MainActor tasks
+        // nor a currently executing main-dispatch block can reenter its executor.
+        DispatchQueue.global(qos: .userInitiated).async {
             do {
-                try await Task.detached {
-                    let registry = VirtualDisplaySessionRegistry.shared
-                    try registry.destroyAll()
-                }.value
-                sender.reply(toApplicationShouldTerminate: true)
+                try VirtualDisplaySessionRegistry.shared.destroyAll()
+                RunLoop.main.perform(inModes: [.common, .modalPanel]) {
+                    MainActor.assumeIsolated { sender.reply(toApplicationShouldTerminate: true) }
+                }
             } catch {
-                VirtualDisplayWorkspaceController.shared.model.message = error.localizedDescription
-                VirtualDisplayWorkspaceController.shared.show()
-                sender.reply(toApplicationShouldTerminate: false)
+                let message = error.localizedDescription
+                RunLoop.main.perform(inModes: [.common, .modalPanel]) {
+                    MainActor.assumeIsolated {
+                        self.terminationInProgress = false
+                        model.busy = false
+                        model.message = message
+                        VirtualDisplayWorkspaceController.shared.show()
+                        sender.reply(toApplicationShouldTerminate: false)
+                    }
+                }
             }
         }
         return .terminateLater
@@ -396,6 +410,7 @@ private final class AppAgentConnection: @unchecked Sendable {
                 return ["ok": true]
             case "agentInfo":
                 return [
+                    "pid": Int(ProcessInfo.processInfo.processIdentifier),
                     "bundleIdentifier": Bundle.main.bundleIdentifier ?? "",
                     "bundleURL": Bundle.main.bundleURL.standardizedFileURL.path,
                     "executableURL": Bundle.main.executableURL?.standardizedFileURL.path ?? "",
@@ -403,8 +418,8 @@ private final class AppAgentConnection: @unchecked Sendable {
                     "activeSessionID": VirtualDisplaySessionRegistry.shared.activeSessionID ?? "",
                 ]
             case "terminate":
-                Task { @MainActor in
-                    NSApp.terminate(nil)
+                RunLoop.main.perform(inModes: [.common]) {
+                    MainActor.assumeIsolated { NSApp.terminate(nil) }
                 }
                 return ["ok": true]
             case "mcp":
