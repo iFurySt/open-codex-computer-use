@@ -249,12 +249,7 @@ struct VirtualDisplayWorkspaceView: View {
                         ContentUnavailableView {
                             Label("Virtual sessions", systemImage: "display.2")
                         } actions: {
-                            Button(action: showCreateSession) {
-                                Label("Create Session", systemImage: "plus")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .padding(.horizontal, 12).padding(.vertical, 5)
-                            }.buttonStyle(.borderedProminent).controlSize(.large)
-                                .buttonBorderShape(.capsule).disabled(model.busy)
+                            createSessionButton
                         }
                     }
                     if let message = model.message ?? model.state?.reason {
@@ -295,13 +290,27 @@ struct VirtualDisplayWorkspaceView: View {
         model.sessionName = ""
         model.showingCreate = true
     }
+    @ViewBuilder private var createSessionButton: some View {
+        let button = Button(action: showCreateSession) {
+            Label("Create Session", systemImage: "plus")
+                .font(.system(size: 14, weight: .semibold))
+                .padding(.horizontal, 12).padding(.vertical, 5)
+        }.controlSize(.large).buttonBorderShape(.capsule).disabled(model.busy)
+        if #available(macOS 26.0, *) {
+            button.buttonStyle(.glass)
+        } else {
+            button.buttonStyle(.bordered)
+        }
+    }
     private var createSheet: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Create virtual session").font(.title2)
             TextField("Session name", text: $model.sessionName)
-            Picker("Display scale", selection: $model.scale) {
-                Text("1× · 1920 × 1080").tag(1)
-                Text("2× · 3840 × 2160").tag(2)
+            HStack {
+                Text("Display scale")
+                Spacer()
+                DisplayScalePopUp(selection: $model.scale, enabled: !model.busy)
+                    .frame(width: 230, height: 34)
             }
             Text("Each session has its own virtual display. Applications can be added after creation.").foregroundStyle(.secondary)
             if model.busy {
@@ -502,4 +511,46 @@ final class VirtualDisplayWorkspaceController: NSObject, NSWindowDelegate {
         menu.addItem(editItem); NSApp.mainMenu = menu
     }
     @objc private func showWorkspace() { show() }
+}
+
+// AppKit popup menus overlay their selected row without resizing the sheet.
+// Follows HeyYo's NativeAudioInputDevicePopUp pattern; no audio dependencies.
+private struct DisplayScalePopUp: NSViewRepresentable {
+    @Binding var selection: Int
+    var enabled: Bool
+
+    func makeCoordinator() -> Coordinator { Coordinator(selection: $selection) }
+
+    func makeNSView(context: Context) -> NSPopUpButton {
+        let button = NSPopUpButton(frame: .zero, pullsDown: false)
+        button.controlSize = .large
+        button.bezelStyle = .rounded
+        button.font = .systemFont(ofSize: NSFont.systemFontSize)
+        button.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        button.setAccessibilityLabel("Display scale")
+        for (scale, title) in [(1, "1× · 1920 × 1080"), (2, "2× · 3840 × 2160")] {
+            button.addItem(withTitle: title)
+            button.lastItem?.tag = scale
+        }
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.selectionChanged(_:))
+        updateNSView(button, context: context)
+        return button
+    }
+
+    func updateNSView(_ button: NSPopUpButton, context: Context) {
+        context.coordinator.selection = $selection
+        button.selectItem(withTag: selection)
+        button.isEnabled = enabled
+    }
+
+    final class Coordinator: NSObject {
+        var selection: Binding<Int>
+        init(selection: Binding<Int>) { self.selection = selection }
+        @objc func selectionChanged(_ sender: NSPopUpButton) {
+            guard let item = sender.selectedItem else { return }
+            selection.wrappedValue = item.tag
+        }
+    }
 }

@@ -33,3 +33,8 @@
 
 ### 后续修正：顶部按钮顺序
 用户要求折叠在左、新会话在右并作为一组。将两者放入 detail navigation ToolbarItemGroup，移除系统自动折叠按钮；唯一折叠按钮直接控制 NavigationSplitView.columnVisibility，保持全高度原生侧栏。Release 构建及签名校验通过，真实 AX/截图验证展开和折叠顺序，New Session sheet 打开/取消正常。
+
+### 后续修正：倍率菜单与原生玻璃按钮
+用户要求 Display scale 参考 HeyYo Audio/Microphone 选择器，覆盖内容且布局稳定；Create Session 去除亮蓝色。新增本地 DisplayScalePopUp，以 NSPopUpButton 与 Binding<Int> 同步倍率，固定尺寸，菜单只初始化一次，busy 时禁用。参考 HeyYo 原生控件组织方式，无音频依赖。Create Session 使用 macOS 26 glass 样式，macOS 14–25 回退 bordered。
+
+Release 构建、deep/strict 签名校验和 diff check 通过。真实 AX 与截图验证 1× → 2× → 1×、两种选中状态下的菜单覆盖与选中行锚定、sheet 布局未变，以及 glass 按钮外观。取消后恢复空状态，本轮未创建虚拟显示器。
