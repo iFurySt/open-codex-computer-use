@@ -59,7 +59,13 @@ Broker 基础组件补充 LOCAL_PEERTOKEN / Security 动态验证、固定路径
 - 首次 watchdog 实机尝试在约 0.4 秒健康检查失败，尚未执行卡死注入；测试明确失败并经 controller 确认锁定。新增 coverage 具体失败项、tap disable、Secure Input 和 watchdog 心跳 / 管道健康埋点，再定位；不把提前重锁视为故障测试通过。
 - 第二次 watchdog 验证通过：受控动作 / 截图验证完成后 Guardian 主线程实际卡死约 5 秒，恢复时 session 已锁定，同时收到独立 watchdog 重锁请求回报；原会话锁定策略随后才释放遮罩。用户确认未露出桌面、手动解锁正常。此通过不追溯解释第一次健康检查失败，也不涵盖遮罩进程死亡 / 热插拔。
 
-### 本地集成状态
+### 认证安装边界补充
+
+- 新增纯离线 `LockedUseAuthorizationRules` 安装 / 卸载规划，保留现有 OR fallback、拒绝更高阈值与不兼容格式、重复本项目引用、第三方规则修改和篡改备份。7 项回归通过；没有写入系统认证数据库。
+- 沉淀 Apple opaque 认证 session 与内核 audit session 的区别，以及上游 Platform SSO fallback 被替换的机器报告；不把报告当作本机复现或自动解锁通过。
+- 完整 Swift 回归现为 213 项，1 项 gated live test 跳过，0 失败；controller 离线回归 5 项通过。
+
+### 本地合并进度
 
 开发提交保留在隔离分支。目标工作区的另一个会话仍有与 app agent、入口、snapshot / service 重叠的未提交改动；不 stash / reset / 覆盖其工作。等待目标改动提交后执行本地合并和集成验证，不推远端。
 

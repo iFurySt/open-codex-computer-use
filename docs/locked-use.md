@@ -83,6 +83,8 @@ python3 scripts/run-locked-use-rehearsal.py --confirm-watchdog-test
 
 ### Broker 认证组件
 
+- `LockedUseAuthorizationRules` 生成离线安装 / 恢复计划，只对现有 OR rule 添加本项目 branch，保留原 fallback 和其他语义字段。旧计划或原规则被更改、阈值不兼容、已有本项目引用时拒绝；没有执行系统写入。真正 installer 的互斥、root 存储和写入前后校验仍待接入。认证事务的 opaque ID 不能当作 audit session，详见 [认证边界](references/macos-locked-use-authentication.md)。
+
 - `LockedUseNative` 用 `LOCAL_PEERTOKEN` 获得 kernel audit token，包含 PID version；不把客户端自报 PID 转成身份。
 - `LockedUsePeerIdentity` 用 token 查询动态 SecCode，并验证 administrator-approved requirement。
 - `LockedUseClientApprovals` 固定从 `/Library/Application Support/OpenComputerUse/LockedUse/clients.json` 读取，逐层 `openat` / `O_NOFOLLOW`，检查 root ownership、group/other 不可写与无允许修改的 extended ACL，拒绝 symlink、非 regular file、超大配置、无效 signer / team 和重复记录。不在仓库保存真实批准记录。这里尚未实现写入 UI / installer。

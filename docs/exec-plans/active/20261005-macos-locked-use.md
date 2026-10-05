@@ -28,6 +28,7 @@
 - [x] watchdog 测试的物理屏幕持续遮蔽 / 正常解锁确认。
 - [ ] 组件死亡与显示器变化故障验证。
 - [x] 内核 audit-token / 动态签名认证、root 批准记录读取与短期一次性 permit registry；签名 / 角色实机自检与离线策略回归。
+- [x] 保留现有认证 fallback 的离线安装规划；拒绝不同阈值、规则变化与篡改备份，未执行系统写入。
 - [ ] 真正 loginwindow 解锁、独立保护与 Keychain 保持实验（阻塞生产 backend 开放）。
 - [ ] Broker、独立 Shield / watchdog、管理员安装与客户端授权 UI、真实自动解锁。
 
@@ -60,6 +61,8 @@ Apple DTS 确认过 screensaver authorization plugin 的 Data Protection Keychai
 基于本地 awesome-extension 的已提交状态。另一个会话有未提交的虚拟显示器工作；不 stash / reset 该会话。合并前再次检查目标工作区，只有不覆盖其改动时才在本地合并；不推远端。
 
 ## 进度记录
+
+- 2026-10-05：继续下一阶段的安装边界，新增 LockedUseAuthorizationRules 与 7 项离线回归；保留原生 / Platform SSO rule 名称及顺序，只对现有 OR policy 插入本项目 branch，恢复前拒绝第三方语义变化与篡改计划。重新核对 Apple GetSessionId 为 opaque 认证事务 ID，不能冒充内核 audit session。当前系统 rules 仅只读检查，未安装生产 Broker 或自动解锁机制。
 
 - 2026-10-05：watchdog 第二次实机测试软件通过：受控 AX / SCK 成功后 Guardian 主线程实际卡死约 5 秒；恢复时系统已锁定，privately inherited pipe 收到 watchdog 的重锁请求回报，再由原 session 锁定策略释放遮罩。不是 Guardian 在恢复后才完成锁定；用户确认没有露出桌面、手动解锁正常。没有自动解锁。卡死与进程死亡是不同故障；后者尚未验证。
 
