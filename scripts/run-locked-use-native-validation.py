@@ -84,6 +84,7 @@ def main():
     mode.add_argument("--prepare-only", action="store_true")
     mode.add_argument("--confirm-lock-test", action="store_true")
     mode.add_argument("--unlocked-fixture-test", action="store_true")
+    parser.add_argument("--wait-for-manual-unlock", action="store_true", help="Observe normal user unlock without an interactive continue prompt")
     parser.add_argument("--legacy-only", action="store_true", help="Does not produce production validation evidence")
     parser.add_argument("--hold-seconds", type=int, default=15, choices=range(5, 21))
     args = parser.parse_args()
@@ -125,9 +126,13 @@ def main():
         time.sleep(args.hold_seconds)
         rpc.notify("notifications/turn-ended")
         wait_for(guardian, "locked")
-        print("Relock observed. Unlock normally, then enter continue here.", flush=True)
-        if sys.stdin.readline().strip() != "continue": raise RuntimeError("Manual verification interrupted")
-        wait_for(guardian, "unlocked", timeout=5)
+        if args.wait_for_manual_unlock:
+            print("Relock observed. Waiting for normal manual unlock.", flush=True)
+            wait_for(guardian, "unlocked", timeout=120)
+        else:
+            print("Relock observed. Unlock normally, then enter continue here.", flush=True)
+            if sys.stdin.readline().strip() != "continue": raise RuntimeError("Manual verification interrupted")
+            wait_for(guardian, "unlocked", timeout=5)
         assert rpc.call("ocu/locked-use/keychain/verify-manual")["passed"]
         assert rpc.call("ocu/locked-use/keychain/cleanup")["passed"]
         completed = True

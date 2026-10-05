@@ -30,8 +30,8 @@
 - [x] 内核 audit-token / 动态签名认证、root 批准记录读取与短期一次性 permit registry；签名 / 角色实机自检与离线策略回归。
 - [x] 保留现有认证 fallback 的离线安装规划；拒绝不同阈值、规则变化与篡改备份，未执行系统写入。
 - [ ] 真正 loginwindow 解锁、独立保护与 Keychain 保持实验（阻塞生产 backend 开放）。
-- [x] 签名 Broker 控制面、限定角色 IPC、remote 插件一次性放行与锁屏 Guardian 接入；离线验证通过，尚未安装运行。
-- [x] 管理员安装 / 卸载入口、同团队原生客户端登记与 OCU 自动租约接入；已编译，尚未进行系统安装。
+- [x] 签名 Broker 控制面、限定角色 IPC、remote 插件一次性放行与锁屏 Guardian 接入；离线验证通过，已安装验证 profile，真实自动解锁尚未通过。
+- [x] 管理员安装 / 卸载入口、同团队原生客户端登记与 OCU 自动租约接入；已编译，系统验证 profile 安装与卸载已通过。
 - [x] JS reset / timeout / EOF 停止通道与独立 Keychain 自有测试项 API。
 - [x] 安装失败恢复入口、Broker 崩溃 journal / 双 Guardian release ACK、同团队原生客户端登记和验证转生产入口；离线通过，系统效果待实测。
 - [ ] 真实安装 / 恢复、故障注入、升级失效与生产 promotion 验证。
@@ -104,3 +104,9 @@ Apple DTS 确认过 screensaver authorization plugin 的 Data Protection Keychai
 - 首次系统验证 profile 安装与安全卸载成功，screensaver 的原 fallback 保留并恢复。发现管理员 staging 的 umask 077 使系统 namespace 不可供用户遍历，已修正为明确的系统目录权限；锁屏测试在启动前退出，没有尝试解锁。恢复 / 验证记录改为从创建起 0600、清除继承 ACL、原子替换和 fsync，不先公开再 chmod；增加继承读取 ACL 和不可信目录回归。修正版已完成管理员认证和重新安装。
 
 - 修正版系统目录可遍历、客户端批准及认证策略完整性诊断通过。第一次真实锁屏事务在 preparing 阶段因独立 watchdog 未完成健康注册中止，未发出解锁许可；用户正常解锁。补充 watchdog 停止原因及 Broker 注册诊断。会话门单测以受控 validator 隔离系统安装状态；完整 Swift 236 项、1 项跳过、0 失败。
+
+- 真实锁屏复测定位独立 watchdog 的 `shieldNotInWindowServer`，Broker 注册本身成功；未放行解锁。主 / 备用遮罩增加公开 AppKit `canBecomeVisibleWithoutLogin`；主遮罩锁屏覆盖检查通过，备用进程补齐 `finishLaunching` 与首帧 RunLoop 绘制后待实测。
+
+- watchdog 首帧健康检查新增独立、不锁屏的 surface self-test。实测缩放后的窗口矩形与完整显示器不同；禁用 NSWindow 出现动画后自检通过。全屏窗口禁用 AppKit frame constraint，并增加真实矩形诊断。控制器支持观察正常手动解锁替代 stdin 确认，遵循用户固定解锁节奏；不以等待时间当作解锁证据。
+
+- 双保护真实锁屏准备检查已通过，Broker 进入 authorizing；解锁触发未找到可提交 AX secure field，实际会话保持锁定，保护正常收束。加入有界 AX publication 等待与仅结构的诊断，尚未证明自动解锁。

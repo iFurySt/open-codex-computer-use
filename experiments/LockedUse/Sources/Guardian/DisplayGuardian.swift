@@ -312,7 +312,12 @@ final class DisplayGuardian: NSObject {
         do {
             if policy.phase == .preparing {
                 // Initial AppKit drawing and child launch can take a few frames.
-                if now - started >= 1.5 { stop(.guardianFailure) }
+                if now - started >= 1.5 {
+                    emit("preparationFailed", details: ["coverageFailure": shields.coverageFailure() ?? "",
+                        "watchdogReady": watchdogReady, "watchdogRunning": watchdog?.isRunning == true,
+                        "watchdogPipeFailed": watchdogReader?.failed ?? true])
+                    stop(.guardianFailure)
+                }
                 else if watchdogHealthy, coverageHealthy(), let tap, CGEvent.tapIsEnabled(tap: tap) {
                     try policy.prepared(topology: topology, now: now)
                     emit("shieldReady", details: ["displayCount": shields.count, "guardianPID": getpid(),

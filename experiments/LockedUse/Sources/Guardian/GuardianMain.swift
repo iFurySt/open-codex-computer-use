@@ -35,6 +35,17 @@ struct GuardianMain {
                 let guardian = try DisplayGuardian(session: .current(), brokerBootstrap: bootstrap)
                 try guardian.start()
                 withExtendedLifetime(guardian) { app.run() }
+            case ["--watchdog-surface-self-test"]:
+                let app = NSApplication.shared
+                app.setActivationPolicy(.accessory)
+                app.finishLaunching()
+                let shield = try WatchdogShield(stop: { _ in })
+                _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1))
+                let failure = shield.healthFailure
+                shield.close()
+                emit("watchdogSurfaceSelfTest", details: ["passed": failure == nil,
+                    "failure": failure ?? "", "unlockRequested": false, "lockRequested": false])
+                guard failure == nil else { throw GuardianError.message("Independent surface self-test failed") }
             case ["--broker-watchdog"]:
                 try runWatchdog(persistent: true)
             case ["--shield-preview"]:
@@ -197,7 +208,15 @@ enum GuardianError: Error { case message(String) }
         if stopReason == nil { logger.notice("stopping reason=\(reason, privacy: .public)"); stopReason = reason }
         stopping = true
     }
+    if persistent {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        app.finishLaunching()
+    }
     let shield = persistent ? try WatchdogShield(stop: stop) : nil
+    // Unlike the parent, this process drives RunLoop directly instead of
+    // NSApplication.run(). Publish the first AppKit frame before health/RPC.
+    if persistent { _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
     let brokerLink = bootstrap.map { WatchdogBrokerLink(bootstrap: $0, protected: shield?.healthy == true) }
     if !persistent { _ = HeartbeatPipe.send(82, to: STDOUT_FILENO) } // R requires root registration in broker mode
     while true {

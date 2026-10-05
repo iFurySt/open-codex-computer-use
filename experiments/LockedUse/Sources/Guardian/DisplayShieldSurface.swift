@@ -4,6 +4,9 @@ import Foundation
 private final class ShieldWindow: NSWindow {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+    // AppKit may constrain ordinary windows to the menu/Dock visible frame
+    // after finishLaunching. A privacy surface must cover the full display.
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 }
 
 /// Shared visual surface for both the isolated preview and guarded rehearsal.
@@ -46,8 +49,13 @@ final class DisplayShieldSurface {
         topology = displayTopology()
         for (id, screen) in screens {
             let window = ShieldWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false, screen: screen)
+            window.animationBehavior = .none
             window.setFrame(screen.frame, display: true)
             window.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + levelOffset)
+            // Default user windows disappear at loginwindow. Both protection
+            // surfaces must remain onscreen across the lock/unlock transition.
+            window.canBecomeVisibleWithoutLogin = true
+            window.canHide = false
             window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
             window.backgroundColor = .black
             window.isOpaque = true
@@ -97,7 +105,7 @@ final class DisplayShieldSurface {
             guard (info[kCGWindowLayer as String] as? NSNumber)?.intValue == window.level.rawValue else { return "shieldLayerMismatch" }
             guard let bounds = info[kCGWindowBounds as String] as? [String: Any],
                   let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary) else { return "shieldBoundsUnavailable" }
-            guard rect == CGDisplayBounds(id) else { return "shieldBoundsMismatch" }
+            guard rect == CGDisplayBounds(id) else { return "shieldBoundsMismatch expected=\(NSStringFromRect(CGDisplayBounds(id))) actual=\(NSStringFromRect(rect))" }
         }
         return nil
     }

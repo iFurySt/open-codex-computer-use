@@ -192,7 +192,7 @@ python3 scripts/run-locked-use-native-validation.py --unlocked-fixture-test --le
 python3 scripts/run-locked-use-native-validation.py --confirm-lock-test
 ```
 
-控制器保持同一原生 MCP 连接：正常解锁时创建本项目 UUID 的测试项，从真实锁屏调用固定 native validation，受保护解锁后只对签名的 `Locked Use Native Fixture` 执行 AXPress，检查计数器变化和前后真实 SCK 图片哈希，再读取自己的测试项。图片与 secret 只在内存；输出只有结果。结束后发送 turn-ended、观察重锁，用户正常解锁并输入 `continue`，再验证 / 清理测试项。任何失败都不杀 Guardian / watchdog，也不凭旧锁屏拆除保护。连接退出时无法删除的自有项目会留在 app agent 内重试正常解锁后的清理；进程死亡会丢失内存清理对象，应保留监督式测试连接直到 cleanup 完成。
+控制器保持同一原生 MCP 连接：正常解锁时创建本项目 UUID 的测试项，从真实锁屏调用固定 native validation，受保护解锁后只对签名的 `Locked Use Native Fixture` 执行 AXPress，检查计数器变化和前后真实 SCK 图片哈希，再读取自己的测试项。图片与 secret 只在内存；输出只有结果。结束后发送 turn-ended、观察重锁，用户正常解锁并输入 `continue`，再验证 / 清理测试项。带 `--wait-for-manual-unlock` 时控制器直接观测真实会话解锁，不需要 stdin 确认；等待本身不代表通过。备用遮罩可以通过签名 Guardian 的 `--watchdog-surface-self-test` 单独检查，不请求锁屏或解锁。任何失败都不杀 Guardian / watchdog，也不凭旧锁屏拆除保护。连接退出时无法删除的自有项目会留在 app agent 内重试正常解锁后的清理；进程死亡会丢失内存清理对象，应保留监督式测试连接直到 cleanup 完成。
 
 Data Protection Keychain 使用受限 entitlement，需要为该 OCU bundle 匹配的 macOS Developer ID provisioning profile：
 
