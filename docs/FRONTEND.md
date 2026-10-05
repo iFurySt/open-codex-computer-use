@@ -47,3 +47,5 @@ Actions Command/Result 共用原生 NSTextView JSON 代码块：语言栏、圆�
 侧栏 + / trash、顶部和代码块 copy、action cell play/trash 共用图标 ButtonStyle：默认 secondary 灰，单独 hover 或按下时仅将符号颜色加深为 primary，不增加底色或边框；分组标题保持 plain 样式；disabled 无 hover 高亮，复制成功仍保持绿色勾。不改变尺寸、预留位置、父行 hover 热区及侧栏间距。系统 toolbar 保留原生反馈。右上角 Target/Add/Pause/End/Original size 仅当选择 Sessions 项且没有创建流程时显示；选 Display（即使关联活动会话）、空工作区和骨架屏均隐藏整组。
 
 会话标题采用独立文本组（状态点/名称、ID、复制），名称与 ID、ID 与复制均间隔 12 points，点与名称 8 points，外侧左右各 4 points；名称优先保留宽度，ID 可居中截断。macOS 26 标题 toolbar item 设置 sharedBackgroundVisibility(.hidden)，移除包含复制按钮触发的系统整组 glass 背景；旧系统保留普通 toolbar 文本。仅复制图标是按钮，标题整组不可点击。
+
+虚拟屏预览只显示 SCStream 帧（包括虚拟屏软件光标窗口），不叠加第二个 Agent cursor。触控板 pinch 与滚轮在指针处缩放，按住拖动平移，双击/Original size 切换重置视角；图像不足视口时居中，放大后限制拖动防止画面丢失。手势不发送到目标应用，不改变截图/工具坐标。

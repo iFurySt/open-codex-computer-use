@@ -446,19 +446,30 @@ private final class VirtualDisplaySession {
     private var pauseReason: String?
     private var targetPIDs: Set<Int32> = []
     func setPIDs(_ pids: Set<Int32>) { pauseLock.lock(); targetPIDs = pids; pauseLock.unlock() }
-    func pauseIfActivated(_ pid: Int32) { pauseLock.lock(); if targetPIDs.contains(pid) { pauseReason = "Managed application became frontmost" }; pauseLock.unlock() }
+    func pauseIfActivated(_ pid: Int32) {
+        pauseLock.lock(); let shouldPause = targetPIDs.contains(pid)
+        if shouldPause { pauseReason = "Managed application became frontmost" }
+        pauseLock.unlock()
+        if shouldPause { capture.setCursor(nil) }
+    }
     func pauseForDesktopChange(onlyManagedApplications: Bool) {
-        pauseLock.lock(); defer { pauseLock.unlock() }
-        if VirtualDisplaySessionStartupPolicy.shouldPauseForDesktopChange(
-            onlyManagedApplications: onlyManagedApplications, hasManagedApplications: !targetPIDs.isEmpty) {
+        pauseLock.lock()
+        let shouldPause = VirtualDisplaySessionStartupPolicy.shouldPauseForDesktopChange(
+            onlyManagedApplications: onlyManagedApplications, hasManagedApplications: !targetPIDs.isEmpty)
+        if shouldPause {
             pauseReason = "Desktop changed or locked; inspect and resume explicitly"
         }
+        pauseLock.unlock()
+        if shouldPause { capture.setCursor(nil) }
     }
     init(holder: VirtualDisplayHolder, configuration: VirtualDisplayConfiguration) {
         self.holder = holder; self.configuration = configuration; bounds = CGDisplayBounds(holder.displayID)
     }
     var reason: String? { pauseLock.lock(); defer { pauseLock.unlock() }; return pauseReason }
-    func pause(_ reason: String?) { pauseLock.lock(); pauseReason = reason; pauseLock.unlock() }
+    func pause(_ reason: String?) {
+        pauseLock.lock(); pauseReason = reason; pauseLock.unlock()
+        if reason != nil { capture.setCursor(nil) }
+    }
 }
 
 /// Registry is process-wide. All operations serialize independently of AppKit's main
@@ -1078,7 +1089,7 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
         return result
     }
     func setCursor(sessionID: String, global: CGPoint) {
-        guard let s = sessions[sessionID] else { return }
+        guard let s = sessions[sessionID], s.reason == nil else { return }
         s.capture.setCursor(CGPoint(x: (global.x - s.bounds.minX) / s.bounds.width, y: (global.y - s.bounds.minY) / s.bounds.height))
     }
     public func clearCursor() {

@@ -18,6 +18,7 @@ public final class VirtualDisplayCapture: NSObject, SCStreamOutput, SCStreamDele
     private var generation = 0
     private var frameDate: Date?
     private var cursor: CGPoint?
+    private var cursorOverlay: VirtualDisplayCursorOverlay?
     private var subscribers: [UUID: @Sendable (CVPixelBuffer, Date) -> Void] = [:]
     private let queue = DispatchQueue(label: "com.ifuryst.ocu.virtual-display.frames")
     public var error: String? { lock.lock(); defer { lock.unlock() }; return captureError }
@@ -31,8 +32,18 @@ public final class VirtualDisplayCapture: NSObject, SCStreamOutput, SCStreamDele
         let id = UUID(); subscribers[id] = receive; return id
     }
     public func unsubscribeFrames(_ id: UUID) { lock.lock(); subscribers.removeValue(forKey: id); lock.unlock() }
+    /// Last action target in normalized display coordinates; the captured window animates it.
     public func cursorPoint() -> CGPoint? { lock.lock(); defer { lock.unlock() }; return cursor }
-    func setCursor(_ point: CGPoint?) { lock.lock(); cursor = point; lock.unlock() }
+    func setCursor(_ point: CGPoint?) {
+        lock.lock(); cursor = point; let overlay = cursorOverlay; lock.unlock()
+        // Never synchronously wait for AppKit while holding the registry operation lock.
+        DispatchQueue.main.async { overlay?.setTarget(point) }
+    }
+    private func installOverlay(_ overlay: VirtualDisplayCursorOverlay, token: Int) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard token == generation else { return false }
+        cursorOverlay = overlay; return true
+    }
     private func install(_ stream: SCStream, token: Int) -> Bool {
         lock.lock(); defer { lock.unlock() }
         guard token == generation else { return false }
@@ -41,13 +52,21 @@ public final class VirtualDisplayCapture: NSObject, SCStreamOutput, SCStreamDele
     @discardableResult
     func start(displayID: UInt32, configuration: VirtualDisplayConfiguration) throws -> Bool {
         if isRunning { return true }
-        lock.lock(); captureError = nil; generation += 1; let token = generation; lock.unlock()
+        lock.lock(); captureError = nil; cursor = nil; generation += 1; let token = generation; lock.unlock()
         let result: SCStream?
         do { result = try BlockingAsyncBridge.run(timeout: 8) { [self] in
+            let overlay = try await MainActor.run { try VirtualDisplayCursorOverlay(displayID: displayID) }
+            guard installOverlay(overlay, token: token) else {
+                await MainActor.run { overlay.close() }; throw CancellationError()
+            }
+            let windowID = await MainActor.run { overlay.windowID }
             let content = try await SCShareableContent.current
             guard let display = content.displays.first(where: { $0.displayID == displayID }) else { return nil }
             let excluded = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
-            let filter = SCContentFilter(display: display, excludingApplications: excluded, exceptingWindows: [])
+            guard let cursorWindow = content.windows.first(where: { $0.windowID == windowID && $0.owningApplication?.processID == ProcessInfo.processInfo.processIdentifier }) else {
+                throw ComputerUseError.message("Virtual display cursor window was not available to ScreenCaptureKit")
+            }
+            let filter = SCContentFilter(display: display, excludingApplications: excluded, exceptingWindows: [cursorWindow])
             let config = SCStreamConfiguration()
             config.width = configuration.width * configuration.scale
             config.height = configuration.height * configuration.scale
@@ -66,10 +85,14 @@ public final class VirtualDisplayCapture: NSObject, SCStreamOutput, SCStreamDele
         lock.lock()
         if token == generation { stream = result }
         lock.unlock()
+        if result == nil { stop() }
         return result != nil
     }
     public func stop() {
-        lock.lock(); let old = stream; stream = nil; pixelBuffer = nil; cursor = nil; frameDate = nil; generation += 1; lock.unlock()
+        lock.lock(); let old = stream; let overlay = cursorOverlay; cursorOverlay = nil; stream = nil; pixelBuffer = nil; cursor = nil; frameDate = nil; generation += 1; lock.unlock()
+        // Close before the holder can unplug the display and migrate this window
+        // onto a physical screen. Never hold the capture lock across AppKit work.
+        VisualCursorSupport.performOnMain { overlay?.close() }
         if let old {
             _ = try? BlockingAsyncBridge.run(timeout: 5) { try await old.stopCapture() }
         }
@@ -87,8 +110,13 @@ public final class VirtualDisplayCapture: NSObject, SCStreamOutput, SCStreamDele
         for receive in receivers { receive(buffer, timestamp) }
     }
     public func stream(_ stream: SCStream, didStopWithError error: Error) {
-        lock.lock(); defer { lock.unlock() }
-        if self.stream === stream { self.stream = nil; pixelBuffer = nil; captureError = "Display capture stopped: \(error.localizedDescription)" }
+        lock.lock()
+        guard self.stream === stream else { lock.unlock(); return }
+        self.stream = nil; pixelBuffer = nil; cursor = nil; frameDate = nil
+        let overlay = cursorOverlay; cursorOverlay = nil
+        captureError = "Display capture stopped: \(error.localizedDescription)"
+        lock.unlock()
+        DispatchQueue.main.async { overlay?.close() }
     }
 }
 
@@ -104,8 +132,15 @@ public final class VirtualDisplayMetalView: MTKView, MTKViewDelegate {
     private let capture: VirtualDisplayCapture
     private let commandQueue: MTLCommandQueue?
     private let imageContext: CIContext?
-    public var originalSize = false
-    private let cursorLayer = CALayer()
+    public var originalSize = false {
+        didSet { if oldValue != originalSize { viewport.reset(); dragPoint = nil } }
+    }
+    private var viewport = VirtualDisplayViewport()
+    private var dragPoint: CGPoint?
+    private var backingScale: CGFloat { drawableSize.width / max(bounds.width, 1) }
+    private var frameSize: CGSize? {
+        capture.latestFrame().map { CGSize(width: CVPixelBufferGetWidth($0), height: CVPixelBufferGetHeight($0)) }
+    }
     init(capture: VirtualDisplayCapture) {
         self.capture = capture
         let gpu = MTLCreateSystemDefaultDevice()
@@ -116,20 +151,39 @@ public final class VirtualDisplayMetalView: MTKView, MTKViewDelegate {
         preferredFramesPerSecond = 30; clearColor = MTLClearColorMake(0.04, 0.04, 0.04, 1)
         delegate = self
         wantsLayer = true
-        cursorLayer.contents = BrowserUseCursorArtwork.image
-        cursorLayer.bounds = CGRect(origin: .zero, size: BrowserUseCursorArtwork.size)
-        cursorLayer.anchorPoint = BrowserUseCursorArtwork.anchorPoint
-        cursorLayer.contentsGravity = .resize
-        cursorLayer.actions = ["position": NSNull(), "bounds": NSNull(), "hidden": NSNull()]
-        cursorLayer.isHidden = true
-        layer?.addSublayer(cursorLayer)
+        layer?.masksToBounds = true
     }
     required init(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
+    public override func magnify(with event: NSEvent) {
+        zoom(by: max(1 + event.magnification, 0.05), at: convert(event.locationInWindow, from: nil))
+    }
+    public override func scrollWheel(with event: NSEvent) {
+        let delta = min(max(event.scrollingDeltaY, -50), 50)
+        zoom(by: exp(delta * (event.hasPreciseScrollingDeltas ? 0.012 : 0.10)), at: convert(event.locationInWindow, from: nil))
+    }
+    private func zoom(by factor: CGFloat, at point: CGPoint) {
+        guard let size = frameSize else { return }
+        viewport.magnify(by: factor, at: point, image: size, view: bounds.size, originalSize: originalSize, backingScale: backingScale)
+        needsDisplay = true
+    }
+    public override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2 { viewport.reset(); dragPoint = nil }
+        else { dragPoint = convert(event.locationInWindow, from: nil) }
+        needsDisplay = true
+    }
+    public override func mouseDragged(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if let old = dragPoint, let size = frameSize {
+            viewport.drag(by: CGPoint(x: point.x - old.x, y: point.y - old.y), image: size,
+                view: bounds.size, originalSize: originalSize, backingScale: backingScale)
+        }
+        dragPoint = point; needsDisplay = true
+    }
+    public override func mouseUp(with event: NSEvent) { dragPoint = nil }
     public func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
     public func draw(in view: MTKView) {
         guard let drawable = currentDrawable, let command = commandQueue?.makeCommandBuffer() else { return }
         guard let buffer = capture.latestFrame(), let imageContext else {
-            cursorLayer.isHidden = true
             let pass = MTLRenderPassDescriptor()
             pass.colorAttachments[0].texture = drawable.texture
             pass.colorAttachments[0].loadAction = .clear; pass.colorAttachments[0].storeAction = .store
@@ -139,21 +193,15 @@ public final class VirtualDisplayMetalView: MTKView, MTKViewDelegate {
         }
         let image = CIImage(cvPixelBuffer: buffer)
         let output = CGRect(origin: .zero, size: drawableSize)
-        let fit = min(output.width / image.extent.width, output.height / image.extent.height)
-        let scale = originalSize ? 1 : fit
-        let transform = CGAffineTransform(scaleX: scale, y: scale).translatedBy(x: (output.width / scale - image.extent.width) / 2, y: (output.height / scale - image.extent.height) / 2)
+        viewport.constrain(image: image.extent.size, view: bounds.size, originalSize: originalSize, backingScale: backingScale)
+        let rect = viewport.imageRect(image: image.extent.size, view: bounds.size, originalSize: originalSize, backingScale: backingScale)
+        let scale = rect.width * backingScale / image.extent.width
+        let transform = CGAffineTransform(a: scale, b: 0, c: 0, d: scale,
+            tx: rect.minX * backingScale, ty: rect.minY * backingScale)
         let background = CIImage(color: .black).cropped(to: output)
         imageContext.render(image.transformed(by: transform).composited(over: background), to: drawable.texture, commandBuffer: command, bounds: output, colorSpace: CGColorSpaceCreateDeviceRGB())
         command.present(drawable); command.commit()
-        if let point = capture.cursorPoint() {
-            let scale = self.originalSize ? 1 : fit
-            let factor = drawableSize.width / max(bounds.width, 1)
-            let x = (output.width - image.extent.width * scale) / 2 + point.x * image.extent.width * scale
-            let y = (output.height - image.extent.height * scale) / 2 + (1 - point.y) * image.extent.height * scale
-            cursorLayer.contentsScale = factor
-            cursorLayer.position = CGPoint(x: x / factor, y: y / factor)
-            cursorLayer.isHidden = false
-        } else { cursorLayer.isHidden = true }
+
     }
 }
 

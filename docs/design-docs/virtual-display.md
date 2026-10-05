@@ -11,7 +11,7 @@ open "dist/Open Computer Use (Dev).app"
 
 Release 使用原有 `Open Computer Use.app`、bundle ID、`OPEN_COMPUTER_USE_CODESIGN_*` 和公证入口。Debug 使用原有 `.dev` 身份，需要单独授权 Accessibility 和 Screen Recording；终端的授权不能代替签名 App 的授权。helper 先签名，外层 bundle 后签名。
 
-左侧展示会话。点击顶部 New Session 图标（或 Command-N），填写名称和显示倍率，再 Create 创建空虚拟桌面；选中会话后用 Add application 搜索应用，选择专用启动或接管已有 PID/window。同一显示器可重复加入多个应用，窗口采用错位布局。新建/移除显示器可能触发系统桌面或 Space 通知，其他会话会按安全策略暂停，需要显式 Resume。接管前将目标应用留在后台。专用实例模式请求后台启动，Chrome 使用临时独立 profile；若 LaunchServices 返回已有 PID，拒绝隐式接管。主区域观看选中会话的整个虚拟屏幕，支持适应窗口和原始像素尺寸；Target 选择具体应用窗口。Toolbar 提供添加应用、暂停/继续和结束选中会话，Quit 清理所有会话。预览不接收人工键鼠输入。
+左侧展示会话。点击顶部 New Session 图标（或 Command-N），填写名称和显示倍率，再 Create 创建空虚拟桌面；选中会话后用 Add application 搜索应用，选择专用启动或接管已有 PID/window。同一显示器可重复加入多个应用，窗口采用错位布局。新建/移除显示器可能触发系统桌面或 Space 通知，其他会话会按安全策略暂停，需要显式 Resume。接管前将目标应用留在后台。专用实例模式请求后台启动，Chrome 使用临时独立 profile；若 LaunchServices 返回已有 PID，拒绝隐式接管。主区域观看选中会话的整个虚拟屏幕，支持适应窗口和原始像素尺寸；Target 选择具体应用窗口。Toolbar 提供添加应用、暂停/继续和结束选中会话，Quit 清理所有会话。预览支持触控板捏合/滚轮缩放、按住拖动查看、双击复位；只改变观看视角，不向目标应用转发输入。
 
 桌面下方的 Actions 是可编辑命令单元，可拖动分隔线调整高度。每个会话保留自己的内存 notebook，默认提供 Calculator → TextEdit 的可运行示例。单元支持编辑标题/JSON、单条播放、删除，Add cell 可添加模板并滚动到新单元，Run all 按当前顺序执行并在首个错误处停止。左侧编辑命令，右侧展示格式化 JSON；UI Tree 与截图左右排列。输出保留成功/错误状态和耗时；编辑后旧结果标为 Edited since last run。Stop and pause 阻止后续单元并关闭该会话输入门，当前操作在已有的安全边界退出；恢复后需要新的 snapshot。
 
@@ -38,7 +38,7 @@ TextEdit 通过 `attach_app_to_virtual_display` 的可选 `new_document: true` �
 - `packages/VirtualDisplayBridge`：自行维护的小型 Objective-C bridge，运行时探测 `CGVirtualDisplay*` 类与 selector，检查创建和 `applySettings`。私有 ABI 缺失时明确失败。
 - `apps/VirtualDisplayHost`：每显示器一个 helper，只持有显示器；会话默认从空屏池租用，正常结束后保留 helper/display。stdin/stdout 交换配置与 ready/error；stdin EOF / stop 退出，诊断写 stderr。父进程等待系统在线列表确认移除，超时只终止自己创建的 helper。
 - `VirtualDisplaySession.swift`：串行会话操作、精确 PID/CGWindowID/AX 关联、窗口位置读回、暂停门、恢复记录与应用生命周期。GUI 使用 worker 执行阻塞操作，暂停先关闭输入门。
-- `VirtualDisplayCapture.swift`：显示器级 ScreenCaptureKit 流，最高 30 fps、BGRA、无音频、隐藏系统光标、排除当前宿主 PID。只保存最新 `CVPixelBuffer`，共享 Metal 预览直接渲染；视频不经过 MCP 或逐帧 PNG。
+- `VirtualDisplayCapture.swift`：显示器级 ScreenCaptureKit 流，最高 30 fps、BGRA、无音频、隐藏系统光标、排除当前宿主 PID，仅把本会话的虚拟屏软件光标窗口列为捕获例外。只保存最新 `CVPixelBuffer`，共享 Metal 预览直接渲染；视频不经过 MCP 或逐帧 PNG。
 - 既有 `ComputerUseService`：窗口级 AX tree 和截图，增加明确 session context。窗口选择与恢复策略受会话约束，旧调用保持原行为。
 
 默认 1920×1080 points、1×、60 Hz；2× 对应 3840×2160 pixels。helper 请求扩展显示器并放在原桌面右侧，保留物理屏位置请求、不设置主屏或物理屏模式。runtime 等待 CoreGraphics、NSScreen 和 ScreenCaptureKit 可用，读取实际布局。运行中不改分辨率。接入/移除仍可能引发 macOS 桌面重配置，不能承诺零系统副作用。
@@ -232,3 +232,11 @@ Chrome 专属 profile 加 --window-position 使用实际虚拟屏坐标，随后
 JS：cua.getAppCandidates(app?, {pid?})；display.attachApp(app?, {mode, pid?, windowId?, newDocument?, manageAllWindows?})。默认 launch 不再等于自动移动全部窗口，这是有意收紧授权语义；旧调用如依赖全部专属窗口须显式加 manageAllWindows。
 
 验证后的专属实例返回回调时立即注册 AXWindowCreated 通知，用于初次 reveal 前继续保持隐藏；通知不可用时使用现有 AX 轮询。通知属于事后事件，不保证零闪现。暂停后可逐个明确加入窗口，仍检查显示器布局/权限/前台与 PID；不会自动恢复输入，授权完成后须 resume。移动失败重试保留第一次记录的原始 frame，不覆盖恢复基线。
+
+## 虚拟屏软件光标与观看导航
+
+`VirtualDisplayCursorOverlay` 在实际虚拟屏内创建全屏透明、不可成为 key/main、忽略鼠标事件的 NSPanel；layer 裁剪保证图像不会越入物理屏。直接复用 OBU 图片/hotspot，路径与时序使用普通软件光标相同的 HeadingDriven 候选和 Official spring 模型；中途重新定位从当前画面位置继续。只在运动期间使用 60 Hz timer，静止与隐藏时停止；暂停/turn-ended 隐藏 glyph，屏幕参数改变时立即隐藏；停止捕获同步关闭面板，确保 holder 移除显示器前已无光标窗口。系统鼠标不移动，也不激活目标。
+
+ScreenCaptureKit 使用 [宿主排除 + 指定窗口例外](https://developer.apple.com/documentation/screencapturekit/sccontentfilter/init(display:excludingapplications:exceptingwindows:))，仅包含该面板，宿主其他窗口继续排除。因此显示器帧订阅也包含光标，预览不需要额外光标层；窗口级工具截图仍按原来的目标窗口过滤。找不到软件光标捕获窗口时明确报错，不能退化成宿主全量捕获。
+
+`VirtualDisplayViewport` 独立于 snapshot/工具坐标：缩放保持指针下的图像位置、范围 0.25–8 倍，拖动受图像边缘限制，Original size 切换或双击重置。Retina 原始尺寸使用实际 backing scale。观看手势不调用任何远程输入工具。
