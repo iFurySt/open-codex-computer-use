@@ -43,7 +43,9 @@ let package = Package(
         .executableTarget(name: "VirtualDisplayTestApp", path: "experiments/VirtualDisplay/TestApp"),
         .target(
             name: "OpenComputerUseKit",
-            path: "packages/OpenComputerUseKit/Sources/OpenComputerUseKit"
+            path: "packages/OpenComputerUseKit/Sources/OpenComputerUseKit",
+            exclude: ["Resources/README.md"],
+            resources: [.copy("Resources/cursor-chat.png"), .copy("Resources/OBU-LICENSE.txt")]
         ),
         .executableTarget(
             name: "OpenComputerUse",

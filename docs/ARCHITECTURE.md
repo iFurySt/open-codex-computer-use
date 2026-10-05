@@ -174,7 +174,7 @@ macOS tool registry 增加六个虚拟会话 tools（共 15），原有 app tool
 
 `VirtualDisplaySessionRegistry` 串行服务 GUI、CLI、MCP 和 JS；多个独立会话，每会话多个应用和明确受管理窗口；同一进程只归属一个会话。每会话独立 capture 和恢复标记，物理布局检查排除本 runtime 的所有虚拟屏。窗口截图/AX 缓存按客户端、session、PID、window、布局与 turn epoch 隔离。暂停立即关闭输入门，布局/前台/桌面变化暂停；恢复必须重新 snapshot。session 不随客户端断开或 turn-ended 销毁。
 
-`VirtualDisplayCapture` 每会话持有显示器 SCStream 最新帧，通过共享 Metal preview 或 Swift 帧订阅消费。`experiments/VirtualDisplay` 提供真实 AppKit target、结构化 runner 与复用生产组件的 GUI lab，不借 FixtureBridge 模拟目标操作。虚拟 session 禁止真实激活、AXRaise/global 输入和剪贴板输入，当前拒绝拖拽。session 的 sky_click 也禁用 synthetic-active records，使用 private event source 和屏内 primer；无 session 的既有 recipe 保持兼容。专属应用请求隐藏启动，等待窗口时维持 AXHidden，隐藏状态下移动并读回全部窗口后才 unhide；第三方应用在检查前创建可见窗口仍可能短暂闪现。
+`VirtualDisplayCapture` 每会话持有显示器 SCStream 最新帧，通过共享 Metal preview 或 Swift 帧订阅消费。预览的 Agent cursor 通过 CALayer 直接复用 OBU cursor-chat.png 及中性 hotspot；资源由 SwiftPM 管理并由打包脚本复制资源 bundle，不改变系统光标或捕获帧。`experiments/VirtualDisplay` 提供真实 AppKit target、结构化 runner 与复用生产组件的 GUI lab，不借 FixtureBridge 模拟目标操作。虚拟 session 禁止真实激活、AXRaise/global 输入和剪贴板输入，当前拒绝拖拽。session 的 sky_click 也禁用 synthetic-active records，使用 private event source 和屏内 primer；无 session 的既有 recipe 保持兼容。专属应用请求隐藏启动，等待窗口时维持 AXHidden，隐藏状态下移动并读回全部窗口后才 unhide；第三方应用在检查前创建可见窗口仍可能短暂闪现。
 
 完整生命周期、权限、GUI 操作及实测边界见 [虚拟工作区设计](design-docs/virtual-display.md)。
 

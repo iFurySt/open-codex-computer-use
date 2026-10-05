@@ -19,3 +19,5 @@ UI 状态在 MainActor 更新，显示器/AX/捕获生命周期在 worker 执行
 创建 sheet 在 worker 等待 macOS 期间显示进度；Quit 时禁用新 GUI 操作并请求 notebook 停止。退出/reply 使用可在 AppKit 嵌套循环中执行的 RunLoop 调度，避免界面能点击但新 MainActor 任务不执行的死锁。macOS 26.5.1 的签名 GUI 已确认展开/折叠均只有一个原生 toggle，展开时侧栏延伸至标题栏、品牌留在侧栏，折叠时页面标题留在左侧、操作按钮留在右侧。
 
 创建会话的 Display scale 使用 NSViewRepresentable 封装的 NSPopUpButton，参考 HeyYo Audio/Microphone 选择器：固定控件尺寸，原生菜单覆盖内容、选中行锚定控件，切换倍率不改变 sheet 布局。
+
+虚拟屏幕预览的 Agent cursor 直接复用 OBU 的 cursor-chat.png（23×24 points，原始 46×48 pixels），以 CALayer 显示，使用 OBU 中性姿态的 hotspot 转换。资源由 SwiftPM 管理并随签名 App 分发；不再维护预览专属手绘轮廓。系统光标仍隐藏，预览光标不写入 ScreenCaptureKit 原始帧。

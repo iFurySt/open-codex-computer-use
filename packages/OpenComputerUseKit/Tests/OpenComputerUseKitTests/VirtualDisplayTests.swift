@@ -3,6 +3,13 @@ import XCTest
 @testable import OpenComputerUseKit
 
 final class VirtualDisplayTests: XCTestCase {
+    func testBrowserCursorAssetLoadsFromPackageResources() throws {
+        let image = try XCTUnwrap(BrowserUseCursorArtwork.image)
+        XCTAssertEqual(image.width, 46)
+        XCTAssertEqual(image.height, 48)
+        XCTAssertTrue(image.alphaInfo == .last || image.alphaInfo == .premultipliedLast)
+    }
+
     func testStableDisplaySlotsNeverReuseAnOccupiedIdentity() throws {
         let first = try VirtualDisplayIdentity.availableSerial(identity: "release|test", occupied: [])
         let second = try VirtualDisplayIdentity.availableSerial(identity: "release|test", occupied: [first])

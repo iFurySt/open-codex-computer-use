@@ -3,6 +3,7 @@ import CoreImage
 import CoreMedia
 import CoreVideo
 import Foundation
+import ImageIO
 import MetalKit
 @preconcurrency import ScreenCaptureKit
 import SwiftUI
@@ -104,7 +105,7 @@ public final class VirtualDisplayMetalView: MTKView, MTKViewDelegate {
     private let commandQueue: MTLCommandQueue?
     private let imageContext: CIContext?
     public var originalSize = false
-    private let cursorLayer = CAShapeLayer()
+    private let cursorLayer = CALayer()
     init(capture: VirtualDisplayCapture) {
         self.capture = capture
         let gpu = MTLCreateSystemDefaultDevice()
@@ -115,7 +116,12 @@ public final class VirtualDisplayMetalView: MTKView, MTKViewDelegate {
         preferredFramesPerSecond = 30; clearColor = MTLClearColorMake(0.04, 0.04, 0.04, 1)
         delegate = self
         wantsLayer = true
-        cursorLayer.fillColor = NSColor.white.cgColor; cursorLayer.strokeColor = NSColor.black.cgColor; cursorLayer.lineWidth = 1
+        cursorLayer.contents = BrowserUseCursorArtwork.image
+        cursorLayer.bounds = CGRect(origin: .zero, size: BrowserUseCursorArtwork.size)
+        cursorLayer.anchorPoint = BrowserUseCursorArtwork.anchorPoint
+        cursorLayer.contentsGravity = .resize
+        cursorLayer.actions = ["position": NSNull(), "bounds": NSNull(), "hidden": NSNull()]
+        cursorLayer.isHidden = true
         layer?.addSublayer(cursorLayer)
     }
     required init(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
@@ -144,9 +150,27 @@ public final class VirtualDisplayMetalView: MTKView, MTKViewDelegate {
             let factor = drawableSize.width / max(bounds.width, 1)
             let x = (output.width - image.extent.width * scale) / 2 + point.x * image.extent.width * scale
             let y = (output.height - image.extent.height * scale) / 2 + (1 - point.y) * image.extent.height * scale
-            let path = CGMutablePath()
-            path.move(to: CGPoint(x: 0, y: 0)); path.addLines(between: [CGPoint(x: 0, y: -20), CGPoint(x: 5, y: -15), CGPoint(x: 10, y: -24), CGPoint(x: 14, y: -22), CGPoint(x: 9, y: -13), CGPoint(x: 16, y: -13)]); path.closeSubpath()
-            cursorLayer.path = path; cursorLayer.position = CGPoint(x: x / factor, y: y / factor); cursorLayer.isHidden = false
+            cursorLayer.contentsScale = factor
+            cursorLayer.position = CGPoint(x: x / factor, y: y / factor)
+            cursorLayer.isHidden = false
         } else { cursorLayer.isHidden = true }
     }
+}
+
+/// Reuses OBU's cursor-chat.png without altering its artwork.
+/// Source and license: Resources/README.md and Resources/OBU-LICENSE.txt.
+enum BrowserUseCursorArtwork {
+    static let size = CGSize(width: 23, height: 24)
+    // OBU uses a 24px container centered at the action point, an image offset
+    // of (12, -2.5), image rotation +44°, and neutral container rotation -44°.
+    // The rotations cancel; convert that CSS hotspot to AppKit layer space.
+    static let anchorPoint = CGPoint(
+        x: 14.5 * sin(44 * .pi / 180) / size.width,
+        y: 1 - 14.5 * cos(44 * .pi / 180) / size.height
+    )
+    static let image: CGImage? = {
+        guard let url = Bundle.module.url(forResource: "cursor-chat", withExtension: "png"),
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    }()
 }

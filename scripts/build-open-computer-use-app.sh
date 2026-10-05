@@ -102,6 +102,9 @@ build_binary() {
   local binary_dir
   binary_dir="$(swift build "${args[@]}" --show-bin-path)"
   swift build "${args[@]}" --product "${product}" >&2
+  if [[ "${product}" == "OpenComputerUse" ]]; then
+    cp -R "${binary_dir}/OpenComputerUse_OpenComputerUseKit.bundle" "${resources_dir}/"
+  fi
   printf '%s/%s\n' "${binary_dir}" "${product}"
 }
 
