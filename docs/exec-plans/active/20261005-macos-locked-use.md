@@ -100,3 +100,7 @@ Apple DTS 确认过 screensaver authorization plugin 的 Data Protection Keychai
 - 2026-10-05：Swift 234 项、1 项跳过、0 失败，Node 24 项通过，fixture / cursor smoke 和签名 remote ABI 通过。未锁屏的 legacy Keychain 自有项目 prepare / read / cleanup 通过；真实 native AX / SCK preflight 因新隔离 app 权限缺失被拒绝，不能报告通过。发现并修复懒初始化启动时间导致复用旧 agent 的问题，构建增加唯一标识。已打开权限引导，等待用户配合；尚未安装自动解锁 profile。
 
 - 用户完成隔离 app 授权并重启验证实例后，固定独立 native fixture 的真实 AXPress、计数器变化、前后 SCK 图像变化及 legacy 自有测试项通过；没有执行锁屏或自动解锁，测试项已清理。
+
+- 首次系统验证 profile 安装与安全卸载成功，screensaver 的原 fallback 保留并恢复。发现管理员 staging 的 umask 077 使系统 namespace 不可供用户遍历，已修正为明确的系统目录权限；锁屏测试在启动前退出，没有尝试解锁。恢复 / 验证记录改为从创建起 0600、清除继承 ACL、原子替换和 fsync，不先公开再 chmod；增加继承读取 ACL 和不可信目录回归。修正版已完成管理员认证和重新安装。
+
+- 修正版系统目录可遍历、客户端批准及认证策略完整性诊断通过。第一次真实锁屏事务在 preparing 阶段因独立 watchdog 未完成健康注册中止，未发出解锁许可；用户正常解锁。补充 watchdog 停止原因及 Broker 注册诊断。会话门单测以受控 validator 隔离系统安装状态；完整 Swift 236 项、1 项跳过、0 失败。

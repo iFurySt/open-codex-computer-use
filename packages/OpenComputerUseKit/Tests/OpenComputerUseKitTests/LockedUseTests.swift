@@ -232,7 +232,11 @@ final class LockedUseTests: XCTestCase {
     }
 
     func testRealAppSessionGateRejectsLockedAndUnavailableSessions() throws {
-        try requireUsableComputerUseSession(session(.unlocked))
+        // This test isolates the session gate; an installed system Broker is
+        // covered by IPC tests and must not require signing the XCTest host.
+        try LockedUseActionScope.withValidator({}, body: {
+            try requireUsableComputerUseSession(session(.unlocked))
+        })
         XCTAssertThrowsError(try requireUsableComputerUseSession(session(.locked)))
         XCTAssertThrowsError(try requireUsableComputerUseSession(session(.unavailable)))
     }

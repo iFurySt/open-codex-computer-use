@@ -96,3 +96,7 @@ root Broker 增加 boot-bound crash journal，回复授权前 fsync，不保存 
 当前完整 Swift 234 项（1 项跳过、0 失败）、Node 24 项、fixture / cursor smoke、签名插件离线 ABI 和 profile 校验测试通过。还没有真实自动解锁、系统 Installer / recovery / promotion、Secure Input 键鼠、进程死亡 / 服务重启 / 显示器变化与完整 Keychain 保持的实测证据；保留生产关闭，不提前合并。
 
 - 用户完成隔离 app 授权并重启验证实例后，固定独立 native fixture 的真实 AXPress、计数器变化、前后 SCK 图像变化及 legacy 自有测试项通过；没有执行锁屏或自动解锁，测试项已清理。
+
+- 首次系统验证 profile 安装与安全卸载成功，screensaver 的原 fallback 保留并恢复。发现管理员 staging 的 umask 077 使系统 namespace 不可供用户遍历，已修正为明确的系统目录权限；锁屏测试在启动前退出，没有尝试解锁。恢复 / 验证记录改为从创建起 0600、清除继承 ACL、原子替换和 fsync，不先公开再 chmod；增加继承读取 ACL 和不可信目录回归。修正版已完成管理员认证和重新安装。
+
+- 修正版系统目录可遍历、客户端批准及认证策略完整性诊断通过。第一次真实锁屏事务在 preparing 阶段因独立 watchdog 未完成健康注册中止，未发出解锁许可；用户正常解锁。补充 watchdog 停止原因及 Broker 注册诊断。会话门单测以受控 validator 隔离系统安装状态；完整 Swift 236 项、1 项跳过、0 失败。

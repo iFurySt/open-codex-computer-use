@@ -175,7 +175,7 @@ OPEN_COMPUTER_USE_INCLUDE_LOCKED_USE=1 scripts/build-open-computer-use-app.sh de
 
 ## 崩溃恢复与双进程保护
 
-Broker 在回复授权 / active 之前，把同一 kernel boot epoch 的旧租约、内核 peer token / code hash、解锁观察、动作排空与保护 ACK 写入 root 的 `lease-recovery.json` 并 fsync 文件和目录。**不保存、不恢复授权 permit nonce。** 同一 boot 的服务重启只继续旧事务的排空和重锁，要求正常手动解锁后才解除抑制。原进程重连必须匹配已记录的完整内核 token 与签名哈希；原生 CLI 死亡后恢复连接只能用于清理，不能继续动作。kernel reboot 会摧毁原 GUI / 排队认证事务，属于新的会话 epoch。
+Broker 在回复授权 / active 之前，把同一 kernel boot epoch 的旧租约、内核 peer token / code hash、解锁观察、动作排空与保护 ACK 写入 root 的 `lease-recovery.json` 并 fsync 文件和目录。私密记录从创建到原子发布均为 0600，移除继承的 extended ACL；读取时也拒绝公开权限或 ACL。**不保存、不恢复授权 permit nonce。** 同一 boot 的服务重启只继续旧事务的排空和重锁，要求正常手动解锁后才解除抑制。原进程重连必须匹配已记录的完整内核 token 与签名哈希；原生 CLI 死亡后恢复连接只能用于清理，不能继续动作。kernel reboot 会摧毁原 GUI / 排队认证事务，属于新的会话 epoch。
 
 独立 watchdog 经私有 pipe 注册到 root，持有另一个进程的备用遮罩、过滤 tap 和硬件活动 monitor；Broker 要求两套保护健康且心跳新鲜。Guardian 主线程卡死或进程死亡时，备用窗口仍可保持遮蔽，watchdog 的 root RPC 在另一个队列执行，不能拖延 inherited heartbeat 的重锁期限。主 Guardian / watchdog 都要在原会话已锁定、事务与动作已排空后释放自己的保护并向 root 回报 ACK。新的租约和卸载都等待这些 ACK。软件窗口仍不构成系统级原子热插拔 / 所有 secure overlay / 双进程同时死亡的零泄漏证明；需针对目标系统验证。
 

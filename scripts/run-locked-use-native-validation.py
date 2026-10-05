@@ -62,11 +62,11 @@ class RPC:
         except subprocess.TimeoutExpired: self.process.terminate()
 
 
-def session(guardian):
-    result = subprocess.run([str(guardian), "--diagnose"], capture_output=True, timeout=3, check=True)
+def session(guardian, timeout=3):
+    result = subprocess.run([str(guardian), "--session-only"], capture_output=True, timeout=timeout, check=True)
     for line in result.stdout.splitlines():
         value = json.loads(line)
-        if value.get("event") == "diagnostics": return value["session"]
+        if value.get("event") == "sessionState": return value["session"]
     raise RuntimeError("Native session observation unavailable")
 
 
@@ -92,7 +92,7 @@ def main():
     components = root / ".build/locked-use/components"
     guardian = components / "Open Computer Use Guardian (Dev).app/Contents/MacOS/OpenComputerUseGuardian"
     fixture_binary = components / "Locked Use Native Fixture (Dev).app/Contents/MacOS/OpenComputerUseGuardian"
-    if session(guardian) != "unlocked": raise RuntimeError("Unlock normally before starting validation")
+    if session(guardian, timeout=15) != "unlocked": raise RuntimeError("Unlock normally before starting validation")
     rpc = RPC(binary)
     fixture = None
     locked = False

@@ -4,6 +4,7 @@ import Carbon
 import Darwin
 import Foundation
 import OpenComputerUseKit
+import os
 
 func emit(_ event: String, details: [String: Any] = [:]) {
     var value = details
@@ -96,6 +97,8 @@ struct GuardianMain {
                 _ = CGRequestListenEventAccess()
                 emit("permissionRequests", details: ["accessibility": AXIsProcessTrusted(),
                     "inputMonitoring": CGPreflightListenEventAccess()])
+            case ["--session-only"]:
+                emit("sessionState", details: ["session": LockedUseSession.current().state.rawValue])
             case ["--diagnose"]:
                 emit("diagnostics", details: ["accessibility": AXIsProcessTrusted(),
                     "inputMonitoring": CGPreflightListenEventAccess(),
@@ -188,18 +191,25 @@ enum GuardianError: Error { case message(String) }
     var lastHeartbeat = ProcessInfo.processInfo.systemUptime
     var lastLock = -Double.infinity
     var stopping = false
-    let shield = persistent ? try WatchdogShield(stop: { stopping = true }) : nil
+    let logger = Logger(subsystem: "dev.opencomputeruse.locked-use", category: "Watchdog")
+    var stopReason: String?
+    func stop(_ reason: String) {
+        if stopReason == nil { logger.notice("stopping reason=\(reason, privacy: .public)"); stopReason = reason }
+        stopping = true
+    }
+    let shield = persistent ? try WatchdogShield(stop: stop) : nil
     let brokerLink = bootstrap.map { WatchdogBrokerLink(bootstrap: $0, protected: shield?.healthy == true) }
     if !persistent { _ = HeartbeatPipe.send(82, to: STDOUT_FILENO) } // R requires root registration in broker mode
     while true {
         let now = ProcessInfo.processInfo.systemUptime
         let bytes = pipe.drain(allowed: [72, 76]) // H heartbeat, L guardian saw lock
         if bytes.contains(72), !stopping, now - lastHeartbeat < 1.5 { lastHeartbeat = now }
-        if pipe.failed || now - lastHeartbeat >= 1.5 { stopping = true }
+        if pipe.failed { stop("parentPipeFailed") }
+        else if now - lastHeartbeat >= 1.5 { stop("parentHeartbeatExpired") }
         let current = LockedUseSession.current()
         let same = current.userID == initial.userID && current.auditSessionID == initial.auditSessionID
         let protected = shield?.healthy ?? true
-        if !protected { stopping = true }
+        if !protected { stop(shield?.healthFailure ?? "protectionUnavailable") }
         brokerLink?.observe(current, protected: protected, stopping: stopping)
         if brokerLink?.ready == true { _ = HeartbeatPipe.send(82, to: STDOUT_FILENO) }
         if (bytes.contains(76) || brokerLink?.releaseRequested == true), same, current.state == .locked {
@@ -216,7 +226,7 @@ enum GuardianError: Error { case message(String) }
                 lock.request()
                 lastLock = now
             }
-        } else if !same || current.state == .unavailable { stopping = true }
+        } else if !same || current.state == .unavailable { stop("sessionChanged") }
         _ = HeartbeatPipe.send(72, to: STDOUT_FILENO)
         if persistent { _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) }
         else { Thread.sleep(forTimeInterval: 0.1) }

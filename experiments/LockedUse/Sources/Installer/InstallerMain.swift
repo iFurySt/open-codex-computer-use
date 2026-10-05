@@ -19,6 +19,9 @@ struct InstallerMain {
     static func main() {
         do {
             guard geteuid() == 0 else { throw InstallError.untrusted }
+            // The administrator staging shell is deliberately private. System
+            // client traversal must not inherit that shell's umask 077.
+            _ = umask(0o022)
             let identity = try LockedUseSigningIdentity.current()
             guard identity.signingIdentifier == "dev.opencomputeruse.locked-use.installer", let team = identity.teamIdentifier else { throw InstallError.untrusted }
             let lockDirectory = URL(fileURLWithPath: "/Library/Application Support/OpenComputerUseLockedUseStaging", isDirectory: true)
@@ -155,6 +158,10 @@ struct InstallerMain {
         let plan = try LockedUseAuthorizationRules.planInstallation(current: readRight(screensaver))
         let reference = try authorization(); defer { AuthorizationFree(reference, []) }
         try makeDirectory(root)
+        // Only this application's fixed system namespace is made traversable;
+        // private recovery journals still retain their explicit mode 0600.
+        guard chmod(root.deletingLastPathComponent().path, 0o755) == 0,
+              chmod(root.path, 0o755) == 0 else { throw InstallError.untrusted }
         try makeDirectory(root.appendingPathComponent("run", isDirectory: true))
         try write(plan, name: "authorization-plan.json")
         let approvals = try LockedUseClientApprovals(approvals: [

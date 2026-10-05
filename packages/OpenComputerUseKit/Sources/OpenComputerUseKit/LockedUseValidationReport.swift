@@ -21,7 +21,7 @@ public struct LockedUseValidationReport: Codable, Sendable {
             && guiAndKeychainPassed && lockedAndReleased && afterManualUnlockPassed
     }
     public static func loadInstalled() throws -> Self {
-        let bytes = try LockedUseSecureStore.read(components: ["Library", "Application Support", "OpenComputerUse", "LockedUse", "validation-report.json"])
+        let bytes = try LockedUseSecureStore.read(components: ["Library", "Application Support", "OpenComputerUse", "LockedUse", "validation-report.json"], privateFile: true)
         return try JSONDecoder().decode(Self.self, from: bytes)
     }
 }

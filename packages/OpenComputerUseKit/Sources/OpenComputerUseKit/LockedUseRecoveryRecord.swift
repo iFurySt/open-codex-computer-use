@@ -46,7 +46,7 @@ public struct LockedUseRecoveryRecord: Codable, Sendable {
 
     public static func loadInstalled() throws -> Self? {
         do {
-            let data = try LockedUseSecureStore.read(components: ["Library", "Application Support", "OpenComputerUse", "LockedUse", "lease-recovery.json"])
+            let data = try LockedUseSecureStore.read(components: ["Library", "Application Support", "OpenComputerUse", "LockedUse", "lease-recovery.json"], privateFile: true)
             return try JSONDecoder().decode(Self.self, from: data).validated()
         } catch LockedUseClientApprovals.Failure.inaccessible(let code) where code == ENOENT { return nil }
     }

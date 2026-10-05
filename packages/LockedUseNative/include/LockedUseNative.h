@@ -15,6 +15,8 @@ typedef struct {
 int ocu_copy_peer_identity(int socket_fd, OCUPeerIdentity *out_identity);
 /* 0: no allow ACE grants mutation; 1: unsafe; -1: inspection failed. */
 int ocu_has_mutating_acl(int file_fd);
+int ocu_has_any_acl(int file_fd);
+int ocu_remove_extended_acl(int file_fd);
 /* SCM_RIGHTS transfers a connected endpoint for kernel peer verification only. */
 int ocu_send_peer_socket(int channel_fd, int peer_fd);
 int ocu_receive_peer_socket(int channel_fd);

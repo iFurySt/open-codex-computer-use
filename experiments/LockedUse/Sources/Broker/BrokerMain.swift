@@ -272,12 +272,7 @@ private final class BrokerServer: @unchecked Sendable {
             let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
             let data = try encoder.encode(record)
             if data == lastRecoveryData { return }
-            try data.write(to: URL(fileURLWithPath: path), options: [.atomic])
-            guard chmod(path, 0o600) == 0 else { throw BrokerError.message("recovery file unavailable") }
-            let fd = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
-            guard fd >= 0 else { throw BrokerError.message("recovery file unavailable") }
-            let synced = fsync(fd); Darwin.close(fd)
-            guard synced == 0 else { throw BrokerError.message("recovery durability unavailable") }
+            try LockedUsePrivateRecord.writeInstalled(data, name: "lease-recovery.json")
             lastRecoveryData = data
         } else if lastRecoveryData != nil || recoverySeed != nil {
             if unlink(path) != 0, errno != ENOENT { throw BrokerError.message("recovery fence removal failed") }
@@ -299,11 +294,9 @@ private final class BrokerServer: @unchecked Sendable {
         // A Broker restart loses incomplete proof; it never certifies resumed
         // recovery as a successful fresh unlock test.
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        let path = "/Library/Application Support/OpenComputerUse/LockedUse/validation-report.json"
         let data = try encoder.encode(report)
         if data == lastValidationData { return }
-        try data.write(to: URL(fileURLWithPath: path), options: [.atomic])
-        guard chmod(path, 0o600) == 0 else { throw BrokerError.message("validation record unavailable") }
+        try LockedUsePrivateRecord.writeInstalled(data, name: "validation-report.json")
         lastValidationData = data
     }
 

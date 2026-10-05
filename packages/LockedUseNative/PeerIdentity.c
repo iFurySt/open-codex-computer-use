@@ -67,6 +67,22 @@ int ocu_has_mutating_acl(int file_fd) {
     return result;
 }
 
+int ocu_has_any_acl(int file_fd) {
+    acl_t acl = acl_get_fd_np(file_fd, ACL_TYPE_EXTENDED);
+    if (!acl) return errno == ENOENT ? 0 : -1;
+    acl_entry_t entry;
+    int status = acl_get_entry(acl, ACL_FIRST_ENTRY, &entry);
+    int result = status == 0 ? 1 : errno == EINVAL ? 0 : -1;
+    acl_free(acl); return result;
+}
+
+int ocu_remove_extended_acl(int file_fd) {
+    acl_t empty = acl_init(0);
+    if (!empty) return -1;
+    int result = acl_set_fd_np(file_fd, empty, ACL_TYPE_EXTENDED);
+    acl_free(empty); return result;
+}
+
 int ocu_send_peer_socket(int channel_fd, int peer_fd) {
     unsigned char marker = 0x4f;
     struct iovec vector = { &marker, 1 };

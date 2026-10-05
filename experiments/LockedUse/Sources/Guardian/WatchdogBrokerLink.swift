@@ -1,10 +1,13 @@
 import Foundation
 import Darwin
 import OpenComputerUseKit
+import os
 
 /// Root RPC runs on a separate queue. A wedged or restarting Broker cannot
 /// delay the watchdog's inherited-pipe heartbeat deadline or native relock.
 final class WatchdogBrokerLink: @unchecked Sendable {
+    private let logger = Logger(subsystem: "dev.opencomputeruse.locked-use", category: "WatchdogBroker")
+    private var reportedFailure = false
     private let mutex = NSLock()
     private let bootstrap: LockedUseGuardianBootstrap
     private var client: LockedUseIPCClient?
@@ -43,6 +46,7 @@ final class WatchdogBrokerLink: @unchecked Sendable {
                     guard hello.result != .denied else { candidate.close(); throw GuardianError.message("Watchdog registration denied") }
                 }
                 client = candidate
+                logger.notice("registered")
             }
             let reply = try client!.request(.init(operation: .watchdogReport, leaseID: bootstrap.leaseID,
                 session: .current(), guards: .init(allDisplaysCovered: protected, inputTapHealthy: protected,
@@ -52,6 +56,7 @@ final class WatchdogBrokerLink: @unchecked Sendable {
             mutex.lock(); registered = protected && !stopping; mutex.unlock()
             if reply.effects.contains("releaseWatchdog") { mutex.lock(); release = true; mutex.unlock() }
         } catch {
+            if !reportedFailure { logger.error("registrationOrReportFailed error=\(String(describing: error), privacy: .public)"); reportedFailure = true }
             client?.close(); client = nil
             mutex.lock(); registered = false; mutex.unlock()
         }

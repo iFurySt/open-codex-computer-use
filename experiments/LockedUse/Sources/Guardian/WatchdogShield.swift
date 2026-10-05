@@ -10,9 +10,9 @@ final class WatchdogShield {
     private var monitor: PhysicalInputMonitor?
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
-    private let stop: @MainActor () -> Void
+    private let stop: @MainActor (String) -> Void
 
-    init(stop: @escaping @MainActor () -> Void) throws {
+    init(stop: @escaping @MainActor (String) -> Void) throws {
         self.stop = stop
         NSApplication.shared.setActivationPolicy(.accessory)
         try surface.coverDisplays(message: "Open Computer Use 正在使用电脑\n移动鼠标或按键可返回锁屏", levelOffset: -1)
@@ -26,7 +26,7 @@ final class WatchdogShield {
                 options: .defaultTap, eventsOfInterest: mask, callback: { _, _, _, pointer in
                     if let pointer {
                         MainActor.assumeIsolated {
-                            Unmanaged<WatchdogShield>.fromOpaque(pointer).takeUnretainedValue().stop()
+                            Unmanaged<WatchdogShield>.fromOpaque(pointer).takeUnretainedValue().stop("filterEvent")
                         }
                     }
                     return nil
@@ -37,14 +37,20 @@ final class WatchdogShield {
             self.source = source
             CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
             CGEvent.tapEnable(tap: tap, enable: true)
-            let monitor = PhysicalInputMonitor(activity: stop, failure: stop)
+            let monitor = PhysicalInputMonitor(activity: { stop("hardwareActivity") }, failure: { stop("hardwareMonitorFailure") })
             self.monitor = monitor
             try monitor.start()
         } catch { close(); throw error }
     }
 
+    var healthFailure: String? {
+        if let failure = surface.coverageFailure() { return failure }
+        if monitor?.healthy != true { return "hardwareMonitorUnhealthy" }
+        if tap.map({ CGEvent.tapIsEnabled(tap: $0) }) != true { return "filterDisabled" }
+        return nil
+    }
     var healthy: Bool {
-        surface.coverageHealthy() && monitor?.healthy == true && tap.map { CGEvent.tapIsEnabled(tap: $0) } == true
+        healthFailure == nil
     }
     func close() {
         monitor?.stop(); monitor = nil
