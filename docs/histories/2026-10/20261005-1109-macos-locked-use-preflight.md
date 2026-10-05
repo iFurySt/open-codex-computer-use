@@ -21,17 +21,24 @@
 
 ### 实现边界
 
-这不是完成的 Locked Use 功能。独立 guardian / watchdog、特权 Broker、客户端授权 UI 与真实 loginwindow unlock backend 尚未实现。`available` / `enabled` 始终 false；无生产 backend 时不可开启自动解锁。需先完成实际 SecurityAgent 加载、屏幕 / 输入保护和 Keychain 保持验证。
+这不是完成的 Locked Use 功能。独立 guardian / watchdog 已实现开发 rehearsal；Broker 的内核 peer 签名验证、root 批准记录与一次性许可组件已实现。生产 Broker IPC、客户端授权 UI、guardian 集成与真实 loginwindow unlock backend 尚未完成。`available` / `enabled` 始终 false；无生产 backend 时不可开启自动解锁。需先完成屏幕 / 输入保护与真正解锁、Keychain 保持验证。
 
 系统现有 Codex 插件已由用户关闭，只读确认 bundle 和 remote screensaver rule 移除。实验插件完成 Developer ID 签名与离线验证，并通过 macOS 原生管理员授权窗口安装独立 deny-only right。4 次真实 AuthorizationCopyRights 返回 denied，SecurityAgentHelper 日志确认机制实际调用。首次有 Library Validation 报错后仍实际执行，记录此差异。实验后独立 right、原 bundle 与自身 staged 副本均已移除；screensaver 规则保持不变。未执行真正解锁，未读取密码或用户 Keychain 项。
 
 ### 验证
+
+继续开发新增 `OpenComputerUseGuardian` app、独立 heartbeat watchdog、过滤型输入 tap、全显示器遮罩与 WindowServer coverage 观测、受控 AX / SCK fixture、只读 loginwindow 结构探针，以及有应急结束路径的人工 rehearsal controller。没有触发锁屏或解锁；等待用户准备好后实测。Developer ID 签名 bundle 的 runtime 检查显示 AX / Input Monitoring / 重锁符号均可用，secure input 未启用；socket peer 自检成功取得内核身份并验证签名，错误 signer 被拒绝。
+
+Broker 基础组件补充 LOCAL_PEERTOKEN / Security 动态验证、固定路径 root 批准记录安全读取、Secure Random 一次性 permit。测试覆盖错误身份 / 角色、要求字符串注入、会话不匹配、过期与重放、断开撤销、guardian 心跳 / 热插拔 / 动作排空 barrier。生产 IPC / 安装登记仍未实现。
 
 - `swift test`：188 项，1 项 gated live test 跳过，0 失败；其中 LockedUseTests 20 项。
 - JS REPL / CLI：21 项通过；使用 bundled Node 绕过系统 Node 的既有动态库故障，没有修改系统安装。
 - fixture 9-tool smoke 与 cursor idle smoke 通过。
 - 插件 ABI / 生命周期 / deny-only 行为及 codesign 验证通过；离线通过不等同于系统加载或 notarization；另有上述 SecurityAgent 实机日志证据，仅覆盖独立诊断 right。
 - shell syntax 与 git diff whitespace 检查通过。
+- 继续开发后完整 Swift：206 项，1 项 gated live test 跳过，0 失败；Locked Use 的 38 项策略 / 许可 / 身份 / 批准记录测试通过。fixture 9-tool 与 cursor idle smoke 再次通过；增加 extended ACL mutation 回归，防止仅凭 mode bits 将可写配置当可信。
+- Developer ID / hardened runtime Guardian 的内核 socket 身份与角色批准自检通过；同签名、同 identifier 但带 get-task-allow 的独立测试副本被批准策略拒绝。未在系统安装批准文件。
+- Guardian runtime preflight：AX、Input Monitoring、Screen Recording 与重锁符号均可用。尚未执行真实遮罩、锁屏、loginwindow AX 或自动解锁测试；等待用户确认测试时间。
 
 ### 合并状态
 

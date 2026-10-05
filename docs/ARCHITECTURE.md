@@ -139,7 +139,8 @@
 - `locked-use status [--json]` 和 `doctor` 增加只读 session / Input Monitoring / 插件诊断，由 app agent 提供真实 runtime 权限状态。
 - 真实窗口 snapshot、缓存复用与事件投递检查当前控制台 session；锁屏或未知 / 切换用户状态明确拒绝。fixture 不属于真实桌面，继续支持 headless 测试。
 - `LockedUseStateMachine` 是待 Broker 接入的纯保护策略，覆盖一次性许可、租约、guardian heartbeat、接管和重锁确认；未接入真实自动解锁。
-- `experiments/LockedUse` 与独立脚本提供 deny-only Authorization 插件 ABI / 系统加载探针；系统实验只注册独立 right，不修改 screensaver 链路。生产 Broker、独立 guardian 与 loginwindow backend 尚未实现，功能默认不可启用。详细边界见 [Locked Use](locked-use.md)。
+- `experiments/LockedUse` 与独立脚本提供 deny-only Authorization 插件 ABI / 系统加载探针；系统实验只注册独立 right，不修改 screensaver 链路。新增独立 `OpenComputerUseGuardian` 测试 app 与 child watchdog，验证显示器覆盖、输入接管、重锁、遮挡窗口 AX / ScreenCaptureKit 及只读 loginwindow 结构。它仍是开发 rehearsal，未接入生产 Broker / 自动解锁。
+- `LockedUseNative` 读取 Unix socket 的内核 audit token；`LockedUsePeerIdentity` 验证动态进程签名；`LockedUseClientApprovals` 从 root 所有、不可由普通用户写入的目录加载批准记录；`LockedUsePermitRegistry` 管理绑定会话的一次性 32-byte 许可。生产 Broker IPC / 安装 UI 与 loginwindow backend 尚未完成，功能默认不可启用。详细边界见 [Locked Use](locked-use.md)。
 
 ## 关键边界
 

@@ -1,0 +1,65 @@
+#include "LockedUseNative.h"
+#include <bsm/libbsm.h>
+#include <errno.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <sys/acl.h>
+#include <sys/stat.h>
+
+_Static_assert(sizeof(audit_token_t) == 32, "Unexpected Darwin audit token ABI");
+
+int ocu_copy_peer_identity(int socket_fd, OCUPeerIdentity *out) {
+    if (!out) { errno = EINVAL; return -1; }
+    memset(out, 0, sizeof(*out));
+    audit_token_t token = {0};
+    socklen_t size = sizeof(token);
+    if (getsockopt(socket_fd, SOL_LOCAL, LOCAL_PEERTOKEN, &token, &size) != 0) return -1;
+    if (size != sizeof(token)) { errno = EINVAL; return -1; }
+    memcpy(out->audit_token, &token, sizeof(token));
+    out->effective_user_id = audit_token_to_euid(token);
+    out->audit_session_id = audit_token_to_asid(token);
+    out->process_id = audit_token_to_pid(token);
+    return 0;
+}
+
+int ocu_has_mutating_acl(int file_fd) {
+    acl_t acl = acl_get_fd_np(file_fd, ACL_TYPE_EXTENDED);
+    if (!acl) {
+        /* Darwin returns ENOENT for an existing fd without an extended ACL. */
+        if (errno == ENOENT) {
+            struct stat info;
+            if (fstat(file_fd, &info) == 0) return 0;
+        }
+        return -1;
+    }
+    if (acl_valid(acl) != 0) { acl_free(acl); return -1; }
+    acl_entry_t entry;
+    int entry_id = ACL_FIRST_ENTRY;
+    int result = 0;
+    unsigned int entries = 0;
+    int entry_status;
+    while ((entry_status = acl_get_entry(acl, entry_id, &entry)) == 0) {
+        if (++entries > ACL_MAX_ENTRIES) { result = -1; break; }
+        entry_id = ACL_NEXT_ENTRY;
+        acl_tag_t tag;
+        acl_permset_t permissions;
+        if (acl_get_tag_type(entry, &tag) != 0 || acl_get_permset(entry, &permissions) != 0) {
+            result = -1; break;
+        }
+        if (tag != ACL_EXTENDED_ALLOW) continue;
+        const acl_perm_t mutations[] = {ACL_WRITE_DATA, ACL_APPEND_DATA, ACL_DELETE,
+            ACL_DELETE_CHILD, ACL_WRITE_ATTRIBUTES, ACL_WRITE_EXTATTRIBUTES,
+            ACL_WRITE_SECURITY, ACL_CHANGE_OWNER};
+        for (unsigned int index = 0; index < sizeof(mutations) / sizeof(mutations[0]); index++) {
+            int granted = acl_get_perm_np(permissions, mutations[index]);
+            if (granted < 0) { result = -1; break; }
+            if (granted > 0) { result = 1; break; }
+        }
+        if (result != 0) break;
+    }
+    /* Darwin uses EINVAL to indicate that the final entry was exhausted. */
+    if (result == 0 && entry_status < 0 && errno != EINVAL) result = -1;
+    acl_free(acl);
+    return result;
+}

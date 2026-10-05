@@ -2,7 +2,7 @@
 
 目标是在已登录用户的屏幕锁定后，允许已授权客户端临时解锁 GUI 会话，同时遮蔽所有物理显示器，继续通过 AX / ScreenCaptureKit / 输入执行任务，最后重锁。
 
-**当前不是可用的自动解锁功能。** 当前交付的是只读诊断、可测试的保护状态机、真实 app 的锁屏拒绝路径，以及始终拒绝授权的独立插件 ABI / 系统加载实验。生产 Broker、独立显示器 / 输入 guardian、安装授权与真实 loginwindow backend 尚未实现；不能通过环境变量或另一厂商的插件开启。
+**当前不是可用的自动解锁功能。** 当前交付的是只读诊断、可测试的保护状态机、真实 app 的锁屏拒绝路径、独立 Guardian / watchdog rehearsal、Broker 的签名认证 / 批准记录 / 一次性许可组件，以及始终拒绝授权的独立插件 ABI / 系统加载实验。生产 Broker IPC、guardian 集成、安装授权与真实 loginwindow backend 尚未完成；不能通过环境变量或另一厂商的插件开启。
 
 ## 当前可用入口
 
@@ -36,6 +36,40 @@ OPEN_COMPUTER_USE_DISABLE_APP_AGENT_PROXY=1 .build/debug/OpenComputerUse locked-
 - 本地输入、显示器 topology generation 改变、guardian 失效或会话异常立即停止并重锁；未知输入按接管处理。
 - Broker 确认许可撤销已提交、解锁尝试取消 / 排空、动作投递停止后，还需确认原会话锁定，才能释放遮蔽。原锁屏仍可见不代表排队解锁已取消。未知 / 其他用户的锁定事件不算重锁成功；失败保留保护并重试。
 - 接管和异常后进入 `awaitingManualUnlock`。正常人工解锁事件才清除抑制，排队请求不能重新解锁。
+
+## Guardian 与锁屏实测
+
+开发构建，不安装系统组件：
+
+```sh
+./scripts/build-locked-use-guardian.sh --identity 'Developer ID Application: <your identity>'
+'.build/locked-use/Open Computer Use Guardian (Dev).app/Contents/MacOS/OpenComputerUseGuardian' --diagnose
+'.build/locked-use/Open Computer Use Guardian (Dev).app/Contents/MacOS/OpenComputerUseGuardian' --peer-self-test
+```
+
+缺少权限时显式执行同一 binary 的 `--request-permissions`，由用户在系统设置授予 Accessibility 与 Input Monitoring。`--diagnose` 本身不请求权限、不锁屏。
+
+**只有用户准备好锁屏、并有人观察物理屏幕时运行：**
+
+```sh
+python3 scripts/run-locked-use-rehearsal.py --confirm-lock-test
+```
+
+测试从已正常解锁的会话开始，创建专用蓝色窗口，再使用独立、覆盖所有 NSScreen 的黑色 window 遮蔽。它检查 WindowServer 中的窗口 PID、frame、alpha、layer 和物理显示器映射，不能把 `isVisible` 单独当成已覆盖。过滤型 session event tap 不读取或记录按键内容，对所有全局输入保守接管；定向 `postToPid` 不走这条全局 stream。Secure Event Input、tap disable、显示器 topology 改变、watchdog 失效均停止测试并请求锁屏。软件 overlay 无法提供原子热插拔、系统级 overlay 或进程死亡时零泄漏的证明，必须实际观察。
+
+`shieldReady` 后，使用 AXPress 点击专用窗口按钮，并以 ScreenCaptureKit 的 desktop-independent window filter 验证遮挡后的蓝色内容和动作前后画面变化。AX / capture 未完成时不提前宣告 quiescence。输出只有结果与状态，截图不写磁盘。最长 15 秒租约到期或本地输入都会请求重锁；只有原 UID / audit session 观测到锁定、且动作已排空，才移除遮罩。
+
+child watchdog 与 UI event loop 分离，监测 inherited pipe 心跳；1.5 秒超时、EOF 或非法输入会独立请求重锁。该测试 watchdog 从未接收解锁许可。测试完成后，Guardian 只读取 loginwindow 的 AX role / subrole / action names，最多 300 节点、12 层、3 秒；不读取值、用户名、输入框、选中文本或密码，也不执行 loginwindow 动作。单次 AX RPC 额外有 0.5 秒 timeout，因此整个 traversal 可能比预算略长。
+
+开发 controller 在 35 秒无结果时结束自身测试进程组，释放测试遮罩和 tap，方便用户恢复操作。这是只供人工实验的应急路径，**不能在生产 Locked Use 中用超时移除遮罩**。本次 rehearsal 没有改变认证规则，也不自动解锁；用户随后按普通方式解锁。
+
+### Broker 认证组件
+
+- `LockedUseNative` 用 `LOCAL_PEERTOKEN` 获得 kernel audit token，包含 PID version；不把客户端自报 PID 转成身份。
+- `LockedUsePeerIdentity` 用 token 查询动态 SecCode，并验证 administrator-approved requirement。
+- `LockedUseClientApprovals` 固定从 `/Library/Application Support/OpenComputerUse/LockedUse/clients.json` 读取，逐层 `openat` / `O_NOFOLLOW`，检查 root ownership、group/other 不可写与无允许修改的 extended ACL，拒绝 symlink、非 regular file、超大配置、无效 signer / team 和重复记录。不在仓库保存真实批准记录。这里尚未实现写入 UI / installer。
+- 批准记录绑定 UID、角色、signing identifier 和 Team ID；角色按连接 endpoint 选择，不取请求 payload。批准 peer 必须启用 hardened runtime，并拒绝 get-task-allow、禁用 Library Validation、允许 DYLD 环境注入或 unsigned executable memory 等 entitlement。Developer ID 签名的 self-test 验证正确 signer / role 成功及错误 signer / role 拒绝；这不表示完整 Broker IPC 已完成。
+- `LockedUsePermitRegistry` 使用 SecRandomCopyBytes 生成 32-byte nonce，绑定 connection UUID、attempt UUID、UID、audit session，5 秒过期，单次消费，断开撤销，重放拒绝。最多 32 个 pending permit；4096 个 retired attempt 后拒绝发新许可，需要在无租约状态下重新建立 registry epoch，尚待 Broker 生命周期实现。该 registry 不验证插件身份，调用它之前必须先认证 Apple SecurityAgent peer。
 
 ## Authorization 插件实验
 

@@ -99,7 +99,7 @@ public struct LockedUseDiagnostics: Codable, Sendable {
             otherAuthorizationPlugins: others,
             blockers: [
                 "The loginwindow unlock backend has not passed live validation; automatic unlock is unavailable.",
-                "The independent display/input guardian and privileged Broker are not implemented.",
+                "The display/input guardian is a live rehearsal adapter; the privileged Broker and production guardian integration are not implemented.",
                 "The production loginwindow flow and Keychain preservation require live validation; isolated plugin loading does not validate session unlocking."
             ]
         )

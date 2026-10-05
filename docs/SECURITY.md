@@ -49,4 +49,6 @@
 - 当前 `available` / `enabled` 始终 false，真实锁屏控制 fail closed；用户环境、请求 metadata 和其他产品的插件都不能开启自动解锁。
 - 状态机的 connection / session 身份必须由未来认证 IPC 提供，纯 reducer 不提供身份认证；effect 不是系统状态证据。
 - 独立 Authorization 探针始终拒绝，不读写密码上下文；安装实验只注册独立 deny-only right，不改 `system.login.screensaver`。安装与卸载要求管理员执行并核对自身条目，不覆盖其他认证配置。
+- 独立 Guardian / watchdog 目前只供显式人工 rehearsal；覆盖检查、输入拦截和重锁尚未经过物理观察，未签发生产解锁许可。开发 controller 的应急结束不能作为生产遮罩释放规则。
+- Broker 的基础组件从 Unix socket 的内核 audit token 验证动态签名；批准文件必须在逐层 root 所有、不可由普通用户写入且无 symlink 的固定目录下。批准绑定 UID、角色、signer 和 Team ID，不能从环境或请求 payload 选择任意 requirement。许可使用安全随机 nonce，绑定会话、连接和 attempt，过期 / 消费 / 撤销后不可重放。完整 Broker IPC / 登记 UI 尚未接入。
 - 开放 backend 前必须验证 Keychain 保持、保护组件故障和重锁确认。没有通过这些门槛不得将 AX / Screen Recording 授权等同于后台解锁许可。见 [实验与恢复说明](locked-use.md)。
