@@ -66,3 +66,5 @@
 合盖 helper 仅接受同 Team、固定 host identifier、Developer ID 且无 get-task-allow 的签名 XPC 调用；固定操作不执行调用方 shell。Unix coordinator 以 peer UID 为信任域，socket/目录为 0600/0700。root 恢复目录与 journal 验证所有者、权限、symlink、硬链接及 extended ACL，并持有 dev/release 共用 flock；已有外部 SleepDisabled 时拒绝接管。App 固定安装到标准 Applications 位置，已登记 bundle 更新前先卸载。它不改变锁屏/认证策略；物理合盖与企业电源动作的兼容性需独立验收。详见 [电源保活](power-hold.md)。
 
 显示器级删除只针对本 runtime 拥有的资源，在串行锁下先结束其关联会话，再移除 helper/display；任一安全清理失败都保留未完成状态。create 的精确 display_id 仅可选择匹配配置的空屏，不能隐式接管活动或其他 runtime 的显示器。GUI session trash 默认保留屏，另有明确同时删除入口。
+
+电源 metrics 仅读取固定 AppleSMC PSTR 与电池数值/固定状态，不暴露任意 SMC 命令或写入；用户态 SQLite 目录/文件为 0700/0600，拒绝 symlink、硬链接、非本用户及 extended ACL。存储数据不含输入、画面、应用列表、序列号或证书，不上传。查询复用同 UID socket 信任域，保留配置有上限，clear 仅处理本模块数值历史；关闭协调器期间过期数据于下一次启动/查询清理。

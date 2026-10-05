@@ -16,13 +16,16 @@ public struct PowerRequest: Codable {
     public var operation: String
     public var options: HoldOptions?
     public var id: String?
+    public var metrics_query: MetricsQuery?
+    public var metrics_configuration: MetricsConfiguration?
     public init(_ operation: String, options: HoldOptions? = nil, id: String? = nil) { self.operation = operation; self.options = options; self.id = id }
 }
 public struct PowerResponse: Codable {
     public var hold: PowerHold?
     public var status: PowerStatus?
     public var error: String?
-    public init(hold: PowerHold? = nil, status: PowerStatus? = nil, error: String? = nil) { self.hold = hold; self.status = status; self.error = error }
+    public var metrics: MetricsReport?
+    public init(hold: PowerHold? = nil, status: PowerStatus? = nil, error: String? = nil, metrics: MetricsReport? = nil) { self.hold = hold; self.status = status; self.error = error; self.metrics = metrics }
 }
 private func socketAddress(_ path: String) throws -> sockaddr_un {
     var address = sockaddr_un(); address.sun_family = sa_family_t(AF_UNIX)
@@ -97,10 +100,21 @@ public final class PowerClient {
         guard let status = try request(.init("status", id: id)).status else { throw PowerFailure.backend("Missing status response") }
         return status
     }
+    public func metrics(_ query: MetricsQuery = .init()) throws -> MetricsReport {
+        var message = PowerRequest("metrics"); message.metrics_query = query
+        guard let result = try request(message).metrics else { throw PowerFailure.backend("Missing metrics response") }; return result
+    }
+    public func configureMetrics(_ value: MetricsConfiguration) throws -> MetricsReport {
+        var message = PowerRequest("metrics_configure"); message.metrics_configuration = value
+        guard let result = try request(message).metrics else { throw PowerFailure.backend("Missing metrics response") }; return result
+    }
+    public func clearMetrics() throws { _ = try request(.init("metrics_clear")) }
     public func release(_ id: String) throws { _ = try request(.init("release", id: id)) }
 }
 public final class PowerSocketServer {
     public var onShutdown: (() -> Void)?
+    public var metricsService: MetricsService?
+    public var metricsError: String?
     private let registry: PowerHoldRegistry
     private let path: String
     private var fd: Int32 = -1
@@ -150,6 +164,13 @@ public final class PowerSocketServer {
                 do {
                     let request = try JSONDecoder().decode(PowerRequest.self, from: data)
                     switch request.operation {
+                    case "metrics", "metrics_configure", "metrics_clear":
+                        guard let metricsService else { throw PowerFailure.backend(metricsError ?? "Metrics not initialized") }
+                        if request.operation == "metrics_configure" {
+                            guard let config = request.metrics_configuration else { throw PowerFailure.invalid("Missing metrics configuration") }
+                            try metricsService.configure(config)
+                        } else if request.operation == "metrics_clear" { try metricsService.clear() }
+                        response = .init(metrics: try metricsService.query(request.metrics_query ?? .init()))
                     case "acquire": response = .init(hold: try registry.acquire(request.options ?? .init(), uid: uid, connectionID: connection))
                     case "status": response = .init(status: try registry.status(uid: uid, id: request.id))
                     case "shutdown":

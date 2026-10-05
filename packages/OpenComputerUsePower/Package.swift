@@ -6,8 +6,9 @@ let package = Package(name: "OpenComputerUsePower", platforms: [.macOS(.v14)], p
     .executable(name: "OCUPowerHelper", targets: ["PowerHelper"]),
     .executable(name: "OCUPowerGUIFixture", targets: ["PowerGUIFixture"])
 ], targets: [
+    .systemLibrary(name: "CSQLite"),
     .target(name: "PowerNative", publicHeadersPath: "include", cSettings: [.define("OCU_POWER_DEV", .when(configuration: .debug))], linkerSettings: [.linkedFramework("Security"), .linkedFramework("Foundation")]),
-    .target(name: "PowerCore", dependencies: ["PowerNative"], linkerSettings: [.linkedFramework("IOKit")]),
+    .target(name: "PowerCore", dependencies: ["PowerNative", "CSQLite"], linkerSettings: [.linkedFramework("IOKit")]),
     .executableTarget(name: "PowerHost", dependencies: ["PowerCore"]),
     .executableTarget(name: "PowerHelper", dependencies: ["PowerCore"]),
     .executableTarget(name: "PowerGUIFixture"),

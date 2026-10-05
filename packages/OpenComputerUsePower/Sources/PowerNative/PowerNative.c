@@ -158,3 +158,49 @@ int ocu_power_secure_root_directory(const char *path) {
     if (lstat(path, &st) || !S_ISDIR(st.st_mode) || st.st_uid != 0 || (st.st_mode & 077)) return -1;
     return ocu_power_no_extended_acl(path);
 }
+
+#include <IOKit/IOKitLib.h>
+#include <mach/mach.h>
+#include <math.h>
+// Private AppleSMC user-client ABI. Only metadata/read commands for PSTR.
+typedef struct { uint32_t size, type; uint8_t attributes; } ocu_smc_info;
+typedef struct {
+    uint32_t key;
+    uint8_t version[6], limits[16];
+    ocu_smc_info info;
+    uint8_t result, status, command;
+    uint32_t index;
+    uint8_t bytes[32];
+} ocu_smc_packet;
+_Static_assert(sizeof(ocu_smc_packet) == 80, "Unexpected SMC ABI layout");
+static int smc_read_call(io_connect_t port, ocu_smc_packet *input, ocu_smc_packet *output) {
+    size_t count = sizeof(*output);
+    return IOConnectCallStructMethod(port, 2, input, sizeof(*input), output, &count) == KERN_SUCCESS
+        && count == sizeof(*output) && output->result == 0;
+}
+int ocu_power_system_watts(double *watts) {
+#if !defined(__arm64__)
+    return -1; // This decoder is validated on Apple Silicon only.
+#endif
+    if (!watts) return -1;
+    io_service_t service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSMC"));
+    if (!service) return -1;
+    io_connect_t port = 0;
+    kern_return_t result = IOServiceOpen(service, mach_task_self(), 0, &port);
+    IOObjectRelease(service);
+    if (result != KERN_SUCCESS) return -1;
+    ocu_smc_packet input = {0}, output = {0};
+    input.key = 0x50535452; input.command = 9; // PSTR, read metadata
+    int valid = smc_read_call(port, &input, &output);
+    if (valid && output.info.type == 0x666c7420 && output.info.size == 4) { // flt
+        input.info.size = 4; input.command = 5;
+        memset(&output, 0, sizeof(output));
+        valid = smc_read_call(port, &input, &output);
+        float value = 0;
+        memcpy(&value, output.bytes, sizeof(value));
+        valid = valid && isfinite(value) && value >= 0 && value <= 2000;
+        if (valid) *watts = value;
+    } else { valid = 0; }
+    IOServiceClose(port);
+    return valid ? 0 : -1;
+}

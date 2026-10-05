@@ -13,3 +13,6 @@ int ocu_power_secure_root_directory(const char *path);
 int ocu_power_no_extended_acl(const char *path);
 
 int ocu_power_is_signed_host(void);
+
+// Read-only, fixed PSTR sensor. No arbitrary SMC commands or writes.
+int ocu_power_system_watts(double *watts);
