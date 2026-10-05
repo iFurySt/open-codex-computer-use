@@ -38,3 +38,6 @@
 用户要求 Display scale 参考 HeyYo Audio/Microphone 选择器，覆盖内容且布局稳定；Create Session 去除亮蓝色。新增本地 DisplayScalePopUp，以 NSPopUpButton 与 Binding<Int> 同步倍率，固定尺寸，菜单只初始化一次，busy 时禁用。参考 HeyYo 原生控件组织方式，无音频依赖。Create Session 使用 macOS 26 glass 样式，macOS 14–25 回退 bordered。
 
 Release 构建、deep/strict 签名校验和 diff check 通过。真实 AX 与截图验证 1× → 2× → 1×、两种选中状态下的菜单覆盖与选中行锚定、sheet 布局未变，以及 glass 按钮外观。取消后恢复空状态，本轮未创建虚拟显示器。
+
+### 后续修正：展开时按钮留在侧栏顶部
+用户明确展开时折叠与新会话图标应留在左侧栏顶部，只有折叠后才在主区域组成一组。根据 columnVisibility 条件选择 sidebar toolbar 或 detail navigation toolbar，共用 sidebarControls，保持左折叠、右新会话且只出现一套入口。Release 构建、签名及 diff check 通过；真实截图与 AX 检查展开与折叠两种布局，折叠后的创建入口正常打开 sheet；随后用户在 App 内继续操作会话，本轮不再打断操作。
