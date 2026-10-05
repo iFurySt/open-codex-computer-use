@@ -8,6 +8,7 @@ let package = Package(
         .macOS(.v14),
     ],
     products: [
+        .executable(name: "OpenComputerUseLockedUseBroker", targets: ["OpenComputerUseLockedUseBroker"]),
         .executable(name: "OpenComputerUseGuardian", targets: ["OpenComputerUseGuardian"]),
         .library(
             name: "OpenComputerUseKit",
@@ -40,6 +41,11 @@ let package = Package(
             path: "packages/LockedUseNative",
             publicHeadersPath: "include",
             linkerSettings: [.linkedLibrary("bsm")]
+        ),
+        .executableTarget(
+            name: "OpenComputerUseLockedUseBroker",
+            dependencies: ["OpenComputerUseKit", "LockedUseNative"],
+            path: "experiments/LockedUse/Sources/Broker"
         ),
         .executableTarget(
             name: "OpenComputerUseGuardian",

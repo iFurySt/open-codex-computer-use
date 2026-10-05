@@ -21,6 +21,26 @@ struct GuardianMain {
         signal(SIGPIPE, SIG_IGN)
         do {
             switch Array(CommandLine.arguments.dropFirst()) {
+            case ["--broker-guardian"]:
+                var decoder = LockedUseIPCFrame()
+                var bootstrap: LockedUseGuardianBootstrap?
+                let deadline = ProcessInfo.processInfo.systemUptime + 3
+                while bootstrap == nil {
+                    try LockedUseIPCSocket.wait(descriptor: STDIN_FILENO, events: Int16(POLLIN), deadline: deadline)
+                    var bytes = [UInt8](repeating: 0, count: 4096)
+                    let count = Darwin.read(STDIN_FILENO, &bytes, bytes.count)
+                    guard count > 0 else { throw GuardianError.message("Guardian bootstrap pipe ended") }
+                    let frames = try decoder.append(Data(bytes.prefix(count)))
+                    guard frames.count <= 1 else { throw GuardianError.message("Invalid Guardian bootstrap") }
+                    if let frame = frames.first { bootstrap = try JSONDecoder().decode(LockedUseGuardianBootstrap.self, from: frame) }
+                }
+                let app = NSApplication.shared
+                app.setActivationPolicy(.accessory)
+                let guardian = try DisplayGuardian(session: .current(), brokerBootstrap: bootstrap)
+                try guardian.start()
+                withExtendedLifetime(guardian) { app.run() }
+            case ["--broker-watchdog"]:
+                try runWatchdog(persistent: true)
             case ["--shield-preview"]:
                 let app = NSApplication.shared
                 app.setActivationPolicy(.accessory)
@@ -162,9 +182,9 @@ enum GuardianError: Error { case message(String) }
 
 /// Separate process with no AppKit dependency in its loop. Inherited heartbeat
 /// loss always requests relock. It never trusts a command claiming lock success.
-func runWatchdog() throws {
+func runWatchdog(persistent: Bool = false) throws {
     let initial = LockedUseSession.current()
-    guard initial.state == .unlocked, initial.userID != nil, initial.auditSessionID != nil,
+    guard (initial.state == .unlocked || (persistent && initial.state == .locked)), initial.userID != nil, initial.auditSessionID != nil,
           isatty(STDIN_FILENO) == 0 else { throw GuardianError.message("Watchdog requires an inherited pipe and an unlocked GUI session") }
     let lock = ScreenLock()
     guard lock.available else { throw GuardianError.message("Relock SPI is unavailable") }
@@ -182,7 +202,7 @@ func runWatchdog() throws {
         let same = current.userID == initial.userID && current.auditSessionID == initial.auditSessionID
         if bytes.contains(76), same, current.state == .locked { return }
         if stopping {
-            if same, current.state == .locked { return }
+            if same, current.state == .locked, !persistent { return }
             if now - lastLock >= 0.5 {
                 // S reports a request only; the Guardian must still observe
                 // the original session locked before releasing its windows.

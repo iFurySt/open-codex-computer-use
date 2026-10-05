@@ -30,7 +30,8 @@
 - [x] 内核 audit-token / 动态签名认证、root 批准记录读取与短期一次性 permit registry；签名 / 角色实机自检与离线策略回归。
 - [x] 保留现有认证 fallback 的离线安装规划；拒绝不同阈值、规则变化与篡改备份，未执行系统写入。
 - [ ] 真正 loginwindow 解锁、独立保护与 Keychain 保持实验（阻塞生产 backend 开放）。
-- [ ] Broker、独立 Shield / watchdog、管理员安装与客户端授权 UI、真实自动解锁。
+- [x] 签名 Broker 控制面、限定角色 IPC、remote 插件一次性放行与锁屏 Guardian 接入；离线验证通过，尚未安装运行。
+- [ ] 管理员安装、客户端授权 UI、OCU 自动租约接入与真实自动解锁。
 
 ## 环境观测
 
@@ -57,6 +58,8 @@ Apple DTS 确认过 screensaver authorization plugin 的 Data Protection Keychai
 - https://github.com/trycua/cua/issues/1744 （方案讨论，非完整可复用实现）
 
 ## 合并
+
+2026-10-05 用户明确要求先保留开发 commit，所有实现与验证完成后才一次性合并到 awesome-extension；不提前合并任何实现切片。
 
 基于本地 awesome-extension 的已提交状态。另一个会话有未提交的虚拟显示器工作；不 stash / reset 该会话。合并前再次检查目标工作区，只有不覆盖其改动时才在本地合并；不推远端。
 
@@ -85,3 +88,5 @@ Apple DTS 确认过 screensaver authorization plugin 的 Data Protection Keychai
 - 2026-10-05：用户要求继续完成并同意配合锁屏测试。新增独立 Guardian 与独立 child watchdog；只在显式 rehearsal 中拦截输入和请求重锁，不解锁、不改系统认证规则。实际 desktop / Secure Input / 显示器覆盖仍待物理观察。测试 controller 可从工具侧结束自身进程组恢复操作，该恢复只用于开发，不能视为生产遮蔽保证。
 - 2026-10-05：待用户确认首次 15 秒测试时间；测试同时验证遮挡的专用窗口经 AX 改变并经 SCK 捕获，重锁后只读检查 loginwindow 结构。真实 unlock trigger 不能根据猜测的 AX 控件或授权返回值实现。
 - 2026-10-05：完整 Swift 206 项（1 项 gated live test 跳过）、fixture / cursor smoke 通过。签名 Guardian 的内核身份、批准角色、错误 signer / role 及 debug-injectable 副本拒绝均验证；批准文件拒绝 extended ACL 写授权。没有触发真实锁屏；生产 Broker IPC、客户端登记与实际 unlock backend 仍待完成。
+
+- 2026-10-05：新增有界 framing / 绝对 RPC 超时、动态 audit token 与签名重校验的 Broker 服务和 remote 插件；授权放行与实际 GUI 可用状态分离，取消后等待解锁事务和动作排空才释放。Guardian 增加锁屏 AXConfirm 与只观察活动的 IOHID 输入保护；Secure Input 下的硬件事件交付仍需实机确认。完整 Swift 222 项、1 项跳过、0 失败；签名插件 ABI 拒绝 / 重复 / 取消回归通过。未安装生产服务、未更改 screensaver right。

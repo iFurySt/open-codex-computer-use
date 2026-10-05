@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Carbon
+import CryptoKit
 import Darwin
 import Foundation
 import OpenComputerUseKit
@@ -44,14 +45,28 @@ final class DisplayGuardian: NSObject {
     private(set) var watchdogTestPassed = false
     private(set) var fixtureAXSelfTestPassed = false
     private let fixtureGate = FixtureActionGate()
+    private let brokerBootstrap: LockedUseGuardianBootstrap?
+    private let brokerClient: LockedUseIPCClient?
+    private var brokerReportInFlight = false
+    private var lastBrokerReport: TimeInterval = 0
+    private var unlockWorkPending = false
+    private var unlockRequested = false
+    private let unlockCancellation = UnlockCancellation()
+    private var physicalInput: PhysicalInputMonitor?
 
-    init(session: LockedUseSession, injectWatchdogStall: Bool = false) throws {
-        guard session.state == .unlocked else { throw GuardianError.message("Rehearsal starts in a manually unlocked user session") }
+    init(session: LockedUseSession, injectWatchdogStall: Bool = false, brokerBootstrap: LockedUseGuardianBootstrap? = nil) throws {
+        guard session.state == (brokerBootstrap == nil ? .unlocked : .locked) else {
+            throw GuardianError.message("Start rehearsal unlocked; start Broker Guardian only in the original locked session")
+        }
+        self.brokerBootstrap = brokerBootstrap
+        brokerClient = try brokerBootstrap.map { _ in
+            try LockedUseIPCClient(endpoint: .guardian, brokerRequirement: LockedUseSigningIdentity.brokerRequirement())
+        }
         started = ProcessInfo.processInfo.systemUptime
         lastWatchdogHeartbeat = started
-        policy = try .init(session: session, now: started, lifetime: 15)
+        policy = try .init(session: session, now: started, lifetime: brokerBootstrap == nil ? 15 : 300)
         self.injectWatchdogStall = injectWatchdogStall
-        policy.confirmQuiescence()
+        if brokerBootstrap == nil { policy.confirmQuiescence() }
         super.init()
     }
 
@@ -59,12 +74,19 @@ final class DisplayGuardian: NSObject {
         guard AXIsProcessTrusted(), CGPreflightListenEventAccess() else {
             throw GuardianError.message("Grant Accessibility and Input Monitoring to the Guardian app before rehearsal")
         }
-        guard lock.available, !IsSecureEventInputEnabled() else {
+        guard lock.available, brokerBootstrap != nil || !IsSecureEventInputEnabled() else {
             throw GuardianError.message("Relock unavailable or Secure Event Input active")
         }
         try installTap()
         do {
-            createCaptureFixture()
+            if let bootstrap = brokerBootstrap, let client = brokerClient {
+                let observer = PhysicalInputMonitor(activity: { [weak self] in self?.stop(.localInput) },
+                    failure: { [weak self] in self?.stop(.guardianFailure) })
+                physicalInput = observer
+                try observer.start()
+                let hello = try client.request(.init(operation: .guardianHello, leaseID: bootstrap.leaseID, token: bootstrap.token))
+                guard hello.result != .denied else { throw GuardianError.message("Broker rejected Guardian identity/challenge") }
+            } else { createCaptureFixture() }
             try coverDisplays()
             try startWatchdog()
             let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
@@ -72,7 +94,7 @@ final class DisplayGuardian: NSObject {
             }
             self.timer = timer
             RunLoop.main.add(timer, forMode: .common)
-            emit("preparing", details: ["displayCount": shields.count, "seconds": 15,
+            emit("preparing", details: ["displayCount": shields.count, "seconds": brokerBootstrap == nil ? 15 : 300,
                 "unlockRequested": false, "productionReady": false])
         } catch {
             // Preparation can fail before a live test is armed. No unlocking is
@@ -247,7 +269,8 @@ final class DisplayGuardian: NSObject {
 
     private func displayTopology() -> String { shields.displayTopology() }
     private func coverDisplays() throws {
-        try shields.coverDisplays(message: "Open Computer Use · 测试中\n移动鼠标或按键将重新锁屏")
+        try shields.coverDisplays(message: brokerBootstrap == nil ? "Open Computer Use · 测试中\n移动鼠标或按键将重新锁屏"
+            : "Open Computer Use 正在使用电脑\n移动鼠标或按键可返回锁屏")
         topology = displayTopology()
     }
     private func coverageHealthy() -> Bool { shields.coverageHealthy() }
@@ -255,7 +278,7 @@ final class DisplayGuardian: NSObject {
     private func startWatchdog() throws {
         let process = Process()
         process.executableURL = Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0])
-        process.arguments = ["--watchdog"]
+        process.arguments = brokerBootstrap == nil ? ["--watchdog"] : ["--broker-watchdog"]
         let input = Pipe(), output = Pipe()
         process.standardInput = input
         process.standardOutput = output
@@ -288,7 +311,7 @@ final class DisplayGuardian: NSObject {
                     try policy.prepared(topology: topology, now: now)
                     emit("shieldReady", details: ["displayCount": shields.count, "guardianPID": getpid(),
                         "watchdogPID": watchdog?.processIdentifier ?? 0, "backendValidated": false])
-                    if !fixtureVerificationStarted {
+                    if brokerBootstrap == nil, !fixtureVerificationStarted {
                         fixtureVerificationStarted = true
                         Task { await self.verifyCaptureFixture() }
                     }
@@ -302,7 +325,8 @@ final class DisplayGuardian: NSObject {
             let coverageFailure = shields.coverageFailure()
             let coverage = coverageFailure == nil
             let secureInput = IsSecureEventInputEnabled()
-            let healthy = watchdogHealthy && tapHealthy && coverage && !secureInput
+            let inputHealthy = tapHealthy && (brokerBootstrap == nil ? !secureInput : physicalInput?.healthy == true)
+            let healthy = watchdogHealthy && inputHealthy && coverage
             if !healthy, policy.phase == .shielding {
                 emit("guardHealthFailure", details: ["watchdogHealthy": watchdogHealthy,
                     "watchdogRunning": watchdog?.isRunning == true,
@@ -315,9 +339,13 @@ final class DisplayGuardian: NSObject {
             if policy.phase != .preparing {
                 execute(try policy.poll(session: current, topology: displayTopology(), guardsHealthy: healthy, now: now))
             }
+            if policy.phase != .preparing, policy.phase != .finished {
+                reportToBroker(now: now, session: current, coverage: coverage,
+                    inputHealthy: inputHealthy, watchdogHealthy: watchdogHealthy)
+            }
             if now - lastReport >= 1 {
                 lastReport = now
-                if policy.phase == .shielding {
+                if policy.phase == .shielding, brokerBootstrap == nil {
                     let remaining = max(0, Int(ceil(15 - (now - started))))
                     shields.updateMessage("Open Computer Use · 遮罩期间操作测试\n剩余 \(remaining) 秒\n结束后将锁屏 · 请保持鼠标键盘不动")
                 }
@@ -330,6 +358,7 @@ final class DisplayGuardian: NSObject {
 
     private func stop(_ reason: LockedUseGuardianPolicy.Reason) {
         fixtureGate.close()
+        unlockCancellation.cancel()
         if !stopping { stopping = true; emit("stopping", details: ["reason": reason.rawValue]) }
         execute(policy.stop(reason, now: ProcessInfo.processInfo.systemUptime))
     }
@@ -339,6 +368,7 @@ final class DisplayGuardian: NSObject {
             switch effect {
             case .requestRelock:
                 fixtureGate.close()
+                unlockCancellation.cancel()
                 if !stopping {
                     stopping = true
                     emit("stopping", details: ["reason": policy.reason?.rawValue ?? "", "elapsed": ProcessInfo.processInfo.systemUptime - started])
@@ -376,5 +406,57 @@ final class DisplayGuardian: NSObject {
         fixtureWindow = nil
         watchdogInput?.closeFile()
         watchdogOutput?.closeFile()
+        physicalInput?.stop()
+        physicalInput = nil
+        if let client = brokerClient { Task.detached { client.close() } }
+    }
+
+    private func reportToBroker(now: TimeInterval, session: LockedUseSession, coverage: Bool,
+                                inputHealthy: Bool, watchdogHealthy: Bool) {
+        guard let bootstrap = brokerBootstrap, let client = brokerClient,
+              !brokerReportInFlight, now - lastBrokerReport >= 0.1 else { return }
+        brokerReportInFlight = true
+        lastBrokerReport = now
+        let generation = SHA256.hash(data: Data(topology.utf8)).prefix(8).reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
+        let guards = LockedUseStateMachine.Guards(allDisplaysCovered: coverage,
+            inputTapHealthy: inputHealthy, watchdogHealthy: watchdogHealthy, displayGeneration: generation)
+        let reason: LockedUseStateMachine.StopReason? = stopping
+            ? policy.reason == .localInput ? .physicalInput : .guardLost : nil
+        let message = LockedUseIPCMessage(operation: .guardianReport, leaseID: bootstrap.leaseID,
+            session: session, guards: guards, stopReason: reason, unlockWorkPending: unlockWorkPending)
+        Task { @MainActor in
+            defer { brokerReportInFlight = false }
+            do {
+                let reply = try await Task.detached { try client.request(message) }.value
+                guard reply.result != .denied else { throw GuardianError.message("Broker denied Guardian report") }
+                for effect in reply.effects {
+                    switch effect {
+                    case "requestUnlock": requestNativeUnlock()
+                    case "cancelUnlock": unlockCancellation.cancel()
+                    case "requestRelock": stop(.stopRequested)
+                    case "releaseGuards":
+                        policy.confirmQuiescence()
+                        execute(policy.stop(.stopRequested, now: ProcessInfo.processInfo.systemUptime))
+                    default: throw GuardianError.message("Unknown Broker Guardian effect")
+                    }
+                }
+            } catch { stop(.parentDisconnected) }
+        }
+    }
+
+    private func requestNativeUnlock() {
+        guard !stopping, !unlockRequested, policy.phase == .shielding else { return }
+        unlockRequested = true
+        unlockWorkPending = true
+        let session = policy.session
+        let cancellation = unlockCancellation
+        emit("unlockRequestStarting", details: ["lockedSessionObserved": true])
+        Task { @MainActor in
+            let accepted = await Task.detached { LockScreenInteractor.confirm(session: session, cancellation: cancellation) }.value
+            unlockWorkPending = false
+            emit("unlockRequestReturned", details: ["axAccepted": accepted,
+                "session": LockedUseSession.current().state.rawValue])
+            if !accepted, LockedUseSession.current().state != .unlocked { stop(.guardianFailure) }
+        }
     }
 }

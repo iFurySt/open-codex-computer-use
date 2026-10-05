@@ -6,6 +6,7 @@ import Security
 /// Identity extracted from the connected socket, validated against a designated
 /// signing requirement. Same UID, a PID, or a claimed bundle ID is insufficient.
 public struct LockedUsePeerIdentity: Sendable {
+    public let auditToken: Data
     public let userID: UInt32
     public let auditSessionID: UInt32
     public let processID: Int32
@@ -60,7 +61,7 @@ public struct LockedUsePeerIdentity: Sendable {
         // Verify the live code once more after extracting on-disk metadata.
         let rechecked = SecCodeCheckValidity(guest, [], expected)
         guard rechecked == errSecSuccess else { throw Failure.invalidSignature(rechecked) }
-        return .init(userID: native.effective_user_id, auditSessionID: native.audit_session_id,
+        return .init(auditToken: token, userID: native.effective_user_id, auditSessionID: native.audit_session_id,
             processID: native.process_id, signingIdentifier: identifier,
             teamIdentifier: info[kSecCodeInfoTeamIdentifier as String] as? String,
             codeDirectoryHash: hash, designatedRequirement: text,

@@ -78,3 +78,9 @@ Broker 基础组件补充 LOCAL_PEERTOKEN / Security 动态验证、固定路径
 - `scripts/build-locked-use-plugin.sh`
 - `scripts/manage-locked-use-probe.sh`
 - `docs/locked-use.md`
+
+## Broker 与 remote 机制实现
+
+新增独立签名 Broker、受角色约束的内核身份认证 IPC、Guardian challenge 和一次性 remote 插件许可。IPC 限制消息 / 排队大小并使用绝对截止时间，重验动态签名身份；放行不等于桌面解锁，动作仍需独立 Guardian 观测和健康证明。取消后不以旧锁屏状态提前撤罩。Guardian 接入锁屏 AXConfirm 和不读取键值的硬件活动监测，后者尚待 Secure Input 实机验证。
+
+验证：完整 Swift 222 项、1 项 gated live test 跳过、0 失败；已签名 remote 插件离线 ABI 验证拒绝、重复调用与取消。系统安装、OCU 租约入口和真实解锁仍在后续计划内，未合并目标分支。

@@ -44,7 +44,7 @@ public struct LockedUseStateMachine: Sendable {
         public let deadline: TimeInterval
     }
 
-    public struct Guards: Equatable, Sendable {
+    public struct Guards: Equatable, Codable, Sendable {
         public let allDisplaysCovered: Bool
         public let inputTapHealthy: Bool
         public let watchdogHealthy: Bool
