@@ -137,6 +137,12 @@ public struct VirtualDisplayState: Sendable {
     public let captureIsRunning: Bool
     public let lastFrameDate: Date?
     public let captureError: String?
+    /// Candidates awaiting authorization or windows moved off-screen never appear in the Dock.
+    public var dockApplications: [VirtualDisplayApplicationInfo] {
+        applications.filter { app in
+            virtualDisplayDockHasWindow(pid: app.pid, windows: windows, displayFrame: frame)
+        }
+    }
     public var dictionary: [String: Any] {
         var value: [String: Any] = ["session_id": sessionID, "display_id": displayID, "helper_pid": helperPID,
             "phase": phase, "layout_version": layoutVersion, "display_reused": displayReused,
@@ -1062,6 +1068,41 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
         try? validate(s, requireApp: true)
         return state(s)
     }
+    /// Explicit user action from the workspace Dock. Never exposed as an Agent input fallback.
+    public func showManagedWindow(sessionID: String, windowID: UInt32) throws -> VirtualDisplayState {
+        lock.lock(); defer { lock.unlock() }
+        let s = try requireSession(sessionID)
+        try validate(s, requireApp: false)
+        guard let owner = s.originals[windowID]?.pid, let attached = s.applications[owner],
+              !attached.application.isTerminated, processStartDate(owner) == attached.processBirthDate,
+              let expected = s.frames[windowID],
+              let window = VirtualDisplayWindowAccess.windows(pid: owner).first(where: { $0.info.id == windowID }),
+              s.bounds.contains(window.info.frame), VirtualDisplayWindowAccess.close(expected, window.info.frame) else {
+            throw ComputerUseError.message("Dock window is no longer inside this virtual display")
+        }
+        let foreground = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        guard AXUIElementPerformAction(window.element, kAXRaiseAction as CFString) == .success else {
+            throw ComputerUseError.message("Application cannot bring this window forward")
+        }
+        s.version += 1; s.capture.setCursor(nil)
+        Thread.sleep(forTimeInterval: 0.12)
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier != foreground {
+            s.pause("Application changed system focus during manual Dock selection")
+        }
+        let ordered = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? []
+        let front = ordered.first { record in
+            guard let id = (record[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
+                  let frame = s.frames[id] else { return false }
+            return frame.intersects(expected)
+        }
+        guard (front?[kCGWindowNumber as String] as? NSNumber)?.uint32Value == windowID else {
+            throw ComputerUseError.message("Application did not bring the selected window forward")
+        }
+        attached.selected = windowID; s.selectedPID = owner
+        try validate(s, requireApp: true)
+        return state(s)
+    }
+
     public func pause(sessionID: String) throws -> VirtualDisplayState {
         controlLock.lock(); let s = controlledSessions[sessionID]; controlLock.unlock()
         guard let s else { throw ComputerUseError.message("Unknown virtual display session") }
@@ -1331,4 +1372,8 @@ private final class LaunchResult: @unchecked Sendable {
     var app: NSRunningApplication?
     var error: Error?
     var windowObserver: DedicatedLaunchWindowObserver?
+}
+
+func virtualDisplayDockHasWindow(pid: Int32, windows: [VirtualDisplayWindowInfo], displayFrame: CGRect) -> Bool {
+    windows.contains { $0.pid == pid && !$0.frame.isEmpty && displayFrame.contains($0.frame) }
 }

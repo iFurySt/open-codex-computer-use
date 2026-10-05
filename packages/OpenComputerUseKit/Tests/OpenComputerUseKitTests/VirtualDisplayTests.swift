@@ -3,6 +3,20 @@ import XCTest
 @testable import OpenComputerUseKit
 
 final class VirtualDisplayTests: XCTestCase {
+    func testDockMembershipRequiresMatchingManagedPIDAndEntireWindowInsideDisplay() {
+        let display = CGRect(x: -1920, y: 0, width: 1920, height: 1080)
+        let inside = VirtualDisplayWindowInfo(id: 1, pid: 10, title: "Document", frame: CGRect(x: -1800, y: 60, width: 500, height: 400))
+        let outside = VirtualDisplayWindowInfo(id: 2, pid: 11, title: "Moved", frame: CGRect(x: -100, y: 60, width: 500, height: 400))
+        XCTAssertTrue(virtualDisplayDockHasWindow(pid: 10, windows: [inside, outside], displayFrame: display))
+        XCTAssertFalse(virtualDisplayDockHasWindow(pid: 11, windows: [inside, outside], displayFrame: display))
+        XCTAssertFalse(virtualDisplayDockHasWindow(pid: 12, windows: [inside], displayFrame: display))
+        XCTAssertFalse(virtualDisplayDockHasWindow(pid: 10, windows: [], displayFrame: display))
+    }
+
+    func testManualDockRaiseRejectsUnknownSessionWithoutTouchingWindowServer() {
+        XCTAssertThrowsError(try VirtualDisplaySessionRegistry.shared.showManagedWindow(sessionID: "missing", windowID: 123))
+    }
+
     func testDisplayLifecycleRejectsMalformedControlBeforeSideEffects() {
         let dispatcher = ComputerUseToolDispatcher()
         for (tool, arguments) in [

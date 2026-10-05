@@ -195,3 +195,5 @@ App-agent Quit 使用 RunLoop 调度 terminate/reply 与 worker 清理：termina
 实例所有权与窗口范围分开：get_app_candidates 只读列出全部 PID/window 候选；attach launch 默认仅取得验证过的新实例、保持隐藏并返回候选窗口，不移动窗口。调用方逐个指定 PID/window_id 后才移动，全部待显示窗口确认在虚拟屏内后才应用级 unhide。manage_all_windows=true 仅显式授权专属启动的初始窗口；后续新普通窗口不自动进入范围。adopt 不应用级 hide/unhide，不退出借用进程，原位置通过身份校验恢复。
 
 显示器预留 API `prewarm(configuration:reuseDisplay:)` / `prewarm_virtual_display` 接受 `reuse_display`（JS `reuseDisplay`），默认 true 保持幂等；false 强制创建独立空显示器。GUI Displays + 使用 false，会话创建可选择空闲 display ID 或自动复用。
+
+工作区预览底部提供轻量 App Dock，作为宿主 UI 固定显示，不进入 SCStream 帧或随观看缩放变化。只列出会话中仍有完整位于虚拟屏内的已受管窗口的应用；使用缓存的原生应用图标，点击显示已选窗口（失效时选择另一个受管窗口），右键列出多个窗口。窗口退出或移出屏幕后下一次资源刷新移除对应项，操作期间禁用 Dock。GUI 专用 showManagedWindow 串行验证 session/PID 出生身份/window ID/预期 frame，再执行 AXRaise 并检查与重叠受管窗口的层级。它不调用 application.activate、不发送全局输入；若第三方应用在 Raise 中自行改变系统前台，暂停会话并保留真实状态。Agent tool 的 Raise 禁令和预览只观看边界不变；人工接管输入尚未实现。实际跨应用的焦点保持需要实机确认，不宣称所有应用 Raise 都不抢焦点。

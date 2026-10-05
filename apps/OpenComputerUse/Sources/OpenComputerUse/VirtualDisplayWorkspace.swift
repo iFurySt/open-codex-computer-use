@@ -235,6 +235,10 @@ final class VirtualDisplayWorkspaceModel: ObservableObject {
         for id in display.sessionIDs { notebooks[id]?.stopRequested = true }
         perform { [registry] in try registry.destroyDisplay(displayID: display.displayID) }
     }
+    func showDockWindow(_ id: UInt32) {
+        guard let state else { return }
+        perform { [registry] in _ = try registry.showManagedWindow(sessionID: state.sessionID, windowID: id) }
+    }
     func selectManagedWindow(_ id: UInt32) {
         guard let state else { return }
         perform { [registry] in _ = try registry.selectWindow(sessionID: state.sessionID, windowID: id) }
@@ -365,6 +369,10 @@ struct VirtualDisplayWorkspaceView: View {
                                 VirtualDisplayPreview(capture: capture, originalSize: model.originalSize).id(state.sessionID)
                                     .overlay(alignment: .topLeading) {
                                         if state.phase == "paused" { Label("Paused", systemImage: "pause.fill").padding(8).background(.regularMaterial).padding() }
+                                    }
+                                    .overlay(alignment: .bottom) {
+                                        WorkspaceAppDock(state: state, busy: model.busy, show: model.showDockWindow)
+                                            .padding(.bottom, 12)
                                     }.frame(minHeight: 180)
                             }.frame(minHeight: 240)
                             if let notebook = model.notebooks[state.sessionID] {

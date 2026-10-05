@@ -244,3 +244,5 @@ ScreenCaptureKit 使用 [宿主排除 + 指定窗口例外](https://developer.ap
 会话内光标 move 使用异步 MainActor continuation；工具 worker 最多等待 4 秒，travel 完成才继续真实输入，与普通 OCU 的动作先后顺序一致。暂停、turn-ended、关闭或捕获停止会取消等待；超时清除光标并拒绝本次输入，不因等待解除原有身份/窗口/后台校验。位置/朝向弹簧有逐帧参考模型测试，30 fps 取样也必须观察到弧线与转向；这不代替视频帧的像素级比对。
 
 示例的 prepare 阶段将专属 TextEdit 文档放到 Calculator 右侧，空间允许时留 40 points 间隔；保持文档完全在虚拟屏内，并读回 AX frame、更新布局版本。仅调整示例已授权的专属窗口。
+
+工作区预览底部提供轻量 App Dock，作为宿主 UI 固定显示，不进入 SCStream 帧或随观看缩放变化。只列出会话中仍有完整位于虚拟屏内的已受管窗口的应用；使用缓存的原生应用图标，点击显示已选窗口（失效时选择另一个受管窗口），右键列出多个窗口。窗口退出或移出屏幕后下一次资源刷新移除对应项，操作期间禁用 Dock。GUI 专用 showManagedWindow 串行验证 session/PID 出生身份/window ID/预期 frame，再执行 AXRaise 并检查与重叠受管窗口的层级。它不调用 application.activate、不发送全局输入；若第三方应用在 Raise 中自行改变系统前台，暂停会话并保留真实状态。Agent tool 的 Raise 禁令和预览只观看边界不变；人工接管输入尚未实现。实际跨应用的焦点保持需要实机确认，不宣称所有应用 Raise 都不抢焦点。

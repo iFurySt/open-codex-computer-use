@@ -49,3 +49,5 @@ Actions Command/Result 共用原生 NSTextView JSON 代码块：语言栏、圆�
 会话标题采用独立文本组（状态点/名称、ID、复制），名称与 ID、ID 与复制均间隔 12 points，点与名称 8 points，外侧左右各 4 points；名称优先保留宽度，ID 可居中截断。macOS 26 标题 toolbar item 设置 sharedBackgroundVisibility(.hidden)，移除包含复制按钮触发的系统整组 glass 背景；旧系统保留普通 toolbar 文本。仅复制图标是按钮，标题整组不可点击。
 
 虚拟屏预览只显示 SCStream 帧（包括虚拟屏软件光标窗口），不叠加第二个 Agent cursor。触控板 pinch 与普通鼠标滚轮在指针处缩放，触控板两指滑动或按住拖动平移，双击/Original size 切换重置视角；图像不足视口时居中，放大后限制拖动防止画面丢失。手势不发送到目标应用，不改变截图/工具坐标。
+
+工作区预览底部提供轻量 App Dock，作为宿主 UI 固定显示，不进入 SCStream 帧或随观看缩放变化。只列出会话中仍有完整位于虚拟屏内的已受管窗口的应用；使用缓存的原生应用图标，点击显示已选窗口（失效时选择另一个受管窗口），右键列出多个窗口。窗口退出或移出屏幕后下一次资源刷新移除对应项，操作期间禁用 Dock。GUI 专用 showManagedWindow 串行验证 session/PID 出生身份/window ID/预期 frame，再执行 AXRaise 并检查与重叠受管窗口的层级。它不调用 application.activate、不发送全局输入；若第三方应用在 Raise 中自行改变系统前台，暂停会话并保留真实状态。Agent tool 的 Raise 禁令和预览只观看边界不变；人工接管输入尚未实现。实际跨应用的焦点保持需要实机确认，不宣称所有应用 Raise 都不抢焦点。
