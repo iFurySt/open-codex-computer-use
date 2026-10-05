@@ -705,6 +705,7 @@ public final class ComputerUseService {
             throw ComputerUseError.stateUnavailable("element \(elementIndex) has no backing accessibility object")
         }
 
+        try requireUsableComputerUseSession()
         let result = AXUIElementPerformAction(element, rawAction as CFString)
         guard result == .success else {
             throw ComputerUseError.message("AXUIElementPerformAction failed with \(result.rawValue)")
@@ -739,6 +740,7 @@ public final class ComputerUseService {
            let rawAction = record.rawActions.first(where: { $0.caseInsensitiveCompare("AXScroll\(normalized.capitalized)ByPage") == .orderedSame }),
            let element = record.element {
             for _ in 0..<repeatCount {
+                try requireUsableComputerUseSession()
                 _ = AXUIElementPerformAction(element, rawAction as CFString)
                 Thread.sleep(forTimeInterval: 0.05)
             }
@@ -841,6 +843,7 @@ public final class ComputerUseService {
         moveVisualCursor(to: cursorTarget)
 
         do {
+            try requireUsableComputerUseSession()
             let result = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, value as CFString)
             guard result == .success else {
                 throw ComputerUseError.message("AXUIElementSetAttributeValue failed with \(result.rawValue)")
@@ -858,6 +861,14 @@ public final class ComputerUseService {
 
     private func currentSnapshot(for query: String) throws -> AppSnapshot {
         if let snapshot = snapshotsByApp[query.lowercased()] {
+            if snapshot.mode != .fixture {
+                do {
+                    try requireUsableComputerUseSession()
+                } catch {
+                    snapshotsByApp.removeAll()
+                    throw error
+                }
+            }
             return snapshot
         }
 
@@ -982,6 +993,7 @@ public final class ComputerUseService {
             return false
         }
 
+        try requireUsableComputerUseSession()
         let result = AXUIElementSetAttributeValue(
             target.list,
             kAXSelectedChildrenAttribute as CFString,
@@ -1114,6 +1126,7 @@ public final class ComputerUseService {
 
         let attempts = max(repeatCount, 1)
         for index in 0..<attempts {
+            try requireUsableComputerUseSession()
             let result = AXUIElementPerformAction(element, action as CFString)
             switch result {
             case .success:
@@ -1151,6 +1164,7 @@ public final class ComputerUseService {
     }
 
     private func setBoolAttribute(named attribute: String, on element: AXUIElement) throws -> Bool {
+        try requireUsableComputerUseSession()
         let result = AXUIElementSetAttributeValue(element, attribute as CFString, kCFBooleanTrue)
         switch result {
         case .success:
@@ -1440,6 +1454,7 @@ public final class ComputerUseService {
         }
 
         let baseValue = editableBaseValue(for: element)
+        try requireUsableComputerUseSession()
         let result = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, (baseValue + text) as CFString)
         switch result {
         case .success:

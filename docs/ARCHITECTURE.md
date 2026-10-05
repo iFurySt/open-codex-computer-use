@@ -134,6 +134,13 @@
 - Linux `click_method=accessibility` 映射到 AT-SPI action，`global` 映射到 AT-SPI mouse synthesis 并要求全局指针环境变量；AT-SPI 没有等价的进程定向 mouse dispatch，因此 `app_post` 和 macOS-only 的 `sky_click` 会在 snapshot lookup 前明确返回 unsupported。`auto` 仍保持 AT-SPI action 优先、mouse synthesis fallback 的现有行为。
 - 当前 Linux 侧仍是功能性第一版：没有 visual cursor overlay、没有 installer/desktop entry，也没有独立 Linux fixture。后续 TODO 记录在 `docs/exec-plans/active/20260422-linux-computer-use-runtime.md`。
 
+## macOS Locked Use 实验
+
+- `locked-use status [--json]` 和 `doctor` 增加只读 session / Input Monitoring / 插件诊断，由 app agent 提供真实 runtime 权限状态。
+- 真实窗口 snapshot、缓存复用与事件投递检查当前控制台 session；锁屏或未知 / 切换用户状态明确拒绝。fixture 不属于真实桌面，继续支持 headless 测试。
+- `LockedUseStateMachine` 是待 Broker 接入的纯保护策略，覆盖一次性许可、租约、guardian heartbeat、接管和重锁确认；未接入真实自动解锁。
+- `experiments/LockedUse` 与独立脚本提供 deny-only Authorization 插件 ABI / 系统加载探针；系统实验只注册独立 right，不修改 screensaver 链路。生产 Broker、独立 guardian 与 loginwindow backend 尚未实现，功能默认不可启用。详细边界见 [Locked Use](locked-use.md)。
+
 ## 关键边界
 
 - 开源版当前不复刻官方闭源实现里的 caller signing、私有 IPC、完整 overlay choreography 和 plugin 自安装逻辑。

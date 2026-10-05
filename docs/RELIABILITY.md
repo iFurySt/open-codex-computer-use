@@ -41,3 +41,10 @@
 - 增加普通 app 回归样本，而不是只覆盖 fixture。
 
 CI/CD 流程结构和 release 自动化的默认方案，统一写在 `docs/CICD.md`。
+
+## macOS Locked Use 预检
+
+- `ocu locked-use status --json`：只读检查当前会话 / runtime 权限 / 安装组件；本实验版本始终报告自动解锁不可用。
+- `swift test --filter LockedUseTests`：许可、租约、超时、显示器变化、本地接管和重锁确认策略回归。
+- `./scripts/build-locked-use-plugin.sh`：构建 deny-only ABI probe 并在普通进程内测试；通过不代表 SecurityAgent 加载成功。
+- 系统插件加载实验和后续真实锁屏测试是独立的人工门槛，不进入常规 CI / smoke，也不在日常账户自动运行。步骤和恢复路径见 [Locked Use](locked-use.md)。

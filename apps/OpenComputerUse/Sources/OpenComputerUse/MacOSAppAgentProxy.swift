@@ -387,7 +387,11 @@ private final class AppAgentConnection: @unchecked Sendable {
                         PermissionOnboardingApp.present()
                     }
                 }
-                return CLIProxyResponse(stdout: permissions.summary + "\n", stderr: "", exitCode: EXIT_SUCCESS)
+                return CLIProxyResponse(stdout: permissions.summary + "\n" + LockedUseDiagnostics.current().summary + "\n", stderr: "", exitCode: EXIT_SUCCESS)
+
+            case let .lockedUseStatus(json):
+                let diagnostics = LockedUseDiagnostics.current()
+                return CLIProxyResponse(stdout: (try json ? diagnostics.jsonText() : diagnostics.summary) + "\n", stderr: "", exitCode: EXIT_SUCCESS)
 
             case .listApps:
                 let service = ComputerUseService()

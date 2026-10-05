@@ -158,6 +158,8 @@ enum SnapshotBuilder {
             return buildFixtureSnapshot(app: app, state: fixtureState)
         }
 
+        try requireUsableComputerUseSession()
+
         let permissions = PermissionDiagnostics.current()
         guard permissions.accessibilityTrusted else {
             throw ComputerUseError.permissionDenied("Accessibility permission is required. Run `open-computer-use doctor` and grant access to Open Computer Use.")

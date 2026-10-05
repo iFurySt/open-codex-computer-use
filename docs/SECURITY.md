@@ -43,3 +43,10 @@
 - 任何面向真实 app 的能力新增，都不应该复用这条测试专用通道。
 
 仓库级的依赖、SBOM 和 provenance 默认能力，统一写在 `docs/SUPPLY_CHAIN_SECURITY.md`。
+
+## macOS Locked Use 实验边界
+
+- 当前 `available` / `enabled` 始终 false，真实锁屏控制 fail closed；用户环境、请求 metadata 和其他产品的插件都不能开启自动解锁。
+- 状态机的 connection / session 身份必须由未来认证 IPC 提供，纯 reducer 不提供身份认证；effect 不是系统状态证据。
+- 独立 Authorization 探针始终拒绝，不读写密码上下文；安装实验只注册独立 deny-only right，不改 `system.login.screensaver`。安装与卸载要求管理员执行并核对自身条目，不覆盖其他认证配置。
+- 开放 backend 前必须验证 Keychain 保持、保护组件故障和重锁确认。没有通过这些门槛不得将 AX / Screen Recording 授权等同于后台解锁许可。见 [实验与恢复说明](locked-use.md)。

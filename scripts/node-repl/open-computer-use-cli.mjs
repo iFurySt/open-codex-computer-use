@@ -124,6 +124,7 @@ Commands:
   repl                 Start a persistent interactive JavaScript session.
   capabilities         Report Node, adapter, native, js, and repl availability.
   doctor               Print permission status and launch onboarding if needed on macOS.
+  locked-use status    Print experimental macOS Locked Use readiness.
   list-apps            Print running or recently used apps.
   snapshot <app>       Print the current accessibility snapshot for an app.
   call <tool>          Call one tool, or run a JSON array of tool calls.

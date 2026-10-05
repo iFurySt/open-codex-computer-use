@@ -51,9 +51,13 @@ enum OpenComputerUseMain {
         case .doctor:
             let permissions = PermissionDiagnostics.current()
             print(permissions.summary)
+            print(LockedUseDiagnostics.current().summary)
             if !permissions.missingPermissions.isEmpty {
                 PermissionOnboardingApp.launch()
             }
+        case let .lockedUseStatus(json):
+            let diagnostics = LockedUseDiagnostics.current()
+            print(try json ? diagnostics.jsonText() : diagnostics.summary)
         case .listApps:
             let service = ComputerUseService()
             print(service.listApps().primaryText ?? "")
