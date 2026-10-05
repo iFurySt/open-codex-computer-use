@@ -55,7 +55,7 @@ extension VirtualDisplayNotebookKernel {
                 let state = try registry.state(sessionID: sessionID)
                 let existing = state.applications.filter { $0.app.caseInsensitiveCompare(app) == .orderedSame }
                 if existing.isEmpty {
-                    _ = try call("attach_app_to_virtual_display", ["app": app, "mode": "launch", "new_document": app == editor])
+                    _ = try call("attach_app_to_virtual_display", ["app": app, "mode": "launch", "new_document": app == editor, "manage_all_windows": true])
                 } else {
                     guard existing.count == 1, let owned = existing.first, owned.owned,
                           app != editor || owned.documentURL != nil else {

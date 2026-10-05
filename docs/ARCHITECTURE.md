@@ -168,7 +168,7 @@
 
 ## macOS 虚拟显示器与工作区
 
-macOS tool registry 增加九个虚拟会话/显示器 tools（共 18），原有 app tools 可选择 `session_id`，`get_app_state` 可明确选择 `window_id`。Windows/Linux 保持原有 9 个 tools。无 session 的旧调用不变。
+macOS tool registry 增加十个虚拟会话/显示器及候选查询 tools（共 19），原有 app tools 可选择 `session_id`，`get_app_state` 可明确选择 `window_id`。Windows/Linux 保持原有 9 个 tools。无 session 的旧调用不变。
 
 `apps/VirtualDisplayHost` 经 `packages/VirtualDisplayBridge` 创建并持有私有 CGVirtualDisplay 对象。每个显示器一个 helper；会话从本 runtime 的空屏池租用匹配配置的显示器，结束默认归还空屏，父进程管道关闭即退出；打包时复制到 `Contents/Helpers` 并先签 helper 后签主 bundle。AX、ScreenCaptureKit 与权限身份留在 OCU runtime。serial 使用跨 bundle/socket namespace 共用的固定 32 个身份槽位；跨 runtime 文件锁覆盖选择至 CG 上线，避开在线/本进程持有的 serial，耗尽时报错，IPC namespace 仍保持隔离；helper 仅在实际 origin/mirror 不一致时提交额外布局事务，不反复重写未变的物理屏。创建观察记录物理 frame、主屏、前台 PID 和 Dock 所在屏；Dock 迁移会暂停会话。
 
@@ -191,3 +191,5 @@ App-agent Quit 使用 RunLoop 调度 terminate/reply 与 worker 清理：termina
 侧栏将 Sessions 与 Displays 分组，显示器资源通过 typed `displayStates()` 查询活动/空闲状态及 sessionIDs。当前每屏零或一个活动会话、多应用；分组折叠不清除当前桌面选择，原生整体侧栏 toolbar/动画保留。精确租用传 create 的 displayID（必须匹配配置且空闲），显示器级 destroyDisplay 在 registry 串行锁内安全结束关联会话后再释放；应用退出与窗口恢复不可回滚，不承诺跨这些操作的 all-or-nothing。失败保留未完成状态，不终止其他屏或强杀应用。
 
 电源 coordinator 内置统一 metrics：`MetricsCollector` 读取固定 SMC/电池传感器与保活状态，`MetricsService` 独立队列采样，系统 sqlite3 `MetricsStore` 持久化短期记录与配置。默认 5 秒/1 小时，限 10,000 条/32 MiB 主库；SDK/CLI 支持范围查询、configure、clear。采集不创建防休眠许可，错误与保活隔离，未知传感器不伪装为零。详细功率口径和接口见 [电源保活 metrics](power-hold.md#metrics短期电源数据)。
+
+实例所有权与窗口范围分开：get_app_candidates 只读列出全部 PID/window 候选；attach launch 默认仅取得验证过的新实例、保持隐藏并返回候选窗口，不移动窗口。调用方逐个指定 PID/window_id 后才移动，全部待显示窗口确认在虚拟屏内后才应用级 unhide。manage_all_windows=true 仅显式授权专属启动的初始窗口；后续新普通窗口不自动进入范围。adopt 不应用级 hide/unhide，不退出借用进程，原位置通过身份校验恢复。

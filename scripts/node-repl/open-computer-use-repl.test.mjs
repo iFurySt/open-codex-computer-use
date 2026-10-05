@@ -321,3 +321,25 @@ test("display resource APIs preserve exact identity and cascade deletion argumen
     ["delete_virtual_display", {display_id: 42}],
   ]);
 });
+
+
+test("candidate lookup is read-only and dedicated whole-window ownership is explicit", async () => {
+  const calls = [];
+  const native = {async request(method, params) {
+    if (method === "tools/list") return {tools: [{name: "create_virtual_display"}]};
+    calls.push(params);
+    return textResult(JSON.stringify(params.name === "get_app_candidates" ? {candidates: [{pid: 7}, {pid: 8}]} : {session_id: "owned"}));
+  }};
+  const session = new PersistentJavaScriptSession({native});
+  const result = await session.run(`
+    var candidates = await cua.getAppCandidates("Example");
+    var display = await cua.getVirtualDisplay("owned");
+    await display.attachApp("Example", {mode: "launch"});
+    await display.attachApp(undefined, {pid: 7, windowId: 70});
+    await display.attachApp("com.apple.TextEdit", {mode: "launch", newDocument: true, manageAllWindows: true});
+  `);
+  assert.equal(result.isError, false);
+  assert.deepEqual(calls[0], {name: "get_app_candidates", arguments: {app: "Example"}});
+  assert.equal(calls.find(call => call.name === "attach_app_to_virtual_display").arguments.manage_all_windows, undefined);
+  assert.deepEqual(calls.at(-1).arguments, {session_id: "owned", app: "com.apple.TextEdit", mode: "launch", new_document: true, manage_all_windows: true});
+});

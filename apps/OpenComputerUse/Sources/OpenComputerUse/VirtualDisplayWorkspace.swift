@@ -55,6 +55,8 @@ final class VirtualDisplayWorkspaceModel: ObservableObject {
     @Published var selectedApp: String?
     @Published var windows: [VirtualDisplayWindowInfo] = []
     @Published var selectedWindow: UInt32?
+    @Published var selectedProcessPID: Int32?
+    @Published var candidateProcesses: [VirtualDisplayApplicationCandidate] = []
     @Published var search = ""
     @Published var launch = true
     @Published var scale = 1
@@ -84,14 +86,22 @@ final class VirtualDisplayWorkspaceModel: ObservableObject {
     }
     func refresh() async {
         let selection = selectedApp
+        let selectedPID = selectedProcessPID
         let values = await Task.detached { [registry] in
             let apps = VirtualDisplaySessionRegistry.availableApplications()
             let selected = apps.first { $0.id == selection }
-            return (apps, registry.states(), selected?.pid.map { registry.availableWindows(pid: $0) } ?? [], PermissionDiagnostics.current().allGranted, registry.displayStates())
+            let candidates = selected.map { (try? registry.applicationCandidates(app: $0.bundleIdentifier)) ?? [] } ?? []
+            return (apps, registry.states(), candidates.first { $0.pid == selectedPID }?.windows ?? [], PermissionDiagnostics.current().allGranted, registry.displayStates(), selected == nil ? [] : candidates)
         }.value
         let previousDisplays = Set(displays.map(\.displayID))
         applications = values.0; sessions = values.1; permissionsGranted = values.3; displays = values.4
-        if selection == selectedApp { windows = values.2 }
+        if selection == selectedApp && selectedPID == selectedProcessPID {
+            candidateProcesses = values.5
+            windows = values.2
+            if let selectedProcessPID, !candidateProcesses.contains(where: { $0.pid == selectedProcessPID }) {
+                self.selectedProcessPID = nil
+            }
+        }
         let live = Set(sessions.map(\.sessionID))
         notebooks = notebooks.filter { live.contains($0.key) }
         names = names.filter { live.contains($0.key) }
@@ -103,7 +113,7 @@ final class VirtualDisplayWorkspaceModel: ObservableObject {
             if !live.contains(selectedSession ?? "") { selectedSession = sessions.first?.sessionID }
         }
         if previousDisplays != Set(displays.map(\.displayID)) { displayDidChange?() }
-        if selectedWindow == nil || !windows.contains(where: { $0.id == selectedWindow }) { selectedWindow = windows.first?.id }
+        if selectedWindow == nil || !windows.contains(where: { $0.id == selectedWindow }) { selectedWindow = nil }
     }
     func create() {
         guard !busy else { return }
@@ -121,12 +131,25 @@ final class VirtualDisplayWorkspaceModel: ObservableObject {
         }
     }
     func addApplication() {
-        guard let app = chosen, let state else { return }
-        let mode = launch; let window = selectedWindow
-        perform { [registry] in
-            _ = try registry.attach(sessionID: state.sessionID, app: app.bundleIdentifier,
-                                    pid: mode ? nil : app.pid, windowID: mode ? nil : window, launch: mode)
-        } completed: { self.showingAddApp = false }
+        guard !busy, let app = chosen, let state else { return }
+        let mode = launch; let window = selectedWindow; let processPID = selectedProcessPID
+        let previousPIDs = Set(state.applications.map(\.pid))
+        busy = true; message = nil
+        Task {
+            do {
+                let result = try await Task.detached { [registry] in
+                    try registry.attach(sessionID: state.sessionID, app: app.bundleIdentifier,
+                        pid: mode ? nil : processPID, windowID: mode ? nil : window, launch: mode)
+                }.value
+                if mode {
+                    // A new process is owned, but no window has been selected for movement.
+                    launch = false
+                    selectedProcessPID = result.applications.first { !previousPIDs.contains($0.pid) }?.pid
+                    selectedWindow = nil
+                } else { showingAddApp = false }
+            } catch { message = error.localizedDescription }
+            busy = false; await refresh()
+        }
     }
     func pauseOrResume() {
         guard let state else { return }
@@ -414,27 +437,44 @@ struct VirtualDisplayWorkspaceView: View {
             if let message = model.message { Text(message).foregroundStyle(.red) }
         }.padding(24).frame(width: 440)
     }
+    private var applicationScopeDescription: String {
+        if model.launch {
+            return "Request a new dedicated instance, then select its windows. It will quit safely with the session."
+        }
+        if model.state?.applications.contains(where: { $0.pid == model.selectedProcessPID && $0.owned }) == true {
+            return "Select this dedicated instance’s windows one at a time. It stays hidden until every window is contained, and quits safely with the session."
+        }
+        return "Only the selected window will temporarily move to the virtual display. Other windows stay in place; the borrowed process will not quit."
+    }
+
     private var addAppSheet: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Add application to session").font(.title2)
             TextField("Find an application", text: $model.search)
             List(model.filtered, selection: $model.selectedApp) { app in
-                HStack { Text(app.name); Spacer(); Text(app.pid.map { "PID \($0)" } ?? "Installed").foregroundStyle(.secondary) }.tag(app.id)
+                HStack { Text(app.name); Spacer(); Text(app.bundleIdentifier).font(.caption).foregroundStyle(.secondary).lineLimit(1) }.tag(app.id)
             }.frame(height: 260)
             Toggle("Launch a dedicated instance", isOn: $model.launch)
             if !model.launch {
+                Picker("Existing process", selection: $model.selectedProcessPID) {
+                    Text("Select process").tag(Optional<Int32>.none)
+                    ForEach(model.candidateProcesses) { candidate in
+                        Text("\(candidate.name) · PID \(candidate.pid)").tag(Optional(candidate.pid))
+                    }
+                }
                 Picker("Existing window", selection: $model.selectedWindow) {
                     Text("Select window").tag(Optional<UInt32>.none)
                     ForEach(model.windows) { Text($0.title).tag(Optional($0.id)) }
                 }
             }
-            Text("Dedicated instances quit with the session. Borrowed windows are restored.").font(.caption).foregroundStyle(.secondary)
+            Text(applicationScopeDescription).font(.caption).foregroundStyle(.secondary)
             HStack { Spacer(); Button("Cancel") { model.showingAddApp = false }.disabled(model.busy)
-                Button("Add") { model.addApplication() }.keyboardShortcut(.defaultAction)
-                    .disabled(model.busy || model.chosen == nil || (!model.launch && model.selectedWindow == nil)) }
+                Button(model.launch ? "Launch" : "Move selected window") { model.addApplication() }.keyboardShortcut(.defaultAction)
+                    .disabled(model.busy || model.chosen == nil || (!model.launch && (model.selectedProcessPID == nil || model.selectedWindow == nil))) }
             if let message = model.message { Text(message).foregroundStyle(.red) }
         }.padding(24).frame(width: 500)
-        .onChange(of: model.selectedApp) { _, _ in model.selectedWindow = nil; Task { await model.refresh() } }
+        .onChange(of: model.selectedApp) { _, _ in model.selectedWindow = nil; model.selectedProcessPID = nil; Task { await model.refresh() } }
+        .onChange(of: model.selectedProcessPID) { _, _ in model.selectedWindow = nil; Task { await model.refresh() } }
     }
 }
 

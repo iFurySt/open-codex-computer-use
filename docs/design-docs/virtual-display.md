@@ -49,12 +49,13 @@ TextEdit 通过 `attach_app_to_virtual_display` 的可选 `new_document: true` �
 
 Swift：`VirtualDisplaySessionRegistry.shared` 提供 `create`、`states` / `currentState` / `state`、`attach`、`availableApplications` / `availableWindows`、`selectWindow`、`pause` / `resume` / `destroy` / `destroyAll`。阻塞生命周期 API 在 worker 调用。`capture(sessionID:).subscribeFrames` / `unsubscribeFrames` 在捕获队列提供原始帧；消费者必须及时返回，最多保留最新一帧。
 
-macOS 增加九个 MCP tools：
+macOS 增加十个 MCP tools：
 
 | 工具 | 关键参数 |
 | --- | --- |
 | `create_virtual_display` | 可选 `width`, `height`, `scale`, `reuse_display=true`, 可选精确 `display_id` |
-| `attach_app_to_virtual_display` | `session_id`, `app`, `mode=adopt/launch`；adopt 必须提供 `pid`, `window_id` |
+| `get_app_candidates` | 可选 `app`, `pid`；返回全部匹配候选，不授权移动 |
+| `attach_app_to_virtual_display` | `session_id`, `mode=adopt/launch`；launch 必须提供 `app`，默认只启动并返回候选；adopt 必须提供 `pid`, `window_id`，`app` 可选身份核对；launch 可显式 `manage_all_windows=true` |
 | `get_virtual_display_state` | 可选 `session_id`；省略时返回所有 sessions、idle_displays 和 displays |
 | `pause_virtual_display` / `resume_virtual_display` | `session_id` |
 | `destroy_virtual_display` | `session_id`, `retain_display=true`；false 真正移除 |
@@ -217,3 +218,17 @@ await cua.releaseVirtualDisplays({displayId: idle[0].display_id});
 恢复前先备份并核对 profile 内容、哈希及无在线 OCU 屏。定向隔离旧 OCU profile 需要管理员授权和恢复方案；不能无条件清空 ColorSync 全局设备缓存、删除 WindowServer prefs、重启 WindowServer 或改变物理屏色彩配置。暂停额外 hotplug 压力测试，直到桌面稳定并协调恢复验证。
 
 参考：[MirageKit 原始排查](https://github.com/EthanLipnik/MirageKit/blob/main/If-Your-Computer-Feels-Stuttery.md)、[同版本 macOS 的 ColorSync / registry 调查](https://github.com/dripster82/ar_workspace_manager_for_xreal/blob/main/Docs/ColorSync-AirII-investigation.md)。这些是项目观察，不能直接等同本机根因。
+
+## 应用启动、实例所有权与窗口接管
+
+App 标识仅定位或请求启动，PID 确定实际进程，window_id 指定移动/操作范围。launch 默认保持验证过的新实例隐藏，返回 applications[].pid/candidate_windows（phase=awaiting_window_selection）；调用方逐个 attach(mode=adopt,pid,window_id) 明确授权移动，该实例的 owned 身份保持不变。为防止 unhide 造成其他专属窗口闪现，全部窗口都确认纳入并读回在虚拟屏内后才 reveal；只选一部分时其余窗口仍隐藏，输入被拒绝。新普通窗口不自动加入，专属实例可见新窗口使会话暂停；借用进程其他普通窗口不移动，未知 modal/sheet 暂停。可确认属于授权窗口且几何位于虚拟屏内的 AXSheets 沿用父窗口范围。
+
+需要整体管理专属新实例时，调用方显式传 manage_all_windows=true；仅授权启动时的已发现窗口。内置 Calculator→TextEdit 示例和专属 runner 显式设置该参数。GUI 默认两步：Launch 后明确选择实际进程和窗口，列表不默认挑选第一个 PID/window。已借用进程不 hide/unhide/quit；PID 出生时间、bundle 和窗口身份仍持续校验，退出仍不丢弃未保存内容。
+
+启动复用旧 PID 时返回 isError=true JSON：error=launch_reused_existing_instance 和 candidates；不改变模式、不 hide 旧实例。候选查询有 windows_available，缺少 AX 权限或 blocked app 不返回窗口详情。多窗口沿用现有单个 window_id 逐次授权，避免新增隐式批量范围。
+
+Chrome 专属 profile 加 --window-position 使用实际虚拟屏坐标，随后仍走 AX 移动读回。[Apple OpenConfiguration](https://developer.apple.com/documentation/appkit/nsworkspace/openconfiguration) 的 hides 是启动后请求隐藏；不存在通用目标显示器参数，不能保证零闪现。不会改变 Dock/Spaces 应用分配，不把同 PID 窗口当独立桌面，禁止全局输入/激活/共享剪贴板的边界保持。
+
+JS：cua.getAppCandidates(app?, {pid?})；display.attachApp(app?, {mode, pid?, windowId?, newDocument?, manageAllWindows?})。默认 launch 不再等于自动移动全部窗口，这是有意收紧授权语义；旧调用如依赖全部专属窗口须显式加 manageAllWindows。
+
+验证后的专属实例返回回调时立即注册 AXWindowCreated 通知，用于初次 reveal 前继续保持隐藏；通知不可用时使用现有 AX 轮询。通知属于事后事件，不保证零闪现。暂停后可逐个明确加入窗口，仍检查显示器布局/权限/前台与 PID；不会自动恢复输入，授权完成后须 resume。移动失败重试保留第一次记录的原始 frame，不覆盖恢复基线。

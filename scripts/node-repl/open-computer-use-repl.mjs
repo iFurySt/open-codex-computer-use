@@ -37,7 +37,8 @@ The runtime exposes an asynchronous app-bound API:
 - \`await cua.getState({ emit? })\`: list current apps.
 - \`await cua.listApps({ emit? })\`: list current apps.
 - \`await cua.getApp(nameOrBundleID)\`: bind an app and emit its initial accessibility state.
-- \`await cua.createVirtualDisplay({ width?, height?, scale?, reuseDisplay?, displayId? })\` (macOS): returns a session with \`id\`, \`attachApp(app, { mode: "adopt"|"launch", pid?, windowId? })\`, \`getState()\`, \`pause()\`, \`resume()\`, \`destroy({ retainDisplay? })\` and \`getApp(app, { windowId? })\`.
+- \`await cua.getAppCandidates(app?, { pid? })\` (macOS): read-only candidate lookup; explicit PID/window selection is required for adoption.
+- \`await cua.createVirtualDisplay({ width?, height?, scale?, reuseDisplay?, displayId? })\` (macOS): returns a session with \`id\`, \`attachApp(app, { mode: "adopt"|"launch", pid?, windowId?, newDocument?, manageAllWindows? })\`, \`getState()\`, \`pause()\`, \`resume()\`, \`destroy({ retainDisplay? })\` and \`getApp(app, { windowId? })\`.
 - macOS display reuse: \`await cua.prewarmVirtualDisplay({scale: 1})\`, \`await cua.listIdleVirtualDisplays()\`, \`await cua.releaseVirtualDisplays({displayId?})\`. Create reuses matching idle displays by default; destroy retains an empty display by default. First creation and final release may move Dock.
 - \`await cua.getVirtualDisplay(sessionId)\`: join an existing macOS session and get its lifecycle controller. Use \`await cua.listVirtualDisplays()\` to discover sessions; each can contain multiple applications.
 - \`await cua.getApp(app, { sessionId, windowId? })\`: join an existing virtual session shown in the OCU GUI. Virtual sessions never activate apps, post global input or use the clipboard; drag is unsupported. Sessions survive client disconnect and turn-ended, but each new turn/resume needs a fresh state.
@@ -250,9 +251,12 @@ export function createCuaApi(native, activeOutput) {
     return Object.freeze({
       id,
       async attachApp(app, options = {}) {
-        const args = { session_id: id, app, mode: options.mode ?? "adopt" };
+        const args = { session_id: id, mode: options.mode ?? "adopt" };
+        if (app !== undefined) args.app = app;
         if (options.pid !== undefined) args.pid = options.pid;
         if (options.windowId !== undefined) args.window_id = options.windowId;
+        if (options.newDocument !== undefined) args.new_document = options.newDocument;
+        if (options.manageAllWindows !== undefined) args.manage_all_windows = options.manageAllWindows;
         return JSON.parse(toolResultText(await call("attach_app_to_virtual_display", args)));
       },
       async getState() { return JSON.parse(toolResultText(await call("get_virtual_display_state", { session_id: id }))); },
@@ -373,6 +377,13 @@ export function createCuaApi(native, activeOutput) {
       const args = {};
       for (const key of ["width", "height", "scale"]) if (options[key] !== undefined) args[key] = options[key];
       return JSON.parse(toolResultText(await call("prewarm_virtual_display", args)));
+    },
+    async getAppCandidates(app, options = {}) {
+      await requireVirtualSupport();
+      const args = {};
+      if (app !== undefined) args.app = app;
+      if (options.pid !== undefined) args.pid = options.pid;
+      return JSON.parse(toolResultText(await call("get_app_candidates", args)));
     },
     async listDisplayResources() {
       await requireVirtualSupport();

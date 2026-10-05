@@ -46,11 +46,15 @@ public enum ToolDefinitions {
             "scale": integerProperty(description: "Backing scale: 1 (default) or 2"),
             "display_id": positiveIntegerProperty(description: "Optional exact idle display to reuse; configuration must match"),
             "reuse_display": ["type": "boolean", "description": "Reuse a matching idle display; default true"]], required: [])),
-        ToolDefinition(name: "attach_app_to_virtual_display", description: "Launch a dedicated app instance or adopt an exact existing pid/window into a virtual display. app must be a bundle identifier for launch. Multiple applications can share a display; each process belongs to only one session. Target must not be frontmost.", annotations: defaultAnnotations(), inputSchema: objectSchema(properties: [
-            "session_id": stringProperty(description: "Virtual session identifier"), "app": stringProperty(description: "App name or bundle identifier"),
+        ToolDefinition(name: "get_app_candidates", description: "Read-only query of all matching running processes and their windows. app/pid filters are optional. Candidates do not authorize window movement or input; explicitly select PID and window_id for adoption.", annotations: readOnlyAnnotations(), inputSchema: objectSchema(properties: [
+            "app": stringProperty(description: "Optional exact app name or bundle identifier"),
+            "pid": positiveIntegerProperty(description: "Optional exact process identifier")], required: [])),
+        ToolDefinition(name: "attach_app_to_virtual_display", description: "Launch a dedicated instance and return candidate windows without moving them, or adopt one explicit PID/window. Dedicated launch stays hidden until selected windows are contained; manage_all_windows explicitly authorizes all initial windows. app must be a bundle identifier for launch. Multiple applications can share a display; each process belongs to only one session. Target must not be frontmost.", annotations: defaultAnnotations(), inputSchema: objectSchema(properties: [
+            "session_id": stringProperty(description: "Virtual session identifier"), "app": stringProperty(description: "Required bundle identifier for launch; optional identity check for adopt"),
             "mode": stringProperty(description: "adopt (default) or launch", enumValues: ["adopt", "launch"]),
+            "manage_all_windows": ["type": "boolean", "description": "Launch only: explicitly authorize all initial windows of the verified dedicated instance. Default false; later new windows require selection"],
             "new_document": ["type": "boolean", "description": "For dedicated TextEdit launch: create a session-owned temporary text document"],
-            "pid": positiveIntegerProperty(description: "Required for adopt"), "window_id": positiveIntegerProperty(description: "Required for adopt")], required: ["session_id", "app"])),
+            "pid": positiveIntegerProperty(description: "Required for adopt"), "window_id": positiveIntegerProperty(description: "Required for adopt")], required: ["session_id"])),
         ToolDefinition(name: "get_virtual_display_state", description: "Inspect one virtual session, including managed applications/windows. Omit session_id to list all sessions.", annotations: readOnlyAnnotations(), inputSchema: objectSchema(properties: ["session_id": stringProperty(description: "Optional virtual session identifier; omit to list")], required: [])),
         sessionTool("pause_virtual_display", "Pause virtual-session input."),
         sessionTool("resume_virtual_display", "Validate identity and geometry, then resume a paused session."),

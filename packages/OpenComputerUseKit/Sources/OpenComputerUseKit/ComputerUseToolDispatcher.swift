@@ -89,17 +89,25 @@ public final class ComputerUseToolDispatcher {
             let rawID = try optionalPositiveInt("display_id", in: arguments)
             guard rawID == nil || rawID! <= Int(UInt32.max) else { throw ComputerUseError.invalidArguments("display_id out of range") }
             return try result(registry.create(configuration: configuration(), reuseDisplay: boolean("reuse_display", default: true), displayID: rawID.map(UInt32.init)))
+        case "get_app_candidates":
+            guard arguments["app"] == nil || arguments["app"] is String else { throw ComputerUseError.invalidArguments("app must be a string") }
+            let rawPID = try optionalPositiveInt("pid", in: arguments)
+            guard rawPID == nil || rawPID! <= Int(Int32.max) else { throw ComputerUseError.invalidArguments("pid out of range") }
+            let value = try registry.applicationCandidates(app: optionalString("app", in: arguments), pid: rawPID.map(Int32.init)).map(\.dictionary)
+            return .text(String(decoding: try JSONSerialization.data(withJSONObject: ["candidates": value], options: [.sortedKeys]), as: UTF8.self))
         case "attach_app_to_virtual_display":
             let rawPID = try optionalPositiveInt("pid", in: arguments)
             let rawWindow = try optionalPositiveInt("window_id", in: arguments)
             guard rawPID == nil || rawPID! <= Int(Int32.max), rawWindow == nil || rawWindow! <= Int(UInt32.max) else {
                 throw ComputerUseError.invalidArguments("pid/window_id out of range")
             }
+            guard arguments["mode"] == nil || arguments["mode"] is String else { throw ComputerUseError.invalidArguments("mode must be a string") }
             let mode = optionalString("mode", in: arguments) ?? "adopt"
             guard ["adopt", "launch"].contains(mode) else { throw ComputerUseError.invalidArguments("mode must be adopt or launch") }
             guard arguments["new_document"] == nil || arguments["new_document"] is Bool else { throw ComputerUseError.invalidArguments("new_document must be a boolean") }
+            guard arguments["app"] == nil || arguments["app"] is String else { throw ComputerUseError.invalidArguments("app must be a string") }
             return try result(registry.attach(sessionID: requireString("session_id", in: arguments),
-                app: requireString("app", in: arguments), pid: rawPID.map(Int32.init), windowID: rawWindow.map(UInt32.init), launch: mode == "launch", newDocument: arguments["new_document"] as? Bool ?? false))
+                app: optionalString("app", in: arguments), pid: rawPID.map(Int32.init), windowID: rawWindow.map(UInt32.init), launch: mode == "launch", newDocument: boolean("new_document", default: false), manageAllWindows: boolean("manage_all_windows", default: false)))
         case "get_virtual_display_state":
             if arguments["session_id"] == nil {
                 let value: [String: Any] = ["sessions": registry.states().map(\.dictionary), "idle_displays": registry.idleDisplayStates(), "displays": registry.displayStates().map(\.dictionary)]
@@ -200,6 +208,9 @@ public final class ComputerUseToolDispatcher {
     public func callToolAsResult(name: String, arguments: [String: Any]) -> ToolCallResult {
         do {
             return try callTool(name: name, arguments: arguments)
+        } catch let error as VirtualDisplayLaunchReusedError {
+            let data = try? JSONSerialization.data(withJSONObject: error.dictionary, options: [.sortedKeys])
+            return .text(data.map { String(decoding: $0, as: UTF8.self) } ?? error.localizedDescription, isError: true)
         } catch let error as ComputerUseError {
             return ToolCallResult.text(
                 error.errorDescription ?? String(describing: error),

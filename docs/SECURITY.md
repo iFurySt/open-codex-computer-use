@@ -68,3 +68,5 @@
 显示器级删除只针对本 runtime 拥有的资源，在串行锁下先结束其关联会话，再移除 helper/display；任一安全清理失败都保留未完成状态。create 的精确 display_id 仅可选择匹配配置的空屏，不能隐式接管活动或其他 runtime 的显示器。GUI session trash 默认保留屏，另有明确同时删除入口。
 
 电源 metrics 仅读取固定 AppleSMC PSTR 与电池数值/固定状态，不暴露任意 SMC 命令或写入；用户态 SQLite 目录/文件为 0700/0600，拒绝 symlink、硬链接、非本用户及 extended ACL。存储数据不含输入、画面、应用列表、序列号或证书，不上传。查询复用同 UID socket 信任域，保留配置有上限，clear 仅处理本模块数值历史；关闭协调器期间过期数据于下一次启动/查询清理。
+
+launch 默认不授权所有窗口；只有显式 manage_all_windows 才允许管理验证过的专属实例初始窗口。adopt 必须包含 PID/window_id，app 为可选身份校验。候选查询是只读信息，无授权含义；新普通窗口不自动纳入，未知 modal/sheet 暂停。应用级 hide/unhide 仅验证新 PID、bundle 与出生时间后用于专属实例。

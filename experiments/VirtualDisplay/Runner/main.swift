@@ -276,7 +276,7 @@ func thirdPartyCheck(_ bundle: String) throws {
     let originalFrontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier
     let state = try registry.create()
     do {
-        let attached = try registry.attach(sessionID: state.sessionID, app: bundle, launch: true)
+        let attached = try registry.attach(sessionID: state.sessionID, app: bundle, launch: true, manageAllWindows: true)
         report("third_party_attached", attached.dictionary)
         let dispatcher = ComputerUseToolDispatcher()
         let args: [String: Any] = ["session_id": state.sessionID, "app": bundle, "text_limit": "max"]

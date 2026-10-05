@@ -20,6 +20,58 @@ final class VirtualDisplayTests: XCTestCase {
         }
     }
 
+    func testAdoptionRequiresExplicitWindowAndLaunchRejectsAdoptionArguments() throws {
+        XCTAssertNoThrow(try VirtualDisplayAttachmentIntent.validate(app: nil, pid: 12, windowID: 34, launch: false, newDocument: false))
+        for (app, pid, window, launch, document) in [
+            ("Example" as String?, nil as Int32?, nil as UInt32?, false, false),
+            (nil, 12, nil, false, false),
+            (nil, 12, 34, true, false),
+            ("Example", 12, 34, true, false),
+            ("Example", nil, nil, true, true),
+            ("com.apple.TextEdit", 12, 34, false, true)
+        ] {
+            XCTAssertThrowsError(try VirtualDisplayAttachmentIntent.validate(app: app, pid: pid, windowID: window, launch: launch, newDocument: document))
+        }
+    }
+
+    func testHideOwnershipRequiresNewMatchingVerifiableProcess() {
+        let birth = Date()
+        XCTAssertTrue(VirtualDisplayAttachmentIntent.verifiedDedicatedInstance(pid: 2, previousPIDs: [1], requestedApp: "Example", actualApp: "example", birth: birth))
+        XCTAssertFalse(VirtualDisplayAttachmentIntent.verifiedDedicatedInstance(pid: 1, previousPIDs: [1], requestedApp: "Example", actualApp: "Example", birth: birth))
+        XCTAssertFalse(VirtualDisplayAttachmentIntent.verifiedDedicatedInstance(pid: 2, previousPIDs: [1], requestedApp: "Example", actualApp: "Other", birth: birth))
+        XCTAssertFalse(VirtualDisplayAttachmentIntent.verifiedDedicatedInstance(pid: 2, previousPIDs: [1], requestedApp: "Example", actualApp: "Example", birth: nil))
+    }
+
+    func testUnmanagedBorrowedWindowsStayOutsideScopeAndUnknownDialogsPause() {
+        XCTAssertFalse(VirtualDisplayAttachmentIntent.shouldPauseForUnmanagedWindow(owned: false, hidden: false, modal: false))
+        XCTAssertFalse(VirtualDisplayAttachmentIntent.shouldPauseForUnmanagedWindow(owned: true, hidden: true, modal: false))
+        XCTAssertTrue(VirtualDisplayAttachmentIntent.shouldPauseForUnmanagedWindow(owned: true, hidden: false, modal: false))
+        XCTAssertTrue(VirtualDisplayAttachmentIntent.shouldPauseForUnmanagedWindow(owned: false, hidden: false, modal: true))
+        XCTAssertTrue(VirtualDisplayAttachmentIntent.shouldPauseForUnmanagedWindow(owned: true, hidden: true, modal: true))
+    }
+
+    func testLaunchReuseErrorContainsCandidatesWithoutImplicitAuthorization() {
+        let candidate = VirtualDisplayApplicationCandidate(pid: 12, app: "Example", name: "Example", windows: [], windowsAvailable: true)
+        let error = VirtualDisplayLaunchReusedError(candidates: [candidate])
+        XCTAssertEqual(error.dictionary["error"] as? String, "launch_reused_existing_instance")
+        XCTAssertEqual((error.dictionary["candidates"] as? [[String: Any]])?.first?["pid"] as? Int32, 12)
+    }
+
+    func testCandidateQueryReadsRealProcessesWithoutClaimingWindows() throws {
+        let registry = VirtualDisplaySessionRegistry.shared
+        let before = registry.states().map(\.sessionID)
+        let candidates = try registry.applicationCandidates()
+        XCTAssertEqual(candidates.map(\.pid), candidates.map(\.pid).sorted())
+        XCTAssertEqual(Set(candidates.map(\.pid)).count, candidates.count)
+        for candidate in candidates {
+            XCTAssertGreaterThan(candidate.pid, 0)
+            XCTAssertTrue(candidate.windows.allSatisfy { $0.pid == candidate.pid })
+            if !candidate.windowsAvailable { XCTAssertTrue(candidate.windows.isEmpty) }
+        }
+        XCTAssertTrue(try registry.applicationCandidates(app: "ocu.uninstalled.\(UUID().uuidString)").isEmpty)
+        XCTAssertEqual(registry.states().map(\.sessionID), before)
+    }
+
     func testBrowserCursorAssetLoadsFromPackageResources() throws {
         let image = try XCTUnwrap(BrowserUseCursorArtwork.image)
         XCTAssertEqual(image.width, 46)

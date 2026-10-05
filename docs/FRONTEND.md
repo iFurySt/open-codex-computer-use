@@ -25,3 +25,5 @@ UI 状态在 MainActor 更新，显示器/AX/捕获生命周期在 worker 执行
 侧栏内容分为 Sessions / Displays，独立可折叠；分组标题整行点击折叠，hover 显示展开方向的 chevron 与右侧 +（两处都新建会话），项目 hover 显示 trash。分组标题禁用 List selection，折叠造成的 nil selection 不清除当前预览。Session trash 默认删除会话并保留空屏，右键可选 Delete Session and Display；Display trash 安全删除该屏与关联会话。Displays 包含活动/空闲资源，活动屏选中后查看会话；空屏展示配置与复用入口，创建精确绑定该 display ID 并锁定配置。失败展示原因并保留资源，操作期间禁用删除；独立捕获不在空闲页自动恢复。保留原生 NavigationSplitView 全高、品牌和 toolbar；空闲页复用原生 glass/bordered Create Session 按钮。
 
 侧栏横向间距集中在 WorkspaceSidebarLayout：外侧 gutter 10 points，品牌、分组标题与原生选中框使用同一边界；组内 session/display 行内容在 8 points 内边距基础上再向右缩进 12 points，右侧删除按钮保持统一内边距，选中框不随层级缩窄。禁止分别给 Logo/分组叠加不同横向 padding。
+
+Add application sheet 的应用选择与进程/窗口选择分开：应用列表显示 bundle ID；Launch 默认只创建验证过的新实例，保持 sheet 并转入具体 PID/window 选择。候选列表完整展示同一 App 的多个进程，不默认选择首个窗口。Move selected window 说明仅该窗口暂时移动；借用应用不会隐藏或退出。专属实例如有多个窗口，逐个加入后才整体 reveal。

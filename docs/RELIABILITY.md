@@ -76,3 +76,5 @@ IOKit assertions 随协调器进程退出释放。合盖 helper 在修改 pmset 
 恢复前先备份并核对 profile 内容、哈希及无在线 OCU 屏。定向隔离旧 OCU profile 需要管理员授权和恢复方案；不能无条件清空 ColorSync 全局设备缓存、删除 WindowServer prefs、重启 WindowServer 或改变物理屏色彩配置。暂停额外 hotplug 压力测试，直到桌面稳定并协调恢复验证。
 
 参考：[MirageKit 原始排查](https://github.com/EthanLipnik/MirageKit/blob/main/If-Your-Computer-Feels-Stuttery.md)、[同版本 macOS 的 ColorSync / registry 调查](https://github.com/dripster82/ar_workspace_manager_for_xreal/blob/main/Docs/ColorSync-AirII-investigation.md)。这些是项目观察，不能直接等同本机根因。
+
+实例授权回归覆盖新 PID/bundle/出生时间的 hide 资格、adopt 必需具体 PID/window、未知窗口/modal 的暂停策略、真实运行进程只读候选查询、结构化 reused 错误和 JS 显式整实例参数。默认 launch 两阶段后不自动移动；零闪现以及多窗口真实移动/恢复与 AX 通知效果仍待桌面稳定后的 signed GUI 验收，不把测试策略函数当真实 UI 成功证据。
