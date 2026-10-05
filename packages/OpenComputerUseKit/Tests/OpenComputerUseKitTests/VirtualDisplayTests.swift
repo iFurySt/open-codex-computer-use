@@ -28,14 +28,32 @@ final class VirtualDisplayTests: XCTestCase {
     }
 
     func testStableDisplaySlotsNeverReuseAnOccupiedIdentity() throws {
-        let first = try VirtualDisplayIdentity.availableSerial(identity: "release|test", occupied: [])
-        let second = try VirtualDisplayIdentity.availableSerial(identity: "release|test", occupied: [first])
+        let first = try VirtualDisplayIdentity.availableSerial(occupied: [])
+        let second = try VirtualDisplayIdentity.availableSerial(occupied: [first])
         XCTAssertNotEqual(first, second)
-        XCTAssertEqual(try VirtualDisplayIdentity.availableSerial(identity: "release|test", occupied: []), first)
-        XCTAssertNotEqual(first, try VirtualDisplayIdentity.availableSerial(identity: "dev|test", occupied: []))
-        let occupied = Set((UInt32(0)..<256).map { VirtualDisplayIdentity.serial(identity: "release|test", slot: $0) })
+        XCTAssertEqual(try VirtualDisplayIdentity.availableSerial(occupied: []), first)
+        let occupied = Set((UInt32(0)..<VirtualDisplayIdentity.slotCount).map { VirtualDisplayIdentity.serial(slot: $0) })
+        XCTAssertEqual(occupied.count, 32)
         XCTAssertFalse(occupied.contains(0))
-        XCTAssertThrowsError(try VirtualDisplayIdentity.availableSerial(identity: "release|test", occupied: occupied))
+        XCTAssertThrowsError(try VirtualDisplayIdentity.availableSerial(occupied: occupied))
+        var freed = occupied
+        freed.remove(second)
+        XCTAssertEqual(try VirtualDisplayIdentity.availableSerial(occupied: freed), second)
+    }
+
+    func testDisplayAllocationLockReleasesAfterFailure() throws {
+        enum Expected: Error { case failure }
+        XCTAssertThrowsError(try VirtualDisplayIdentity.withCreationLock { throw Expected.failure })
+        XCTAssertEqual(try VirtualDisplayIdentity.withCreationLock { 42 }, 42)
+    }
+
+    func testRepeatedDisplayLifetimesUseBoundedPhysicalIdentity() throws {
+        var observed = Set<UInt32>()
+        for _ in 0..<1_000 {
+            // Runtime namespace and bundle identity are deliberately absent from allocation.
+            observed.insert(try VirtualDisplayIdentity.availableSerial(occupied: []))
+        }
+        XCTAssertEqual(observed, [VirtualDisplayIdentity.serial(slot: 0)])
     }
     func testVirtualSkyClickCannotSynthesizeActivationEvenWhenTargetIsInactive() {
         XCTAssertFalse(skyClickNeedsSyntheticFocus(frontmostPID: 10, targetPID: 20, allowSyntheticFocus: false))
