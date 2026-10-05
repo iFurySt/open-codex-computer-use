@@ -110,3 +110,5 @@ Apple DTS 确认过 screensaver authorization plugin 的 Data Protection Keychai
 - watchdog 首帧健康检查新增独立、不锁屏的 surface self-test。实测缩放后的窗口矩形与完整显示器不同；禁用 NSWindow 出现动画后自检通过。全屏窗口禁用 AppKit frame constraint，并增加真实矩形诊断。控制器支持观察正常手动解锁替代 stdin 确认，遵循用户固定解锁节奏；不以等待时间当作解锁证据。
 
 - 双保护真实锁屏准备检查已通过，Broker 进入 authorizing；解锁触发未找到可提交 AX secure field，实际会话保持锁定，保护正常收束。加入有界 AX publication 等待与仅结构的诊断，尚未证明自动解锁。
+
+- 后续固定 Return 提交实验没有证明自动解锁，Broker RPC 超时后未收到 agent 排空 ACK，导致双保护反复请求锁定并阻碍用户登录数分钟。已停止真实锁屏实验、卸载组件并恢复原认证规则。新增停止重复锁屏、独立 agent 准备 / 清理 deadline 与排空日志；先验证无锁屏故障链路和恢复时延，再恢复实机测试。准备期限 8 秒、停止期限 5 秒只约束 agent 退出，不代表全系统恢复期限已经验证。

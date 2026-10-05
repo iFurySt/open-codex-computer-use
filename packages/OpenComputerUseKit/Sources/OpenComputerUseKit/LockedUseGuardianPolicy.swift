@@ -72,9 +72,15 @@ public struct LockedUseGuardianPolicy: Sendable {
         guard phase != .finished else { return [] }
         let sameSession = current.userID == session.userID && current.auditSessionID == session.auditSessionID
         if phase == .relocking {
-            if sameSession, current.state == .locked, quiesced {
-                phase = .finished
-                return [.releaseShield]
+            if sameSession, current.state == .locked {
+                if quiesced {
+                    phase = .finished
+                    return [.releaseShield]
+                }
+                // Waiting for the action drain is not another lock request.
+                // Repeated SPI calls can dismiss the password UI while the
+                // user is trying to recover from a failed authorization.
+                return []
             }
             return stop(reason ?? .guardianFailure, now: now)
         }

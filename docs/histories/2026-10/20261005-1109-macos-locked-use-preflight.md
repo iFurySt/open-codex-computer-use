@@ -106,3 +106,7 @@ root Broker 增加 boot-bound crash journal，回复授权前 fsync，不保存 
 - watchdog 首帧健康检查新增独立、不锁屏的 surface self-test。实测缩放后的窗口矩形与完整显示器不同；禁用 NSWindow 出现动画后自检通过。全屏窗口禁用 AppKit frame constraint，并增加真实矩形诊断。控制器支持观察正常手动解锁替代 stdin 确认，遵循用户固定解锁节奏；不以等待时间当作解锁证据。
 
 - 双保护真实锁屏准备检查已通过，Broker 进入 authorizing；解锁触发未找到可提交 AX secure field，实际会话保持锁定，保护正常收束。加入有界 AX publication 等待与仅结构的诊断，尚未证明自动解锁。
+
+- 固定 Return 提交未证明自动解锁。失败后 Broker 通信超时、agent 排空 ACK 缺失，保护反复锁定并阻碍用户登录数分钟；终止本项目验证 agent 后保护正常收束。已卸载验证组件、恢复原认证策略，并暂停进一步锁屏测试。
+- 修复已观测到锁定时仍重复请求锁屏的主 / 备用保护行为；新增独立 agent 准备 8 秒 / 停止 5 秒 deadline，重试不能延长期限，超时只结束自身进程。保留实际锁定、动作和解锁工作排空的释放 barrier，补充排空通信诊断。独立进程主线程故意卡住时按预期退出码 70 自动结束，不调用锁屏或 UI；全系统故障恢复时延仍待验证。
+- 完整 Swift 241 项、1 项跳过、0 失败；签名独立进程 deadline、签名 peer identity 和 remote 插件 ABI 检查通过。此次修复没有重新安装组件或执行锁屏测试。

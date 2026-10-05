@@ -389,7 +389,10 @@ final class DisplayGuardian: NSObject {
                     stopping = true
                     emit("stopping", details: ["reason": policy.reason?.rawValue ?? "", "elapsed": ProcessInfo.processInfo.systemUptime - started])
                 }
-                lock.request()
+                let current = LockedUseSession.current()
+                if current.userID != policy.session.userID || current.auditSessionID != policy.session.auditSessionID || current.state != .locked {
+                    lock.request()
+                }
             case .releaseShield:
                 if injectWatchdogStall {
                     watchdogTestPassed = stallResumedLocked && watchdogRelockSeen
@@ -501,7 +504,7 @@ final class DisplayGuardian: NSObject {
         Task { @MainActor in
             let accepted = await Task.detached { LockScreenInteractor.confirm(session: session, cancellation: cancellation) }.value
             unlockWorkPending = false
-            emit("unlockRequestReturned", details: ["axAccepted": accepted,
+            emit("unlockRequestReturned", details: ["submitted": accepted,
                 "session": LockedUseSession.current().state.rawValue])
             if !accepted, LockedUseSession.current().state != .unlocked { stop(.guardianFailure) }
         }

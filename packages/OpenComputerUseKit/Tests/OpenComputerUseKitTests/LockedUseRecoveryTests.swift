@@ -84,4 +84,38 @@ final class LockedUseRecoveryTests: XCTestCase {
             watchdogChallenge: nil, everGranted: false, observedUnlocked: false, agentDrained: false, fullyReleased: false)
         XCTAssertThrowsError(try mismatch.validated())
     }
+
+    func testFailedAgentExitReleasesGuardsOnlyAfterUnlockWorkIsDrained() throws {
+        for everGranted in [false, true] {
+            let owner = context(.agent, 1), guardian = context(.guardian, 2), watchdog = context(.guardian, 3)
+            let lease = UUID()
+            let record = try LockedUseRecoveryRecord(leaseID: lease, owner: owner,
+                originalClientToken: Data(repeating: 9, count: 32), guardian: guardian,
+                watchdog: watchdog, watchdogChallenge: nil, everGranted: everGranted,
+                observedUnlocked: false, agentDrained: false, fullyReleased: false).validated()
+            var broker = LockedUseBrokerCoordinator(enabled: true, backendValidated: true,
+                requiresWatchdog: true, recovery: record)
+            _ = try broker.handle(.init(operation: .guardianReport, leaseID: lease,
+                session: locked, guards: guards, unlockWorkPending: true), context: guardian, now: 1)
+            try broker.ownerProcessExited()
+            XCTAssertEqual(broker.phase, .relocking)
+            _ = try broker.handle(.init(operation: .guardianReport, leaseID: lease,
+                session: locked, guards: guards, unlockWorkPending: false), context: guardian, now: 1.1)
+            try broker.ownerProcessExited()
+            var releaseObserved = false
+            if everGranted {
+                XCTAssertEqual(broker.phase, .relocking, "A queued authorization allow must not expose the desktop")
+                _ = try broker.handle(.init(operation: .guardianReport, leaseID: lease,
+                    session: unlocked, guards: guards, unlockWorkPending: false), context: guardian, now: 1.2)
+                try broker.ownerProcessExited()
+                let relocked = try broker.handle(.init(operation: .guardianReport, leaseID: lease,
+                    session: locked, guards: guards, unlockWorkPending: false), context: guardian, now: 1.3)
+                releaseObserved = relocked.effects.contains("releaseGuards")
+            }
+            XCTAssertEqual(broker.phase, .awaitingManualUnlock)
+            let release = try broker.handle(.init(operation: .guardianReport, leaseID: lease,
+                session: locked, guards: guards, unlockWorkPending: false), context: guardian, now: 1.4)
+            XCTAssertTrue(releaseObserved || release.effects.contains("releaseGuards"))
+        }
+    }
 }

@@ -22,6 +22,13 @@ struct GuardianMain {
         signal(SIGPIPE, SIG_IGN)
         do {
             switch Array(CommandLine.arguments.dropFirst()) {
+            case ["--recovery-deadline-self-test"]:
+                // A deliberately wedged main thread, without AppKit, shields,
+                // input interception, authorization, or any lock request.
+                let deadline = LockedUseRecoveryDeadline { _exit(70) }
+                deadline.arm(after: 0.5)
+                withExtendedLifetime(deadline) { Thread.sleep(forTimeInterval: 30) }
+                throw GuardianError.message("Recovery deadline did not stop the wedged process")
             case ["--external-fixture"]:
                 let app = NSApplication.shared
                 app.setActivationPolicy(.regular)
@@ -147,8 +154,9 @@ struct GuardianMain {
         }
     }
 
-    /// Read only structure and available actions. Never fetch values, names,
-    /// descriptions, selected text, or any authorization password context.
+    /// Read structure and advertised actions. Classify public button labels only
+    /// against fixed Apple resources/current account; never output labels or
+    /// fetch field values, selected text or authorization password context.
     @MainActor static func inspectLoginwindow() throws {
         guard AXIsProcessTrusted() else { throw GuardianError.message("Accessibility permission is required") }
         guard LockedUseSession.current().state == .locked else {
@@ -167,6 +175,13 @@ struct GuardianMain {
                 guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return "" }
                 return value as? String ?? ""
             }
+            if string(kAXRoleAttribute) == kAXButtonRole {
+                let labels = [string(kAXTitleAttribute), string(kAXDescriptionAttribute), string(kAXHelpAttribute)]
+                let owners = Set([NSUserName(), NSFullUserName()].filter { !$0.isEmpty })
+                emit("buttonPublicLabelClass", details: ["depth": depth,
+                    "matchesCurrentAccount": labels.contains(where: owners.contains),
+                    "systemKeys": LockScreenPublicLabels.matchingKeys(labels)])
+            }
             var actions: CFArray?
             let actionStatus = AXUIElementCopyActionNames(element, &actions)
             emit("axStructure", details: ["depth": depth, "role": string(kAXRoleAttribute),
@@ -183,6 +198,12 @@ struct GuardianMain {
         let root = AXUIElementCreateApplication(process.processIdentifier)
         AXUIElementSetMessagingTimeout(root, 0.5)
         visit(root, depth: 0)
+        var focused: CFTypeRef?
+        let focusStatus = AXUIElementCopyAttributeValue(root, kAXFocusedUIElementAttribute as CFString, &focused)
+        if let focused, CFGetTypeID(focused) == AXUIElementGetTypeID() {
+            emit("focusedElementStructure", details: ["status": focusStatus.rawValue])
+            visit(unsafeDowncast(focused, to: AXUIElement.self), depth: 0)
+        } else { emit("focusedElementUnavailable", details: ["status": focusStatus.rawValue]) }
         emit("inspectionComplete", details: ["nodes": count, "unlockRequested": false])
     }
 }
@@ -238,7 +259,7 @@ enum GuardianError: Error { case message(String) }
         }
         if stopping {
             if same, current.state == .locked, !persistent { return }
-            if now - lastLock >= 0.5 {
+            if !(same && current.state == .locked), now - lastLock >= 0.5 {
                 // S reports a request only; the Guardian must still observe
                 // the original session locked before releasing its windows.
                 _ = HeartbeatPipe.send(83, to: STDOUT_FILENO)

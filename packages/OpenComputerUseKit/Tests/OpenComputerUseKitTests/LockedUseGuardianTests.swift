@@ -34,6 +34,21 @@ final class LockedUseGuardianTests: XCTestCase {
         XCTAssertEqual(policy.phase, .relocking)
     }
 
+    func testLockedDrainWaitDoesNotRepeatedlyDismissLoginAndStillRelocksAnUnlock() throws {
+        var policy = try shielding()
+        XCTAssertEqual(policy.stop(.parentDisconnected, now: 100), [.requestRelock])
+        for step in 1...20 {
+            XCTAssertEqual(try policy.poll(session: locked, topology: "", guardsHealthy: false,
+                now: 100 + Double(step)), [])
+        }
+        XCTAssertEqual(policy.phase, .relocking)
+        XCTAssertEqual(try policy.poll(session: unlocked, topology: "", guardsHealthy: false,
+            now: 121), [.requestRelock])
+        policy.confirmQuiescence()
+        XCTAssertEqual(try policy.poll(session: locked, topology: "", guardsHealthy: false,
+            now: 122), [.releaseShield])
+    }
+
     func testNewInFlightActionInvalidatesPreviousQuiescence() throws {
         var policy = try shielding()
         policy.confirmQuiescence()

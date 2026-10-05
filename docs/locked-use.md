@@ -168,7 +168,7 @@ OPEN_COMPUTER_USE_INCLUDE_LOCKED_USE=1 scripts/build-open-computer-use-app.sh de
 
 `locked-use enable` 安装生产 profile，缺少匹配实测证据时不能自动解锁。仅开发实测显式使用 `locked-use enable --validation`；它通过管理员安装的 launchd profile 开放验证事务，不等于生产验证通过。`locked-use disable` 先冻结 Broker 的新租约，只有 idle / awaitingManualUnlock 时恢复匹配的原规则、停止服务并移除自身插件及 staged 副本；第三方策略改变时拒绝覆盖。安装失败会保留 recovery plan，`locked-use recover` 可恢复部分安装，但只有实例锁和 root journal 证明旧保护已释放时才移除组件；未排空的崩溃事务必须先恢复 Broker。此路径仍待系统验证。
 
-普通 app-agent GUI 调用在完成登录的锁定 console session 请求租约；库存 / 协议查询不触发解锁。Guardian 从锁屏启动，通过私有 inherited pipe 接收 challenge；准备覆盖、tap、硬件活动 monitor 与独立 watchdog 后，才执行只针对 loginwindow 唯一 secure field 的 AXConfirm。它不读取字段内容或传入密码。原生会话真实 unlocked 且根服务确认全部保护健康后，才启用 GUI dispatch。各输入 / AX mutation / snapshot session gate 再向根服务核验当前连接。其他连接用只读 observer endpoint 检查租约，不能借用临时解锁的桌面。Secure Event Input 下 IOHID 活动交付尚待实机验证。
+普通 app-agent GUI 调用在完成登录的锁定 console session 请求租约；库存 / 协议查询不触发解锁。Guardian 从锁屏启动，通过私有 inherited pipe 接收 challenge；准备覆盖、tap、硬件活动 monitor 与独立 watchdog 后，才执行针对已验证 Apple 签名 loginwindow 的动作。若尚停留在账户选择页，只在内存比较账户列表按钮标签与当前账户名称，唯一精确匹配才 AXPress；随后优先对唯一支持 AXConfirm 的 secure field 提交。若当前 OS 不暴露该字段，允许向经过签名 / PID / 原会话检查、焦点为非模态窗口的 loginwindow 投递一次固定 Return 来启动系统认证事务；不是任意键或任意目标接口。账户标签不记录，字段内容和认证上下文不读取，也不传入密码。请求发出不等于授权或真实解锁。原生会话真实 unlocked 且根服务确认全部保护健康后，才启用 GUI dispatch。各输入 / AX mutation / snapshot session gate 再向根服务核验当前连接。其他连接用只读 observer endpoint 检查租约，不能借用临时解锁的桌面。Secure Event Input 下 IOHID 活动交付尚待实机验证。
 
 开发 Keychain 检查仅使用 `ocu/locked-use/keychain/prepare`、`verify`、`cleanup` 等原生 MCP 方法。为 login 和 Data Protection Keychain 分别创建本项目 UUID / 随机值测试项，verify 禁止弹出认证 UI，返回布尔结果与 OSStatus；不枚举、读取或修改已有用户项目。cleanup 失败会保留对象以便正常解锁后重试。独立 native fixture 与 FixtureBridge 无关，后续闭环必须走真实 AX 和 ScreenCaptureKit。
 
@@ -206,3 +206,7 @@ OPEN_COMPUTER_USE_INCLUDE_LOCKED_USE=1 scripts/build-open-computer-use-app.sh de
 签名 native agent 的固定测试全部通过后才向 root 提交验证回报。Broker 保存组件 / OS 哈希及真实重锁、双方保护释放、手动解锁后的 Keychain 验证到 `validation-report.json`。`locked-use certify` 要求用户确认物理屏幕、Secure Input 键鼠接管、进程 / 服务故障、显示器变化以及正常密码 / Touch ID 的实测结果，再通过系统管理员认证；Installer 还独立检查完整 root 记录和当前哈希，并冻结 / 重启服务为生产 profile。此入口尚未实机通过，不能将已实现入口描述为验证完成。macOS 或组件升级会使旧证据失效；停用 / 恢复原策略后重装新组件并重新验证。
 
 app bundle 含每次构建唯一的标识，app agent 在启动时固定捕获该标识和启动时间，避免懒初始化把旧进程误判为新构建。MCP 获取租约或验证失败仍返回对应 JSON-RPC id 的错误；不会让调用方一直等待响应。JS reset / timeout / turn-ended 关闭旧 native epoch；旧 Worker 的排队请求被丢弃，下次请求启动新的 native MCP，不重放失败的 GUI 请求。
+
+失败恢复增加独立于 RPC / AppKit 队列的 agent deadline：收到租约后准备最多 8 秒；进入停止 / 清理或 Broker 轮询失败后最多 5 秒，重试只能缩短、不能延长已有期限。期限到达时 agent 结束自身进程，不杀用户应用或保护进程。Broker 仍须通过原进程退出、解锁工作排空和实际锁定证据决定释放双遮罩；这个期限是停止动作的上限，**不等于系统恢复可登录的实测上限**。已观测到原会话锁定时，主 / 备用保护不重复调用锁屏 SPI；等待排空仍保留遮罩。
+
+真实实验曾出现 Broker 清理通信超时、保护持续数分钟并干扰用户正常解锁。已安全卸载验证组件并恢复原认证规则；自动解锁没有通过。下一轮锁屏测试之前，必须先验证独立 deadline、进程退出到保护释放的故障链路，以及 Broker 清理通信时延，不能继续用长时间循环锁屏定位问题。`OpenComputerUseGuardian --recovery-deadline-self-test` 只阻塞自己的主线程、用独立计时结束自身进程，预期退出码 70；不调用锁屏、认证或显示遮罩。

@@ -1,11 +1,13 @@
 import Darwin
 import Foundation
 import OpenComputerUseKit
+import os
 
 /// One authenticated Broker connection per app-agent client. Only GUI requests
 /// acquire a lease; inventory, diagnostics and protocol discovery do not unlock.
 final class LockedUseConnection: @unchecked Sendable {
     private let mutex = NSLock()
+    private let logger = Logger(subsystem: "dev.opencomputeruse.locked-use", category: "AgentRecovery")
     private let clientSocket: Int32
     private var broker: LockedUseIPCClient?
     private var lease: UUID?
@@ -15,6 +17,13 @@ final class LockedUseConnection: @unchecked Sendable {
     private var clientDisconnected = false
     private var inFlight = false
     private var validationLease: UUID?
+    private let recoveryDeadline = LockedUseRecoveryDeadline {
+        // Exit our own automation agent, not the Guardian/watchdog or a user
+        // application. Root still requires observed lock and unlock-work drain
+        // before either shield can be released.
+        fputs("Locked Use recovery deadline expired; stopping automation agent.\n", stderr)
+        _exit(70)
+    }
 
     init(clientSocket: Int32) {
         self.clientSocket = dup(clientSocket)
@@ -59,6 +68,7 @@ final class LockedUseConnection: @unchecked Sendable {
             throw ComputerUseError.stateUnavailable("Locked Use is unavailable. Enable and validate it in Open Computer Use settings.")
         }
         mutex.lock(); broker = connection; self.lease = lease; let disconnected = clientDisconnected; mutex.unlock()
+        recoveryDeadline.arm(after: 8)
         do {
             guard !disconnected else { throw ComputerUseError.stateUnavailable("Computer Use client disconnected during lease acquisition.") }
             let child = Process()
@@ -82,11 +92,11 @@ final class LockedUseConnection: @unchecked Sendable {
             try input.fileHandleForWriting.write(contentsOf: LockedUseIPCFrame.encode(LockedUseGuardianBootstrap(leaseID: lease, token: token)))
             try input.fileHandleForWriting.close()
             startPolling()
-            let deadline = ProcessInfo.processInfo.systemUptime + 12
+            let deadline = ProcessInfo.processInfo.systemUptime + 8
             while ProcessInfo.processInfo.systemUptime < deadline {
                 let status = try connection.request(.init(operation: .status, leaseID: lease, session: .current()))
                 receive(status)
-                if status.result == .active { return }
+                if status.result == .active { recoveryDeadline.cancel(); return }
                 if status.result == .denied || status.phase == .relocking || status.phase == .awaitingManualUnlock || !child.isRunning { break }
                 Thread.sleep(forTimeInterval: 0.1)
             }
@@ -127,6 +137,7 @@ final class LockedUseConnection: @unchecked Sendable {
         clientDisconnected = clientDisconnected || disconnecting
         let connection = broker; let lease = lease; let drain = !inFlight
         mutex.unlock()
+        if lease != nil { recoveryDeadline.arm(after: 5) }
         if let connection, let lease {
             if let reply = try? connection.request(.init(operation: .end, leaseID: lease, stopReason: disconnecting ? .disconnected : .turnEnded)) { receive(reply) }
             if drain { acknowledgeDrain() }
@@ -154,6 +165,8 @@ final class LockedUseConnection: @unchecked Sendable {
                 mutex.lock(); let drain = stopped && !inFlight; mutex.unlock()
                 if drain { acknowledgeDrain() }
             } catch {
+                logger.error("brokerPollingFailed recoveryDeadlineArmed=true")
+                recoveryDeadline.arm(after: 5)
                 mutex.lock(); stopped = true; let failed = broker; broker = nil; mutex.unlock()
                 failed?.close()
                 // Guardian independently observes Broker failure and relocks.
@@ -165,8 +178,12 @@ final class LockedUseConnection: @unchecked Sendable {
 
     private func receive(_ reply: LockedUseIPCReply) {
         mutex.lock(); defer { mutex.unlock() }
-        if reply.effects.contains("stopActions") || reply.phase == .relocking { stopped = true }
+        if reply.effects.contains("stopActions") || reply.phase == .relocking {
+            stopped = true
+            recoveryDeadline.arm(after: 5)
+        }
         if reply.phase == .idle || reply.phase == .awaitingManualUnlock {
+            recoveryDeadline.cancel()
             timer?.cancel(); timer = nil
             // This acknowledgment follows Guardian's lock observation and drain.
             lease = nil
@@ -177,7 +194,17 @@ final class LockedUseConnection: @unchecked Sendable {
 
     private func acknowledgeDrain() {
         mutex.lock(); let connection = broker; let lease = lease; mutex.unlock()
-        guard let connection, let lease else { return }
-        if let reply = try? connection.request(.init(operation: .quiesced, leaseID: lease)) { receive(reply) }
+        guard let connection, let lease else {
+            logger.notice("actionDrainDeferred brokerAvailable=\(connection != nil, privacy: .public) leaseAvailable=\(lease != nil, privacy: .public)")
+            return
+        }
+        logger.notice("actionDrainSubmitting")
+        do {
+            let reply = try connection.request(.init(operation: .quiesced, leaseID: lease))
+            logger.notice("actionDrainReply phase=\(reply.phase.rawValue, privacy: .public) denied=\(reply.result == .denied, privacy: .public)")
+            receive(reply)
+        } catch {
+            logger.error("actionDrainRPCFailed recoveryDeadlinePending=true")
+        }
     }
 }
