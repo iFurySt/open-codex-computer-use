@@ -65,3 +65,57 @@ CPU 为累计 CPU 时间差除以墙钟时间，100% 表示一个核。每窗约
 - [脱敏逐窗 CPU/日志/身份对照](../../experiments/DisplayPerformance/results-20261005.json)
 
 原始设备 UUID、ICC 文件名/哈希和完整环境快照仅留在本地临时输出。未修改生产实现或签名 bundle，因此未重启主 App。
+
+## 续测：同身份累计启停与打字体感
+
+用户主要通过同一输入框连续打字判断卡顿。A 物理屏基线基本顺畅；B 虚拟屏在线仅接入瞬间卡，随后顺畅；C 移除后基本顺畅；D 首次使用另一个固定身份也没有明显文字出现延迟。D 新增一份 ICC，数量 145→146。随后使用 D 的同一身份分三批启停九次，ICC 始终 146，三批均正常结束，自身 helper/显示器均确认退出。第一批用户说可能轻微变慢，第二批没有明显差别，第三批反馈启停期间很卡、之后确实变卡，但无法判断是否达到原先严重程度。这是主观、非盲的累积退化线索，不是客观输入延迟阈值。
+
+第二批恢复窗口出现非 demo 的虚拟屏 223：CG 首尾快照从两块物理屏变为三屏，证明实际有另一项显示活动。紧随其后的时间对照首尾均为物理屏，但 ColorSync 日志仍处理 223。因此这两个窗口不能当严格对照，也不能宣称只有九次 demo 启停导致最后的体感退化。未追踪该显示器的持有者，不推断来源。
+
+以下数值仅列拓扑与日志没有上述干扰的窗口。CPU 合计为两项 ColorSync 服务，100% 表示一核；整组请求与逐屏 profile 事件是不同计数。
+
+| 阶段 | ColorSync 合计 CPU | 显示信息 XPC 请求/s | 逐屏 profile 事件/s |
+| --- | ---: | ---: | ---: |
+| A，两块物理屏基线 | 60.2% | 9.32 | 18.61 |
+| B，三屏空持有 | 95.5% | 9.65 | 28.95 |
+| C，移除后两屏 | 64.3% | 9.72 | 19.38 |
+| 第一批后，两屏 | 74.0% | 11.53 | 23.05 |
+| 第三批后，两屏 60 秒 | 97.7% | 14.71 | 29.39 |
+| 后续五个 60 秒物理屏窗口 | 87.9–89.7% | 14.21–14.29 | 28.42–28.57 |
+
+用户离开后不再热插拔；五分钟没有 demo 捕获、渲染、AX 或输入，只保留指标采集，早段有短暂只读诊断。日志只处理两块物理屏，ICC 数量不变。循环没有在该时段自行消退；最终在线 CG 列表仅物理屏，无 VirtualDisplayHost。和较早基线的差异是时间趋势，含前述显示活动及其他系统负载，不能独自证明剂量反应。
+
+回看用户提供的历史排查：最严重时是约 343 个整组显示信息请求/20 秒（17.15/s），ColorSync 两服务约占一核；当时也仅两块物理屏。现在约 14.3/s 与该异常模式接近，但不能说已经恢复到同等卡顿程度。最早排查还存在编译分析任务、内存压缩与 swap 压力，不能把全部历史症状归为唯一原因。当前系统仍有较大压缩/swap 存量及其他工作负载，未控制这些变量。
+
+## 只读 profile 与自身客户端堆栈
+
+内置屏与 LG 当前 profile 均匹配 factory 文件，没有自定义 profile 文件映射；146 份 OCU ICC 均通过 `ColorSyncProfileVerify`，没有失败或警告。抽查新生成 ICC 的 RGB 矩阵并非零值。没有发现明显损坏或本机自定义色彩映射失配，不能套用其他项目的修复结论直接删除配置。有效文件并不保证系统 registry/cache 状态健康。
+
+五轮只读查询中，内置屏 profile 查询中位 58.52 ms、最大 64.29 ms；LG 中位 48.61 ms、最大 65.02 ms。设备 registry 查询中位分别 17.58、36.27 ms。没有健康基线，不以这些时长单独认定异常。
+
+对自己拥有的有界查询客户端（16 轮、32 个屏幕结果）成功采样，实际路径包含：
+
+```text
+ColorSyncProfileCreateWithDisplayID
+  → CGDisplayCreateUUIDFromDisplayID / SLSCopyDisplayUUID
+  → CGSGetDisplaySystemState → Mach 同步等待
+  → ColorSyncProfileCreateDeviceProfile / ColorSyncDeviceRegistryCopyInfo
+  → CFPropertyListCreateWithData
+  → ColorSyncXPCDeviceRegistryCopyAnyUserInfo → XPC 同步等待
+```
+
+这直接证明该查询经过 WindowServer 和 ColorSync 的同步边界，且样本中有等待/registry 解析。它不证明每次按键都触发这条路径，也不能把整个耗时归于 colorsyncd。可访问的 ColorSync useragent 与 Codex renderer 的短样本没有识别到洪泛发起者；root ColorSync/WindowServer 堆栈仍不可读，未提权。生产 helper/bridge 静态检查仅一次 applySettings，没有主动 ColorSync profile 循环调用；这也不能排除私有显示 API 引发系统内部问题。
+
+## 当前最大嫌疑与恢复验证
+
+**最大嫌疑：显示器重配置触发或加剧了持续的 WindowServer–ColorSync 显示信息/色彩同步循环。** 虚拟屏放大循环成本，移除之后物理屏仍循环；已有身份九次启停不新增 ICC，故无界文件增长不是这次退化的必要条件。ICC/布局历史是早期实现可确认的残留，但其贡献尚未隔离。具体重复请求的调用者、系统内部失效点，以及循环是否直接造成打字卡顿，均未最终证明。
+
+恢复和因果验证应合并为一个有记录的对照，而不是连续试多个清理动作：
+
+1. 保留配置与布局，保存故障期进程身份、CPU、XPC 请求频率、API 耗时及用户打字体感。
+2. 另行明确授权后，在确认 PID/服务归属的前提下执行一次 ColorSync 服务恢复，再观察至少三分钟并重复相同只读查询/打字体感。需要系统权限；本轮没有执行，也没有请求扩大权限。若循环与体感一起恢复，将明显加强其因果证据；只降 CPU 而打字不改善，需要继续查输入、内存和渲染路径。
+3. 若恢复立即复发，停止反复重启。优先取得 WindowServer/ColorSync 堆栈和调用者证据。注销/重启、孤立账户及有备份的精确残留清理分别作为后续独立实验，不同时混用；不删除全部色彩配置，不强杀 WindowServer，不改物理屏 profile（当前已为 factory）。
+
+预防方向仍是保持显示器在线复用、固定且有界身份池、故障时停止继续热插拔并记录健康指标。它们减少触发次数与残留增长，不能承诺修复已有系统循环。外部 [ColorSync 调查](https://github.com/dripster82/ar_workspace_manager_for_xreal/blob/main/Docs/ColorSync-AirII-investigation.md) 也报告 registry 增长很小仍可能循环、恢复可能复发；它是机制线索，不是本机根因证明。
+
+本轮累计数据及混杂标记见 [results-subjective-20261005.json](../../experiments/DisplayPerformance/results-subjective-20261005.json)。有界采集完成，历史根因与恢复验收仍开放。

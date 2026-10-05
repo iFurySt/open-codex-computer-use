@@ -53,18 +53,22 @@ def log_counts(start, end):
             '--end', time.strftime(fmt, time.localtime(end + 1)), '--style', 'ndjson',
             '--predicate', 'process == "colorsync.displayservices" OR process == "colorsyncd"']
     proc = subprocess.run(args, capture_output=True, text=True, timeout=30)
-    profiles = collections.Counter(); messages = 0
+    profiles = collections.Counter(); messages = 0; requests = 0
     for line in proc.stdout.splitlines():
         try:
             event = json.loads(line); stamp = datetime.datetime.fromisoformat(event['timestamp']).timestamp()
             if not start <= stamp < end: continue
         except (ValueError, KeyError): continue
         messages += 1; message = event.get('eventMessage', '')
+        if 'received XPC_DISPLAY_INFO_REQUEST' in message:
+            requests += 1
         if 'ColorSyncProfileCreateDeviceProfile' in message:
             description = message.partition('Profile desc: ')[2] or '(no description)'
             profiles[description] += 1
     return {'events': messages, 'profile_calls': dict(profiles),
             'profile_calls_per_second': sum(profiles.values()) / max(end - start, .001),
+            'display_info_requests': requests,
+            'display_info_requests_per_second': requests / max(end - start, .001),
             'log_exit': proc.returncode, 'stderr': proc.stderr[:200]}
 
 class Experiment:

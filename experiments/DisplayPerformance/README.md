@@ -9,6 +9,14 @@ python3 -B experiments/DisplayPerformance/run.py --probe /tmp/ocu-display-perfor
 python3 -B -m unittest discover -s experiments/DisplayPerformance -p 'test_*.py'
 ```
 
+已有身份的累积启停可用 `cycles.py` 分批验证，每批最多 3 次；例如上面的 hotplug 测试已预先使用槽位 31、且当前没有虚拟屏在线时：
+
+```sh
+python3 -B experiments/DisplayPerformance/cycles.py --probe /tmp/ocu-display-performance-probe --output /tmp/ocu-display-cycles-1 --helper 'dist/Open Computer Use.app/Contents/Helpers/VirtualDisplayHost' --slot 31 --cycles 3
+```
+
+每次在线持有 4 秒、移除后等待 2 秒，全程采样服务 CPU，包含创建/移除阶段。每次退出后检查 ICC 数量；若新增文件或另一个 OCU 显示器出现，停止这一批。首次使用尚无 ICC 的槽位会产生一份配置并中止，因此需要选已预热的身份。批次报告区分创建次数与批次是否完整结束；批间应另跑物理屏恢复窗口、收集用户体感。中断通过自身 helper 管道清理，不移除 ICC。2026-10-05 的累积对照总量上限为 9 次，不作为无界压力工具。
+
 `hotplug` 要求已有签名 bundle 包含 helper，且测试开始时没有其他 OCU 虚拟屏。`--helper` 可指定另一份已构建 helper。接入/移除会触发系统桌面重配置，可能暂停其他会话、改变 Dock 位置；需要先协调测试窗口。这个模式四次创建、最多三个身份，使用生产固定池末端的空闲槽位并遵守跨进程身份锁，不使用随机 serial。发现其他 OCU 虚拟屏上线时中止并清理自身 helper。
 
 测试会产生系统持久 ICC/显示布局记录，最多使用三个身份；不会删除这些记录。需要捕获的探针必须已有 Screen Recording 权限，否则明确跳过，不主动弹出权限请求。原始报告包含显示器 UUID/ICC 名称，保存在调用方指定的目录，不应原样提交到仓库。`Ctrl-C` 会停止自身负载并通过 stdin 关闭自身 helper；清理结果写报告，无法确认清理时会保留错误，不强杀其他进程。
@@ -23,4 +31,17 @@ python3 -B -m unittest discover -s experiments/DisplayPerformance -p 'test_*.py'
 
 已有异常循环时只能测增量；拓扑在测量窗口内变化时标记 `topology_changed`，不能把这种窗口当严格单变量对照。无法读取 root daemon 的堆栈时，不推断调用者。
 
-本次脱敏指标见 [results-20261005.json](results-20261005.json)，结论及剩余因果缺口见 [调查报告](../../docs/references/20261005-display-performance-causality.md)。
+## 只读色彩查询
+
+```sh
+clang -fobjc-arc experiments/DisplayPerformance/ColorProfiles.m -framework Foundation -framework CoreGraphics -framework ColorSync -o /tmp/ocu-display-profile-query
+/tmp/ocu-display-profile-query
+/tmp/ocu-display-profile-query --verify-ocu-files
+/tmp/ocu-display-profile-query --repeat 16
+```
+
+查询在线屏幕的 factory/custom/current profile、有效性和 API 耗时；显式文件验证仅遍历 OCU 的 ICC。没有 profile setters、设备注册或缓存清理。重复查询限制为 1–16 轮，可用于采样自己拥有的客户端；这些查询也会产生系统调用，因此不能同时把该窗口称为完全无负载基线。API 耗时包含 WindowServer 状态查询与 ColorSync registry/XPC，不能全部归为 daemon 等待，也不等于打字延迟。输出的物理屏 profile 文件名可能包含 UUID，只在本地保留，提交前脱敏。
+
+日志单独统计整组 `XPC_DISPLAY_INFO_REQUEST` 与逐屏 profile 调用；两项频率不能互换。拓扑首尾一致也不保证窗口中间没有热插拔，需结合逐屏日志和其他生产者记录判断。
+
+本次脱敏指标见 [初始对照](results-20261005.json) 和 [累积启停/体感对照](results-subjective-20261005.json)，结论及剩余因果缺口见 [调查报告](../../docs/references/20261005-display-performance-causality.md)。
