@@ -38,6 +38,9 @@ public struct LockedUseGuardianPolicy: Sendable {
             throw LockedUseStateMachine.Failure.invalidTransition
         }
         self.topology = topology
+        // Startup is bounded separately; the live heartbeat begins only after
+        // the child and its protection surface have actually registered.
+        lastHeartbeat = now
         phase = .shielding
     }
 

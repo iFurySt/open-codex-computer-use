@@ -50,10 +50,14 @@ public struct LockedUseBrokerCoordinator: Sendable {
     private var unlockWorkDrained = false
     private var agentEffects: [String] = []
     private var guardianEffects: [String] = []
+    private let validationMode: Bool
+    private var recoveryProbe = false
+    private var recoveryProbePrepared = false
     public var phase: LockedUseStateMachine.Phase { machine.phase }
     public var owner: LockedUseStateMachine.Owner? { machine.owner ?? connectionOwner }
 
-    public init(enabled: Bool, backendValidated: Bool, requiresWatchdog: Bool = false, recovery: LockedUseRecoveryRecord? = nil, bootSessionID: String = UUID().uuidString) {
+    public init(enabled: Bool, backendValidated: Bool, requiresWatchdog: Bool = false, recovery: LockedUseRecoveryRecord? = nil, bootSessionID: String = UUID().uuidString, validationMode: Bool = false) {
+        self.validationMode = validationMode
         prerequisites = .init(enabled: enabled, backendValidated: backendValidated, clientAuthorized: true)
         self.requiresWatchdog = requiresWatchdog
         self.bootSessionID = bootSessionID
@@ -114,7 +118,8 @@ public struct LockedUseBrokerCoordinator: Sendable {
                   phase == .idle || phase == .awaitingManualUnlock else { throw Failure.denied }
             accepting = false
             return reply(message, context: context)
-        case .begin:
+        case .begin, .beginRecoveryProbe:
+            if message.operation == .beginRecoveryProbe, !validationMode { throw Failure.denied }
             guard accepting, guardianID == nil, watchdogContext == nil, context.role == .agent, let session = message.session else { throw Failure.denied }
             try check(session: session, context: context)
             let owner = LockedUseStateMachine.Owner(connectionID: context.id,
@@ -131,6 +136,8 @@ public struct LockedUseBrokerCoordinator: Sendable {
             guardEvidence = nil; observedSession = session
             everGranted = false; observedUnlocked = false
             unlockWorkDrained = true
+            recoveryProbe = message.operation == .beginRecoveryProbe
+            recoveryProbePrepared = false
             agentEffects.removeAll(); guardianEffects.removeAll()
             try apply(effects)
             return reply(message, context: context, token: guardianChallenge)
@@ -155,7 +162,11 @@ public struct LockedUseBrokerCoordinator: Sendable {
             }
             if phase == .preparing {
                 if !requiresWatchdog || watchdogContext != nil && watchdogProtected && now - watchdogLastReport < 1.5 {
-                    try apply(machine.guardsPrepared(guards, now: now))
+                    if recoveryProbe {
+                        guard guards.healthy, let owner else { throw Failure.denied }
+                        recoveryProbePrepared = true
+                        try apply(machine.end(owner: owner, reason: .operationFailed))
+                    } else { try apply(machine.guardsPrepared(guards, now: now)) }
                 }
             }
             else { try apply(machine.heartbeat(guards, now: now)) }
@@ -364,7 +375,8 @@ public struct LockedUseBrokerCoordinator: Sendable {
             : phase == .idle ? .ok : .waiting
         return .init(id: message.id, result: result, phase: phase,
             leaseID: isOwner(context) || isGuardian(context) || isWatchdog(context) || context.id == pluginID ? leaseID : nil,
-            token: token, effects: effects)
+            token: token, effects: effects, guardsReleased: isFullyReleased,
+            recoveryProbePrepared: recoveryProbe ? recoveryProbePrepared : nil)
     }
     private func randomToken() throws -> Data {
         var bytes = [UInt8](repeating: 0, count: 32)

@@ -85,6 +85,61 @@ final class LockedUseRecoveryTests: XCTestCase {
         XCTAssertThrowsError(try mismatch.validated())
     }
 
+    func testRecoveryProbeNeverIssuesPermitAndProductionRejectsIt() throws {
+        let owner = context(.agent, 1), guardian = context(.guardian, 2), watchdog = context(.guardian, 3)
+        var production = LockedUseBrokerCoordinator(enabled: true, backendValidated: true)
+        XCTAssertThrowsError(try production.handle(.init(operation: .beginRecoveryProbe, session: locked), context: owner, now: 1))
+        var broker = LockedUseBrokerCoordinator(enabled: true, backendValidated: true,
+            requiresWatchdog: true, validationMode: true)
+        let begin = try broker.handle(.init(operation: .beginRecoveryProbe, session: locked), context: owner, now: 1)
+        let lease = try XCTUnwrap(begin.leaseID)
+        let hello = try broker.handle(.init(operation: .guardianHello, leaseID: lease, token: begin.token), context: guardian, now: 1.1)
+        _ = try broker.handle(.init(operation: .watchdogHello, leaseID: lease, token: hello.token), context: watchdog, now: 1.2)
+        _ = try broker.handle(.init(operation: .watchdogReport, leaseID: lease, session: locked, guards: guards), context: watchdog, now: 1.3)
+        let stopping = try broker.handle(.init(operation: .guardianReport, leaseID: lease, session: locked,
+            guards: guards, unlockWorkPending: false), context: guardian, now: 1.4)
+        XCTAssertEqual(stopping.phase, .relocking)
+        XCTAssertEqual(stopping.recoveryProbePrepared, true)
+        XCTAssertFalse(stopping.effects.contains("requestUnlock"))
+        XCTAssertThrowsError(try broker.handle(.init(operation: .pluginClaim), context: context(.plugin, 4), now: 1.5))
+        _ = try broker.handle(.init(operation: .quiesced, leaseID: lease), context: owner, now: 1.6)
+        let release = try broker.handle(.init(operation: .guardianReport, leaseID: lease, session: locked,
+            guards: guards, unlockWorkPending: false), context: guardian, now: 1.7)
+        XCTAssertTrue(release.effects.contains("releaseGuards"))
+        XCTAssertEqual(release.guardsReleased, false)
+        _ = try broker.handle(.init(operation: .guardianReleased, leaseID: lease), context: guardian, now: 1.8)
+        let finished = try broker.handle(.init(operation: .watchdogReleased, leaseID: lease), context: watchdog, now: 1.9)
+        XCTAssertEqual(finished.guardsReleased, true)
+    }
+
+    func testStartupFailureCannotMasqueradeAsSuccessfulDualGuardRecovery() throws {
+        let owner = context(.agent, 1), guardian = context(.guardian, 2)
+        var broker = LockedUseBrokerCoordinator(enabled: true, backendValidated: true,
+            requiresWatchdog: true, validationMode: true)
+        let begin = try broker.handle(.init(operation: .beginRecoveryProbe, session: locked), context: owner, now: 1)
+        let lease = try XCTUnwrap(begin.leaseID)
+        _ = try broker.handle(.init(operation: .guardianHello, leaseID: lease, token: begin.token), context: guardian, now: 1.1)
+        _ = try broker.handle(.init(operation: .end, leaseID: lease), context: owner, now: 1.2)
+        _ = try broker.handle(.init(operation: .quiesced, leaseID: lease), context: owner, now: 1.3)
+        _ = try broker.handle(.init(operation: .guardianReport, leaseID: lease, session: locked,
+            guards: guards, unlockWorkPending: false), context: guardian, now: 1.4)
+        let cleanup = try broker.handle(.init(operation: .guardianReleased, leaseID: lease), context: guardian, now: 1.5)
+        XCTAssertEqual(cleanup.guardsReleased, true)
+        XCTAssertEqual(cleanup.recoveryProbePrepared, false)
+    }
+
+    func testPreparingAllowsBoundedChildStartupButCannotGrantEarly() throws {
+        let owner = context(.agent, 1)
+        var broker = LockedUseBrokerCoordinator(enabled: true, backendValidated: true,
+            requiresWatchdog: true, validationMode: true)
+        _ = try broker.handle(.init(operation: .beginRecoveryProbe, session: locked), context: owner, now: 1)
+        try broker.tick(now: 4.5)
+        XCTAssertEqual(broker.phase, .preparing)
+        XCTAssertThrowsError(try broker.handle(.init(operation: .pluginClaim), context: context(.plugin, 4), now: 4.6))
+        try broker.tick(now: 1 + LockedUseStateMachine.unlockTimeout)
+        XCTAssertEqual(broker.phase, .relocking)
+    }
+
     func testFailedAgentExitReleasesGuardsOnlyAfterUnlockWorkIsDrained() throws {
         for everGranted in [false, true] {
             let owner = context(.agent, 1), guardian = context(.guardian, 2), watchdog = context(.guardian, 3)

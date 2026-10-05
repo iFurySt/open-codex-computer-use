@@ -4,7 +4,7 @@ import Foundation
 /// the role/connection identity; neither is accepted from this message body.
 public struct LockedUseIPCMessage: Codable, Sendable {
     public enum Operation: String, Codable, Sendable {
-        case status, disable, validationPassed, validationManual, begin, guardianHello, guardianReport, guardianReleased, watchdogHello, watchdogRecoveryHello, watchdogReport, watchdogReleased, ownerRecoveryHello, guardianRecoveryHello, action, end, quiesced
+        case status, disable, validationPassed, validationManual, begin, beginRecoveryProbe, guardianHello, guardianReport, guardianReleased, watchdogHello, watchdogRecoveryHello, watchdogReport, watchdogReleased, ownerRecoveryHello, guardianRecoveryHello, action, end, quiesced
         case pluginClaim, pluginConsume, pluginFinished
     }
     public let version: Int
@@ -45,11 +45,15 @@ public struct LockedUseIPCReply: Codable, Sendable {
     public let token: Data?
     public let effects: [String]
     public let detail: String?
+    public let guardsReleased: Bool?
+    public let recoveryProbePrepared: Bool?
 
     public init(id: UUID, result: Result, phase: LockedUseStateMachine.Phase,
-                leaseID: UUID? = nil, token: Data? = nil, effects: [String] = [], detail: String? = nil) {
+                leaseID: UUID? = nil, token: Data? = nil, effects: [String] = [], detail: String? = nil, guardsReleased: Bool? = nil, recoveryProbePrepared: Bool? = nil) {
         version = 1; self.id = id; self.result = result; self.phase = phase
         self.leaseID = leaseID; self.token = token; self.effects = effects; self.detail = detail
+        self.guardsReleased = guardsReleased
+        self.recoveryProbePrepared = recoveryProbePrepared
     }
 }
 

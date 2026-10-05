@@ -1,143 +1,124 @@
+import Foundation
 @preconcurrency import ApplicationServices
 import AppKit
-import Foundation
+import Security
 import OpenComputerUseKit
 import os
-import Security
+import IOKit.pwr_mgt
 
-final class UnlockCancellation: @unchecked Sendable {
-    private let mutex = NSLock()
-    private var cancelled = false
-    func cancel() { mutex.lock(); cancelled = true; mutex.unlock() }
-    func allowsRequest() -> Bool { mutex.lock(); defer { mutex.unlock() }; return !cancelled }
-}
+typealias UnlockCancellation = LockedUseUnlockCancellation
 
 enum LockScreenInteractor {
-    /// Submit the unique native loginwindow secure field's advertised confirm
-    /// action, or a fixed Return to the verified nonmodal loginwindow focus.
-    /// Never populate/read a field value or synthesize a password.
-    /// A true result is acceptance of a request, not an unlocked session.
-    static func confirm(session: LockedUseSession, cancellation: UnlockCancellation) -> Bool {
+    /// Wake the protected lock UI once. Power-management success is not an
+    /// authentication submission or unlock; the Broker's plugin and original
+    /// session observation must establish those independently.
+    static func wake(session: LockedUseSession, cancellation: UnlockCancellation, ui: LockUIObservation) -> Bool {
         guard cancellation.allowsRequest(), session.state == .locked,
-              LockedUseSession.current() == session, AXIsProcessTrusted() else { return false }
-        guard let process = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.loginwindow").first else { return false }
-        func trustedProcess() -> Bool {
+              LockedUseSession.current() == session else { return false }
+        var activity: IOPMAssertionID = 0
+        let status = IOPMAssertionDeclareUserActivity("Open Computer Use protected lock UI" as CFString,
+            kIOPMUserActiveLocal, &activity)
+        if activity != 0 { _ = IOPMAssertionRelease(activity) }
+        let logger = Logger(subsystem: "dev.opencomputeruse.locked-use", category: "UnlockTrigger")
+        logger.notice("displayWakeReturned status=\(status, privacy: .public) authenticationRequested=false")
+        guard status == kIOReturnSuccess else { return false }
+        let began = ProcessInfo.processInfo.systemUptime
+        while ProcessInfo.processInfo.systemUptime - began < 3 {
+            guard cancellation.allowsRequest() else { return false }
+            let current = LockedUseSession.current()
+            if current.userID == session.userID, current.auditSessionID == session.auditSessionID,
+               current.state == .unlocked { return true }
+            guard current == session else { return false }
+            if ui.settled(since: began) { break }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        logger.notice("lockUISettled elapsed=\(ProcessInfo.processInfo.systemUptime - began, privacy: .public) notificationObserved=\(ui.observed, privacy: .public)")
+        probe(session: session, cancellation: cancellation, logger: logger)
+        return cancellation.allowsRequest()
+    }
+
+    private static func probe(session: LockedUseSession, cancellation: UnlockCancellation, logger: Logger) {
+        guard cancellation.allowsRequest(), LockedUseSession.current() == session, AXIsProcessTrusted() else { return }
+        let processes = NSWorkspace.shared.runningApplications.filter {
+            $0.localizedName == "loginwindow" || $0.bundleIdentifier == "com.apple.loginwindow"
+        }
+        guard processes.count == 1, let process = processes.first else {
+            logger.notice("AXProbe processUnavailable=true"); return
+        }
+        func trusted() -> Bool {
             var code: SecCode?
             var requirement: SecRequirement?
-            guard SecCodeCopyGuestWithAttributes(nil,
-                [kSecGuestAttributePid as String: NSNumber(value: process.processIdentifier)] as CFDictionary,
-                [], &code) == errSecSuccess, let code,
-                SecRequirementCreateWithString("anchor apple and identifier \"com.apple.loginwindow\"" as CFString,
+            guard !process.isTerminated,
+                  SecCodeCopyGuestWithAttributes(nil,
+                    [kSecGuestAttributePid as String: NSNumber(value: process.processIdentifier)] as CFDictionary,
+                    [], &code) == errSecSuccess, let code,
+                  SecRequirementCreateWithString("anchor apple and identifier \"com.apple.loginwindow\"" as CFString,
                     [], &requirement) == errSecSuccess, let requirement else { return false }
             return SecCodeCheckValidity(code, [], requirement) == errSecSuccess
         }
-        guard trustedProcess() else { return false }
+        guard trusted() else { logger.notice("AXProbe processSignatureRejected=true"); return }
         let root = AXUIElementCreateApplication(process.processIdentifier)
-        AXUIElementSetMessagingTimeout(root, 0.2)
-        let deadline = ProcessInfo.processInfo.systemUptime + 3
-        let logger = Logger(subsystem: "dev.opencomputeruse.locked-use", category: "UnlockTrigger")
-        var attempt = 0
+        let deadline = ProcessInfo.processInfo.systemUptime + 0.75
         var visited: [AXUIElement] = []
-        var candidates: [AXUIElement] = []
-        var ownerButtons: [AXUIElement] = []
-        var selectedOwner = false
-        let ownerLabels = Set([NSUserName(), NSFullUserName()].filter { !$0.isEmpty })
-        func visit(_ element: AXUIElement, depth: Int, inAccountList: Bool = false) {
-            guard depth < 12, visited.count < 300, ProcessInfo.processInfo.systemUptime < deadline,
-                  cancellation.allowsRequest(), !visited.contains(where: { CFEqual($0, element) }) else { return }
+        var primary: [AXUIElement] = [], fallback: [AXUIElement] = []
+        var complete = true
+        func visit(_ element: AXUIElement, depth: Int) {
+            guard depth <= 8 else { complete = false; return }
+            guard !visited.contains(where: { CFEqual($0, element) }) else { return }
+            guard visited.count < 300, ProcessInfo.processInfo.systemUptime < deadline,
+                  cancellation.allowsRequest() else { complete = false; return }
             visited.append(element)
-            var role: CFTypeRef?
-            if AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role) == .success,
-               role as? String == kAXSecureTextFieldSubrole || role as? String == kAXTextFieldRole {
-                var subrole: CFTypeRef?
-                _ = AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &subrole)
-                var actions: CFArray?
-                if (role as? String == "AXSecureTextField" || subrole as? String == kAXSecureTextFieldSubrole),
-                   AXUIElementCopyActionNames(element, &actions) == .success,
-                   (actions as? [String] ?? []).contains(kAXConfirmAction) { candidates.append(element) }
-            } else if role as? String == "AXSecureTextField" {
-                var actions: CFArray?
-                if AXUIElementCopyActionNames(element, &actions) == .success,
-                   (actions as? [String] ?? []).contains(kAXConfirmAction) { candidates.append(element) }
-            }
-            // Public account selector labels only; never read AXValue or any
-            // secure-field title/description. Keep labels out of all logs.
-            if role as? String == kAXButtonRole, inAccountList {
-                var actions: CFArray?
-                _ = AXUIElementCopyActionNames(element, &actions)
-                if (actions as? [String] ?? []).contains(kAXPressAction) {
-                    let matchesOwner = [kAXTitleAttribute, kAXDescriptionAttribute].contains { attribute in
-                        var label: CFTypeRef?
-                        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &label) == .success,
-                              let label = label as? String else { return false }
-                        return ownerLabels.contains(label)
-                    }
-                    if matchesOwner { ownerButtons.append(element) }
-                }
-            }
-            if attempt == 1 {
-                var actions: CFArray?
-                _ = AXUIElementCopyActionNames(element, &actions)
-                logger.notice("node depth=\(depth, privacy: .public) role=\(role as? String ?? "", privacy: .public) confirmAvailable=\((actions as? [String] ?? []).contains(kAXConfirmAction), privacy: .public)")
-            }
-            for attribute in [kAXWindowsAttribute, kAXChildrenAttribute, kAXContentsAttribute, kAXVisibleChildrenAttribute] {
-                var children: CFTypeRef?
-                if AXUIElementCopyAttributeValue(element, attribute as CFString, &children) == .success {
-                    for child in (children as? [AXUIElement] ?? []).prefix(300 - visited.count) { visit(child, depth: depth + 1, inAccountList: inAccountList || role as? String == kAXScrollAreaRole) }
-                }
-            }
+            AXUIElementSetMessagingTimeout(element, 0.05)
+            var identifier: CFTypeRef?
+            _ = AXUIElementCopyAttributeValue(element, kAXIdentifierAttribute as CFString, &identifier)
+            if identifier as? String == "UserPasswordTextField" { primary.append(element) }
+            if identifier as? String == "FocusedUser" { fallback.append(element) }
+            guard ProcessInfo.processInfo.systemUptime < deadline else { complete = false; return }
+            var children: CFTypeRef?
+            let result = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children)
+            if result == .success {
+                for child in children as? [AXUIElement] ?? [] { visit(child, depth: depth + 1) }
+            } else if result != .noValue && result != .attributeUnsupported { complete = false }
         }
-        // The session lock flag precedes publication of loginwindow's AX UI.
-        // Wait only within the original bounded request, without changing the
-        // protected session or choosing a guessed control.
-        while ProcessInfo.processInfo.systemUptime < deadline,
-              cancellation.allowsRequest(), LockedUseSession.current() == session {
-            attempt += 1; visited.removeAll(); candidates.removeAll(); ownerButtons.removeAll()
-            visit(root, depth: 0)
-            logger.notice("scan attempt=\(attempt, privacy: .public) nodes=\(visited.count, privacy: .public) candidates=\(candidates.count, privacy: .public)")
-            if candidates.count == 1 {
-                guard cancellation.allowsRequest(), LockedUseSession.current() == session, trustedProcess() else { return false }
-                let status = AXUIElementPerformAction(candidates[0], kAXConfirmAction as CFString)
-                logger.notice("confirm status=\(status.rawValue, privacy: .public)")
-                return status == .success
-            }
-            if candidates.count > 1 || ownerButtons.count > 1 { return false }
-            if candidates.isEmpty, !selectedOwner, ownerButtons.count == 1 {
-                guard cancellation.allowsRequest(), LockedUseSession.current() == session, trustedProcess() else { return false }
-                selectedOwner = true
-                let status = AXUIElementPerformAction(ownerButtons[0], kAXPressAction as CFString)
-                logger.notice("ownerSelection status=\(status.rawValue, privacy: .public)")
-                if status != .success { return false }
-            }
-            Thread.sleep(forTimeInterval: 0.1)
+        visit(root, depth: 0)
+        logger.notice("AXProbe nodes=\(visited.count, privacy: .public) primaryMatches=\(primary.count, privacy: .public) fallbackMatches=\(fallback.count, privacy: .public) complete=\(complete, privacy: .public)")
+        let candidates = primary.isEmpty ? fallback : primary
+        guard complete, candidates.count == 1, cancellation.allowsRequest(),
+              LockedUseSession.current() == session, trusted() else { return }
+        var settable: DarwinBoolean = false
+        let availability = AXUIElementIsAttributeSettable(candidates[0], kAXValueAttribute as CFString, &settable)
+        logger.notice("AXProbe writable=\(settable.boolValue, privacy: .public) status=\(availability.rawValue, privacy: .public)")
+        // The fixed write itself is the writability probe. The preflight
+        // is diagnostic only: loginwindow may report a non-settable fallback.
+        guard cancellation.allowsRequest(), LockedUseSession.current() == session else { return }
+        let result = cancellation.performProbe {
+            AXUIElementSetAttributeValue(candidates[0], kAXValueAttribute as CFString, "AXValue" as CFString)
         }
-        // On some OS versions the lock UI does not publish its secure field
-        // through AX. Start its native authentication transaction with a fixed
-        // process-bound Return. No arbitrary key, target or text is accepted.
-        guard cancellation.allowsRequest(), LockedUseSession.current() == session,
-              trustedProcess(), ProcessInfo.processInfo.systemUptime < deadline + 0.2 else { return false }
-        var focused: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(root, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
-              let focused, CFGetTypeID(focused) == AXUIElementGetTypeID() else { return false }
-        let window = unsafeDowncast(focused, to: AXUIElement.self)
-        var pid: pid_t = 0
-        var role: CFTypeRef?
-        var modal: CFTypeRef?
-        guard AXUIElementGetPid(window, &pid) == .success, pid == process.processIdentifier,
-              AXUIElementCopyAttributeValue(window, kAXRoleAttribute as CFString, &role) == .success,
-              role as? String == kAXWindowRole,
-              AXUIElementCopyAttributeValue(window, kAXModalAttribute as CFString, &modal) == .success,
-              modal as? Bool == false,
-              let source = CGEventSource(stateID: .privateState),
-              let down = CGEvent(keyboardEventSource: source, virtualKey: 36, keyDown: true),
-              let up = CGEvent(keyboardEventSource: source, virtualKey: 36, keyDown: false),
-              cancellation.allowsRequest(), LockedUseSession.current() == session, trustedProcess() else {
-            logger.notice("fixedReturnUnavailable")
-            return false
-        }
-        down.postToPid(process.processIdentifier)
-        up.postToPid(process.processIdentifier)
-        logger.notice("fixedReturnPosted")
-        return true
+        logger.notice("AXProbe fixedValueWrite status=\(result?.rawValue ?? -1, privacy: .public)")
     }
+}
+
+/// Notifications are UI timing hints, never authentication/session evidence.
+final class LockUIObservation: @unchecked Sendable {
+    private let mutex = NSLock()
+    private var lastHint: TimeInterval?
+    private var tokens: [NSObjectProtocol] = []
+    init() {
+        for prefix in ["com.apple.", "com.apple.sessionagent."] {
+            for suffix in ["screenIsLocked", "screenIsUnlocked", "screenLockUIIsShown"] {
+                tokens.append(DistributedNotificationCenter.default().addObserver(
+                    forName: Notification.Name(prefix + suffix), object: nil, queue: nil) { [weak self] _ in
+                        guard let self else { return }
+                        self.mutex.lock(); self.lastHint = ProcessInfo.processInfo.systemUptime; self.mutex.unlock()
+                    })
+            }
+        }
+    }
+    var observed: Bool { mutex.lock(); defer { mutex.unlock() }; return lastHint != nil }
+    func settled(since began: TimeInterval) -> Bool {
+        mutex.lock(); let hint = lastHint; mutex.unlock()
+        let now = ProcessInfo.processInfo.systemUptime
+        return now - began >= 3 || hint.map { now - $0 >= 1.5 } == true
+    }
+    deinit { for token in tokens { DistributedNotificationCenter.default().removeObserver(token) } }
 }

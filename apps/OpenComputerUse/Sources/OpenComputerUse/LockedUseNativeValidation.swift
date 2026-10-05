@@ -3,10 +3,13 @@ import CryptoKit
 import Foundation
 import OpenComputerUseKit
 import Security
+import os
 
 /// Fixed real GUI target; no host-supplied app, index, image or "passed" flag.
 enum LockedUseNativeValidation {
     static func run(probe: LockedUseKeychainProbe) throws {
+        let logger = Logger(subsystem: "dev.opencomputeruse.locked-use", category: "NativeValidation")
+        logger.notice("fixtureValidationStarted")
         let identifier = "dev.opencomputeruse.locked-use.fixture.dev"
         let apps = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
         guard apps.count == 1, let path = apps.first?.bundleURL,
@@ -30,12 +33,15 @@ enum LockedUseNativeValidation {
         guard buttons.count == 1, let index = buttons[0].split(whereSeparator: { $0.isWhitespace }).first,
               Int(index) != nil else { throw LockedUseKeychainProbe.Failure.verification }
         let counter = try counterValue(text)
+        logger.notice("fixtureBeforeCaptured counter=\(counter, privacy: .public)")
         _ = try service.click(app: identifier, elementIndex: String(index), x: nil, y: nil,
                               clickCount: 1, mouseButton: "left", clickMethod: .accessibility)
         let after = try service.getAppState(app: identifier)
         guard try counterValue(after.primaryText ?? "") == counter + 1,
               try imageHash(before) != imageHash(after) else { throw LockedUseKeychainProbe.Failure.verification }
+        logger.notice("fixtureChanged counterIncremented=true imageChanged=true")
         try probe.verify()
+        logger.notice("isolatedKeychainVerified dataProtectionIncluded=\(probe.includesDataProtection, privacy: .public)")
     }
 
     private static func counterValue(_ text: String) throws -> Int {

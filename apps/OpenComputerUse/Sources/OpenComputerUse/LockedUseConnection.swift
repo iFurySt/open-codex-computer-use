@@ -17,6 +17,7 @@ final class LockedUseConnection: @unchecked Sendable {
     private var clientDisconnected = false
     private var inFlight = false
     private var validationLease: UUID?
+    private var recoveryProbeStarted = false
     private let recoveryDeadline = LockedUseRecoveryDeadline {
         // Exit our own automation agent, not the Guardian/watchdog or a user
         // application. Root still requires observed lock and unlock-work drain
@@ -34,11 +35,8 @@ final class LockedUseConnection: @unchecked Sendable {
     func perform<T>(_ body: () throws -> T) throws -> T {
         let session = LockedUseSession.current()
         mutex.lock(); let needsRecovery = stopped && lease == nil; mutex.unlock()
-        if needsRecovery && session.state == .unlocked {
-            let observer = try LockedUseIPCClient(endpoint: .observer, brokerRequirement: LockedUseSigningIdentity.brokerRequirement())
-            defer { observer.close() }
-            let reply = try observer.request(.init(operation: .status, session: session))
-            if reply.phase == .idle { mutex.lock(); stopped = false; mutex.unlock() }
+        if session.state == .unlocked, needsRecovery || FileManager.default.fileExists(atPath: LockedUseIPCEndpoint.observer.path) {
+            _ = try observeManualUnlock()
         }
         if session.state == .locked { try acquire(session: session) }
         mutex.lock()
@@ -56,18 +54,19 @@ final class LockedUseConnection: @unchecked Sendable {
         return try body()
     }
 
-    private func acquire(session: LockedUseSession) throws {
+    private func acquire(session: LockedUseSession, recoveryProbe: Bool = false) throws {
         mutex.lock(); let existing = lease; let denied = stopped || clientDisconnected; mutex.unlock()
         if existing != nil || denied { try validateAction(); return }
         let connection = try LockedUseIPCClient(endpoint: .agent,
             brokerRequirement: LockedUseSigningIdentity.brokerRequirement(), clientSocket: clientSocket)
-        let reply = try connection.request(.init(operation: .begin, session: session))
+        let reply = try connection.request(.init(operation: recoveryProbe ? .beginRecoveryProbe : .begin, session: session))
         guard reply.result != .denied, reply.phase == .preparing,
               let lease = reply.leaseID, let token = reply.token else {
             connection.close()
             throw ComputerUseError.stateUnavailable("Locked Use is unavailable. Enable and validate it in Open Computer Use settings.")
         }
         mutex.lock(); broker = connection; self.lease = lease; let disconnected = clientDisconnected; mutex.unlock()
+        if recoveryProbe { mutex.lock(); recoveryProbeStarted = true; mutex.unlock() }
         recoveryDeadline.arm(after: 8)
         do {
             guard !disconnected else { throw ComputerUseError.stateUnavailable("Computer Use client disconnected during lease acquisition.") }
@@ -112,6 +111,54 @@ final class LockedUseConnection: @unchecked Sendable {
         let reply = try connection.request(.init(operation: .action, leaseID: lease, session: .current()))
         receive(reply)
         guard reply.result == .active else { throw ComputerUseError.stateUnavailable("Locked Use stopped before this GUI action.") }
+    }
+
+    /// Exercise real dual-guard cleanup without allowing a single unlock. The
+    /// installed validation Broker rejects this mode in a production profile.
+    func validateRecovery() throws -> Bool {
+        let session = LockedUseSession.current()
+        guard session.state == .locked else { throw ComputerUseError.stateUnavailable("Recovery probe requires a locked session") }
+        mutex.lock(); recoveryProbeStarted = false; mutex.unlock()
+        do { try acquire(session: session, recoveryProbe: true) }
+        catch { logger.notice("recoveryProbeAcquireEnded") }
+        mutex.lock(); let started = recoveryProbeStarted; mutex.unlock()
+        guard started else { throw ComputerUseError.stateUnavailable("Recovery probe was not admitted") }
+        let observer = try LockedUseIPCClient(endpoint: .observer, brokerRequirement: LockedUseSigningIdentity.brokerRequirement())
+        defer { observer.close() }
+        let deadline = ProcessInfo.processInfo.systemUptime + 5
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            let reply = try observer.request(.init(operation: .status, session: .current()))
+            if reply.phase == .awaitingManualUnlock, reply.guardsReleased == true,
+               reply.recoveryProbePrepared == true,
+               LockedUseSession.current() == session { return true }
+            if reply.phase == .awaitingManualUnlock, reply.guardsReleased == true {
+                throw ComputerUseError.stateUnavailable("Recovery probe stopped before both guards became ready")
+            }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        throw ComputerUseError.stateUnavailable("Recovery probe did not observe both guards released")
+    }
+
+    /// A fresh CLI connection still has to report an actual normal unlock.
+    /// Wall-clock waiting or merely creating a new client cannot reset the
+    /// Broker's failed locked episode.
+    func observeManualUnlock() throws -> Bool {
+        let session = LockedUseSession.current()
+        guard session.state == .unlocked else { return false }
+        let observer = try LockedUseIPCClient(endpoint: .observer, brokerRequirement: LockedUseSigningIdentity.brokerRequirement())
+        defer { observer.close() }
+        let reply = try observer.request(.init(operation: .status, session: session))
+        if reply.phase == .idle {
+            mutex.lock(); if lease == nil { stopped = false }; mutex.unlock()
+        }
+        return reply.phase == .idle && reply.guardsReleased == true
+    }
+
+    func protectionReleased() throws -> Bool {
+        let observer = try LockedUseIPCClient(endpoint: .observer, brokerRequirement: LockedUseSigningIdentity.brokerRequirement())
+        defer { observer.close() }
+        let reply = try observer.request(.init(operation: .status, session: .current()))
+        return reply.guardsReleased == true && (reply.phase == .idle || reply.phase == .awaitingManualUnlock)
     }
 
     func recordValidation(manual: Bool = false) throws {

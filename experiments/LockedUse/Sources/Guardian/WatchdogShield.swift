@@ -7,6 +7,7 @@ import OpenComputerUseKit
 @MainActor
 final class WatchdogShield {
     private let surface = DisplayShieldSurface()
+    private var displayPower: DisplayPowerAssertion?
     private var monitor: PhysicalInputMonitor?
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
@@ -17,6 +18,7 @@ final class WatchdogShield {
         NSApplication.shared.setActivationPolicy(.accessory)
         try surface.coverDisplays(message: "Open Computer Use 正在使用电脑\n移动鼠标或按键可返回锁屏", levelOffset: -1)
         do {
+            displayPower = try DisplayPowerAssertion()
             let context = Unmanaged.passUnretained(self).toOpaque()
             let types: [CGEventType] = [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
                 .mouseMoved, .leftMouseDragged, .rightMouseDragged, .keyDown, .keyUp, .flagsChanged,
@@ -57,5 +59,6 @@ final class WatchdogShield {
         if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
         if let tap { CGEvent.tapEnable(tap: tap, enable: false); CFMachPortInvalidate(tap) }
         source = nil; tap = nil; surface.close()
+        displayPower?.close(); displayPower = nil
     }
 }

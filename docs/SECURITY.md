@@ -46,9 +46,11 @@
 
 ## macOS Locked Use 实验边界
 
-- 当前 `available` / `enabled` 始终 false，真实锁屏控制 fail closed；用户环境、请求 metadata 和其他产品的插件都不能开启自动解锁。
-- 状态机的 connection / session 身份必须由未来认证 IPC 提供，纯 reducer 不提供身份认证；effect 不是系统状态证据。
-- 独立 Authorization 探针始终拒绝，不读写密码上下文；安装实验只注册独立 deny-only right，不改 `system.login.screensaver`。安装与卸载要求管理员执行并核对自身条目，不覆盖其他认证配置。
-- 独立 Guardian / watchdog 目前只供显式人工 rehearsal，未签发生产解锁许可。独立 preview 的两块物理屏幕持续覆盖、倒计时与恢复已由用户确认；这不证明自动解锁、输入接管或故障时的保护。preview 明确不请求锁屏 / 解锁或执行动作，其输入汇总与 Esc 退出只用于遮罩观察。开发 controller 的应急结束不能作为生产遮罩释放规则。
-- Broker 的基础组件从 Unix socket 的内核 audit token 验证动态签名；批准文件必须在逐层 root 所有、不可由普通用户写入且无 symlink 的固定目录下。批准绑定 UID、角色、signer 和 Team ID，不能从环境或请求 payload 选择任意 requirement。许可使用安全随机 nonce，绑定会话、连接和 attempt，过期 / 消费 / 撤销后不可重放。完整 Broker IPC / 登记 UI 尚未接入。
-- 开放 backend 前必须验证 Keychain 保持、保护组件故障和重锁确认。没有通过这些门槛不得将 AX / Screen Recording 授权等同于后台解锁许可。见 [实验与恢复说明](locked-use.md)。
+- 生产 backend 在完整实测证据缺失时关闭；只有管理员显式安装的验证 profile 能运行实验事务。用户环境和请求 metadata 不能开启生产自动解锁。
+- 签名 Root Broker 从内核 audit token 认证原生 CLI / app agent / Guardian / Apple helper，批准绑定 UID、角色、signer 和 Team ID。SCM_RIGHTS 原客户端端点也要验证；许可绑定会话、连接与一次性 attempt，不能从请求指定任意 requirement。
+- 安装器只添加自己的 OR branch，保留原密码 fallback；备份完整语义规则并在回滚前检查当前策略没有第三方变更。独立 deny-only probe 与实际验证 profile 分离。
+- 解锁入口仅在双保护准备后做一次公开电源活动声明。电源 API 成功不算授权成功，插件显式 SetResult 和真实同会话 unlocked 观察缺一不可。锁屏 UI 稳定后，只按已签名 loginwindow 的 AXIdentifier 递归匹配（深度 ≤8），对唯一候选写入固定常量 `AXValue` 作为探测；不读字段值、不输入密码、不选择账户、不执行 AXConfirm 或模拟 Return。取消后禁止迟到写入，实际在途写入必须排空。
+- 认证策略观察在独立队列完成。待定 / 过期 / 失败状态拒绝签发许可；恢复协议不能被同步 authd 查询堵塞。最大 2 秒新鲜度是明确的观察窗口，不等同于每个消息都完成同步策略读取。
+- 两个保护进程各持有遮罩、输入过滤和硬件活动检测；只有撤销许可、排空动作 / 解锁事务并观测同会话锁定后才释放。停止 deadline 只结束自身 automation agent，不能提前杀保护或按时间撤罩。
+- 人工 recovery-only 入口只对验证 profile 开放，在准备双保护后、签发许可前结束事务。准备失败的快速收束不能冒充双保护完整通过。
+- 当前自动解锁、完整 Keychain、Secure Input、进程 / 服务故障和显示器变化仍未全部通过。两个物理屏幕 preview 和已解锁遮罩下 AX / SCK 的结果不能替代这些门槛。详见 [实验与恢复说明](locked-use.md)。

@@ -11,6 +11,7 @@
 #include <sys/un.h>
 #include <time.h>
 #include <unistd.h>
+#include <os/log.h>
 
 #ifndef OCU_SIGNING_TEAM
 #error "Remote mechanism requires a fixed Developer ID signing team"
@@ -57,11 +58,17 @@ static bool verifyBroker(int fd) {
     SecStaticCodeRef staticCode = NULL;
     CFDictionaryRef info = NULL;
     CFStringRef text = CFSTR("identifier \"dev.opencomputeruse.locked-use.broker\" and anchor apple generic and certificate leaf[subject.OU] = \"" OCU_SIGNING_TEAM "\"");
-    bool valid = SecCodeCopyGuestWithAttributes(NULL, (__bridge CFDictionaryRef)attributes, kSecCSDefaultFlags, &guest) == errSecSuccess
-        && SecRequirementCreateWithString(text, kSecCSDefaultFlags, &requirement) == errSecSuccess
-        && SecCodeCheckValidity(guest, kSecCSDefaultFlags, requirement) == errSecSuccess
-        && SecCodeCopyStaticCode(guest, kSecCSDefaultFlags, &staticCode) == errSecSuccess
-        && SecCodeCopySigningInformation(staticCode, kSecCSSigningInformation, &info) == errSecSuccess;
+    os_log_t logger = os_log_create("dev.opencomputeruse.locked-use", "AuthorizationMechanism");
+    OSStatus guestStatus = SecCodeCopyGuestWithAttributes(NULL, (__bridge CFDictionaryRef)attributes, kSecCSDefaultFlags, &guest);
+    OSStatus requirementStatus = errAuthorizationInternal, validityStatus = errAuthorizationInternal;
+    OSStatus staticStatus = errAuthorizationInternal, infoStatus = errAuthorizationInternal;
+    if (guestStatus == errSecSuccess) requirementStatus = SecRequirementCreateWithString(text, kSecCSDefaultFlags, &requirement);
+    if (requirementStatus == errSecSuccess) validityStatus = SecCodeCheckValidity(guest, kSecCSDefaultFlags, requirement);
+    if (validityStatus == errSecSuccess) staticStatus = SecCodeCopyStaticCode(guest, kSecCSDefaultFlags, &staticCode);
+    if (staticStatus == errSecSuccess) infoStatus = SecCodeCopySigningInformation(staticCode, kSecCSSigningInformation, &info);
+    os_log_with_type(logger, OS_LOG_TYPE_DEFAULT, "brokerVerification guest=%{public}d requirement=%{public}d validity=%{public}d static=%{public}d info=%{public}d",
+        (int)guestStatus, (int)requirementStatus, (int)validityStatus, (int)staticStatus, (int)infoStatus);
+    bool valid = infoStatus == errSecSuccess;
     if (valid) {
         NSDictionary *metadata = (__bridge NSDictionary *)info;
         unsigned int flags = [metadata[(__bridge NSString *)kSecCodeInfoFlags] unsignedIntValue];
@@ -143,6 +150,8 @@ static OSStatus mechanismInvoke(AuthorizationMechanismRef ref) {
     if (!ref) return errAuthorizationInvalidRef;
     @autoreleasepool {
         OCUMechanism *mechanism = (__bridge OCUMechanism *)ref;
+        os_log_t logger = os_log_create("dev.opencomputeruse.locked-use", "AuthorizationMechanism");
+        os_log_with_type(logger, OS_LOG_TYPE_DEFAULT, "mechanismInvoked");
         [mechanism.mutex lock];
         if (mechanism.cancelled || mechanism.invoked) {
             [mechanism.mutex unlock]; return errAuthorizationInternal;
@@ -166,6 +175,7 @@ static OSStatus mechanismInvoke(AuthorizationMechanismRef ref) {
                 if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &failure, &size) == 0 && failure == 0) result = 0;
             }
             if (result == 0 && verifyBroker(fd)) {
+                os_log_with_type(logger, OS_LOG_TYPE_DEFAULT, "brokerVerified");
                 NSDictionary *claim = exchange(fd, @"pluginClaim", nil, deadline);
                 NSString *lease = [claim[@"leaseID"] isKindOfClass:NSString.class] ? claim[@"leaseID"] : nil;
                 NSString *token = [claim[@"token"] isKindOfClass:NSString.class] ? claim[@"token"] : nil;
@@ -181,6 +191,7 @@ static OSStatus mechanismInvoke(AuthorizationMechanismRef ref) {
         if (!mechanism.cancelled) {
             status = mechanism.plugin.callbacks->SetResult(mechanism.engine,
                 allowed ? kAuthorizationResultAllow : kAuthorizationResultDeny);
+            os_log_with_type(logger, OS_LOG_TYPE_DEFAULT, "resultDelivered allowed=%{public}d status=%{public}d", allowed, (int)status);
         }
         [mechanism.mutex unlock];
         if (fd >= 0) {

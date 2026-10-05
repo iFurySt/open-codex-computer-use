@@ -372,9 +372,28 @@ private final class AppAgentConnection: @unchecked Sendable {
                 let response: String? = try AppAgentEnvironment.withOverrides(environment) {
                     let payload = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
                     if payload?["method"] as? String == "notifications/turn-ended" { lockedUse.end() }
-                    if let method = payload?["method"] as? String, method.hasPrefix("ocu/locked-use/keychain/") || ["ocu/locked-use/validate", "ocu/locked-use/validate-unlocked"].contains(method) {
+                    if let method = payload?["method"] as? String, method.hasPrefix("ocu/locked-use/keychain/") || ["ocu/locked-use/validate", "ocu/locked-use/validate-unlocked", "ocu/locked-use/validate-recovery", "ocu/locked-use/validate-unlock", "ocu/locked-use/ready", "ocu/locked-use/protection-released"].contains(method) {
                         var passed = false
                         switch method {
+                        case "ocu/locked-use/ready":
+                            passed = try lockedUse.observeManualUnlock()
+                        case "ocu/locked-use/protection-released":
+                            passed = try lockedUse.protectionReleased()
+                        case "ocu/locked-use/validate-recovery":
+                            passed = try lockedUse.validateRecovery()
+                        case "ocu/locked-use/validate-unlock":
+                            guard LockedUseSession.current().state == .locked else {
+                                throw ComputerUseError.stateUnavailable("Begin unlock validation in a locked session")
+                            }
+                            // acquire() returns only after Root has observed
+                            // the original session unlocked with fresh guards.
+                            // No application, input, capture or Keychain access.
+                            try lockedUse.perform {
+                                guard LockedUseSession.current().state == .unlocked else {
+                                    throw ComputerUseError.stateUnavailable("Protected session did not remain unlocked")
+                                }
+                            }
+                            passed = true
                         case "ocu/locked-use/keychain/prepare", "ocu/locked-use/keychain/prepare-legacy":
                             guard LockedUseSession.current().state == .unlocked, keychainProbe == nil else { throw ComputerUseError.stateUnavailable("Prepare validation items in a normally unlocked session.") }
                             keychainProbe = try LockedUseKeychainProbe(includeDataProtection: method != "ocu/locked-use/keychain/prepare-legacy"); passed = true

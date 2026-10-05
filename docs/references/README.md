@@ -13,6 +13,9 @@
 
 ## 当前目录
 
+- `macos-locked-use-solution-review.md`
+  - 用户提供锁屏自动化参考的逐项核对、固定 AXValue 探测边界和真实验证顺序。
+
 - `macos-locked-use-authentication.md`
   - macOS Locked Use 的认证事务 ID / audit session 区别、保留现有 fallback 与离线安装规划边界。
 

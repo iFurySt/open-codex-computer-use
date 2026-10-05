@@ -22,7 +22,7 @@ enum BrokerMain {
             let matched = configuration.matchesValidation(osBuild: evidence.osBuild,
                 brokerHash: evidence.brokerHash, guardianHash: evidence.guardianHash, pluginHash: evidence.pluginHash)
             let server = try BrokerServer(approvals: approvals, enabled: configuration.enabled,
-                backendValidated: validation || matched)
+                backendValidated: validation || matched, validationMode: validation)
             try server.start()
             withExtendedLifetime(server) { dispatchMain() }
         } catch {
@@ -46,6 +46,9 @@ private final class BrokerServer: @unchecked Sendable {
     private var timer: DispatchSourceTimer?
     private var lastPolicyCheck: TimeInterval = 0
     private var policyInvalidated = false
+    private let policyMonitor = LockedUsePolicyMonitor {
+        try LockedUseAuthorizationRules.installedRulesObserved()
+    }
     private var validationReport: LockedUseValidationReport?
     private var lastValidationData: Data?
     private var recoverySeed: LockedUseRecoveryRecord?
@@ -53,9 +56,9 @@ private final class BrokerServer: @unchecked Sendable {
     private var lastRecoveryData: Data?
     private let instanceLock: Int32
 
-    init(approvals: LockedUseClientApprovals, enabled: Bool, backendValidated: Bool) throws {
+    init(approvals: LockedUseClientApprovals, enabled: Bool, backendValidated: Bool, validationMode: Bool) throws {
         self.approvals = approvals
-        coordinator = .init(enabled: enabled, backendValidated: backendValidated, requiresWatchdog: true)
+        coordinator = .init(enabled: enabled, backendValidated: backendValidated, requiresWatchdog: true, validationMode: validationMode)
         try Self.validateRunDirectory()
         let fd = open("/Library/Application Support/OpenComputerUse/LockedUse/run/broker.lock", O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard fd >= 0 else { throw BrokerError.message("instance lock unavailable") }
@@ -75,11 +78,11 @@ private final class BrokerServer: @unchecked Sendable {
             recoverySeed = nil
         }
         ownerClientToken = recoverySeed?.originalClientToken
-        coordinator = .init(enabled: enabled, backendValidated: backendValidated, requiresWatchdog: true, recovery: recoverySeed, bootSessionID: bootID)
+        coordinator = .init(enabled: enabled, backendValidated: backendValidated, requiresWatchdog: true, recovery: recoverySeed, bootSessionID: bootID, validationMode: validationMode)
     }
 
     func start() throws {
-        try checkInstallationPolicy()
+        policyMonitor.refresh()
         for endpoint in [LockedUseIPCEndpoint.agent, .guardian, .plugin, .observer, .admin] {
             let fd = socket(AF_UNIX, SOCK_STREAM, 0)
             guard fd >= 0 else { throw BrokerError.message("socket unavailable") }
@@ -111,8 +114,10 @@ private final class BrokerServer: @unchecked Sendable {
             do {
                 let now = ProcessInfo.processInfo.systemUptime
                 if now - self.lastPolicyCheck >= 1 {
-                    try self.checkInstallationPolicy(); self.lastPolicyCheck = now
+                    self.policyMonitor.refresh(now: now)
+                    self.lastPolicyCheck = now
                 }
+                try self.checkInstallationPolicy(requireFresh: false)
                 for connection in Array(self.connections.values) where connection.endpoint == .agent && connection.clientDescriptor < 0 && now - connection.created > 2 {
                     self.close(connection)
                 }
@@ -225,8 +230,8 @@ private final class BrokerServer: @unchecked Sendable {
                 let previousPhase = coordinator.phase
                 let reply: LockedUseIPCReply
                 do {
-                    if [.begin, .pluginClaim, .pluginConsume].contains(request.operation) { try checkInstallationPolicy() }
-                    if connection.endpoint == .agent && [.begin, .action, .validationPassed, .validationManual].contains(request.operation) {
+                    if [.begin, .beginRecoveryProbe, .pluginClaim, .pluginConsume].contains(request.operation) { try checkInstallationPolicy() }
+                    if connection.endpoint == .agent && [.begin, .beginRecoveryProbe, .action, .validationPassed, .validationManual].contains(request.operation) {
                         do { try verifyOriginalClient(connection) }
                         catch {
                             connection.clientInvalidated = true
@@ -300,16 +305,19 @@ private final class BrokerServer: @unchecked Sendable {
         lastValidationData = data
     }
 
-    private func checkInstallationPolicy() throws {
-        guard !policyInvalidated else { return }
-        do {
-            guard try LockedUseAuthorizationRules.installedRulesObserved() else {
-                throw BrokerError.message("authentication policy changed")
-            }
-        } catch {
+    private func checkInstallationPolicy(requireFresh: Bool = true) throws {
+        guard !policyInvalidated else {
+            if requireFresh { throw BrokerError.message("authentication policy invalidated") }
+            return
+        }
+        let observation = policyMonitor.status()
+        if observation == .invalid || observation == .stale {
             try coordinator.invalidateInstallation()
             policyInvalidated = true
             logger.error("installationPolicyInvalidated")
+        }
+        if requireFresh, observation != .valid {
+            throw BrokerError.message("authentication policy observation unavailable")
         }
     }
 

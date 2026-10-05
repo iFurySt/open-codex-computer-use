@@ -168,7 +168,7 @@ OPEN_COMPUTER_USE_INCLUDE_LOCKED_USE=1 scripts/build-open-computer-use-app.sh de
 
 `locked-use enable` 安装生产 profile，缺少匹配实测证据时不能自动解锁。仅开发实测显式使用 `locked-use enable --validation`；它通过管理员安装的 launchd profile 开放验证事务，不等于生产验证通过。`locked-use disable` 先冻结 Broker 的新租约，只有 idle / awaitingManualUnlock 时恢复匹配的原规则、停止服务并移除自身插件及 staged 副本；第三方策略改变时拒绝覆盖。安装失败会保留 recovery plan，`locked-use recover` 可恢复部分安装，但只有实例锁和 root journal 证明旧保护已释放时才移除组件；未排空的崩溃事务必须先恢复 Broker。此路径仍待系统验证。
 
-普通 app-agent GUI 调用在完成登录的锁定 console session 请求租约；库存 / 协议查询不触发解锁。Guardian 从锁屏启动，通过私有 inherited pipe 接收 challenge；准备覆盖、tap、硬件活动 monitor 与独立 watchdog 后，才执行针对已验证 Apple 签名 loginwindow 的动作。若尚停留在账户选择页，只在内存比较账户列表按钮标签与当前账户名称，唯一精确匹配才 AXPress；随后优先对唯一支持 AXConfirm 的 secure field 提交。若当前 OS 不暴露该字段，允许向经过签名 / PID / 原会话检查、焦点为非模态窗口的 loginwindow 投递一次固定 Return 来启动系统认证事务；不是任意键或任意目标接口。账户标签不记录，字段内容和认证上下文不读取，也不传入密码。请求发出不等于授权或真实解锁。原生会话真实 unlocked 且根服务确认全部保护健康后，才启用 GUI dispatch。各输入 / AX mutation / snapshot session gate 再向根服务核验当前连接。其他连接用只读 observer endpoint 检查租约，不能借用临时解锁的桌面。Secure Event Input 下 IOHID 活动交付尚待实机验证。
+普通 app-agent GUI 调用在完成登录的锁定 console session 请求租约；库存 / 协议查询不触发解锁。Guardian 从锁屏启动，通过私有 inherited pipe 接收 challenge；准备覆盖、tap、硬件活动 monitor 与独立 watchdog 后，收到 root 的一次 requestUnlock，调用公开 IOPMAssertionDeclareUserActivity 唤醒显示器。随后等待系统发起 screensaver 认证事务，remote 插件显式 SetResult 放行已消费的一次性许可。唤醒成功不证明事务已开始或会话已解锁；等待通知提示稳定 1.5 秒，缺少提示时最多等待 3 秒，然后在已验证 Apple 签名的 loginwindow 上遍历 AXChildren（深度 ≤8、最多 300 节点、0.75 秒预算），优先匹配 `UserPasswordTextField`，回退 `FocusedUser`。完整扫描且候选唯一时，仅将可写性查询作为诊断，执行一次固定写入：只写固定常量 `AXValue` 作为可写性探测；不读字段内容、不输入密码、不选择账户、不执行 AXConfirm 或发送 Return。探测成功也不能替代许可消费和真实解锁证据。两套保护分别持有有界 display-sleep assertion，退出 / 最大租约期限时由 powerd 释放。原生会话真实 unlocked 且根服务确认全部保护健康后，才启用 GUI dispatch。各输入 / AX mutation / snapshot session gate 再向根服务核验当前连接。其他连接用只读 observer endpoint 检查租约，不能借用临时解锁的桌面。Secure Event Input 下 IOHID 活动交付尚待实机验证。参考方案的核对与尚未证实的系统行为见 [解锁入口复核](references/macos-locked-use-solution-review.md)。
 
 开发 Keychain 检查仅使用 `ocu/locked-use/keychain/prepare`、`verify`、`cleanup` 等原生 MCP 方法。为 login 和 Data Protection Keychain 分别创建本项目 UUID / 随机值测试项，verify 禁止弹出认证 UI，返回布尔结果与 OSStatus；不枚举、读取或修改已有用户项目。cleanup 失败会保留对象以便正常解锁后重试。独立 native fixture 与 FixtureBridge 无关，后续闭环必须走真实 AX 和 ScreenCaptureKit。
 
@@ -179,7 +179,7 @@ Broker 在回复授权 / active 之前，把同一 kernel boot epoch 的旧租�
 
 独立 watchdog 经私有 pipe 注册到 root，持有另一个进程的备用遮罩、过滤 tap 和硬件活动 monitor；Broker 要求两套保护健康且心跳新鲜。Guardian 主线程卡死或进程死亡时，备用窗口仍可保持遮蔽，watchdog 的 root RPC 在另一个队列执行，不能拖延 inherited heartbeat 的重锁期限。主 Guardian / watchdog 都要在原会话已锁定、事务与动作已排空后释放自己的保护并向 root 回报 ACK。新的租约和卸载都等待这些 ACK。软件窗口仍不构成系统级原子热插拔 / 所有 secure overlay / 双进程同时死亡的零泄漏证明；需针对目标系统验证。
 
-Broker 每秒及签发 / 消费许可之前重读本项目认证策略。其他软件改变规则或 remote 机制时，本服务 epoch 停止签发并撤销租约，保留恢复通道；不会自动覆盖第三方的新规则。
+Broker 在独立 policy 队列每秒读取本项目认证策略，主队列不等待 AuthorizationRightGet，以免阻塞正在等待 Broker 的授权机制和恢复通信。签发 / 消费许可必须有不足 2 秒的有效观察；待定 / 过期 / 失败观察拒绝新许可，失败或过期后本 epoch 撤销租约但保留恢复通道。读取时间从开始读取时计，慢请求的迟到结果不能视为新鲜策略。不会自动覆盖第三方的新规则。
 
 ## 专用真实 GUI / Keychain 验证
 
@@ -210,3 +210,24 @@ app bundle 含每次构建唯一的标识，app agent 在启动时固定捕获�
 失败恢复增加独立于 RPC / AppKit 队列的 agent deadline：收到租约后准备最多 8 秒；进入停止 / 清理或 Broker 轮询失败后最多 5 秒，重试只能缩短、不能延长已有期限。期限到达时 agent 结束自身进程，不杀用户应用或保护进程。Broker 仍须通过原进程退出、解锁工作排空和实际锁定证据决定释放双遮罩；这个期限是停止动作的上限，**不等于系统恢复可登录的实测上限**。已观测到原会话锁定时，主 / 备用保护不重复调用锁屏 SPI；等待排空仍保留遮罩。
 
 真实实验曾出现 Broker 清理通信超时、保护持续数分钟并干扰用户正常解锁。已安全卸载验证组件并恢复原认证规则；自动解锁没有通过。下一轮锁屏测试之前，必须先验证独立 deadline、进程退出到保护释放的故障链路，以及 Broker 清理通信时延，不能继续用长时间循环锁屏定位问题。`OpenComputerUseGuardian --recovery-deadline-self-test` 只阻塞自己的主线程、用独立计时结束自身进程，预期退出码 70；不调用锁屏、认证或显示遮罩。
+
+恢复专项入口 `python3 scripts/run-locked-use-native-validation.py --confirm-recovery-test` 仅供已安装验证 profile 的人工测试：真实锁屏、创建双保护，然后由 Broker 在签发许可前直接终止事务；要求 root 回报两个保护确曾就绪，再等待实际锁定、动作排空和两个保护退出 ACK；准备失败后清理成功不算双保护恢复通过。生产 profile 拒绝此入口。输出恢复耗时与布尔结果，不创建 Keychain 项、不执行 GUI 动作，不作为自动解锁通过的证据。
+
+`--confirm-wake-test` 只验证受保护的实际解锁并立即发送 turn-ended / 观察重锁，不操作 GUI、不捕获窗口、不访问 Keychain；它也不能生成完整生产验证证据。
+
+快速完整开发检查：
+
+```sh
+python3 scripts/run-locked-use-native-validation.py --confirm-lock-test --legacy-only --fast --wait-for-manual-unlock
+```
+
+每轮锁屏前 `ocu/locked-use/ready` 必须观察正常解锁且双保护已释放，避免新连接沿用失败事务。`--fast` 在真实 AX / SCK 验证后立即重锁并等待双方释放 ACK，不额外保持租约。控制器将阶段耗时、固定返回码和通过结果写到 `.build/locked-use/reports/` 的私有 JSON（文件 0600）；只保留白名单诊断字段，不保存原始日志、截图、字段内容或密码。该报告与生产认证证据分开，不能开放生产。
+
+认证宿主诊断可在正常解锁、验证 profile 已安装时独立运行，无需再锁屏：
+
+```sh
+xcrun swiftc -framework Security -framework CoreGraphics experiments/LockedUse/Sources/RemoteVerificationProbe.swift -o .build/locked-use/remote-verification-probe
+.build/locked-use/remote-verification-probe
+```
+
+它仅评估本项目独立 remote right，不创建租约、不请求 screensaver right、不提交密码；无租约时预期 denied。通过仍须核对实际机制日志、Broker 签名返回码和无许可 claim 被拒绝，不能仅凭 denied 判定成功。快速测试失败后，控制器先检查双保护已释放；指定自动观测手动解锁时，随后等待正常登录并重试隔离测试项清理，再保存报告，以纳入手动认证阶段的诊断。

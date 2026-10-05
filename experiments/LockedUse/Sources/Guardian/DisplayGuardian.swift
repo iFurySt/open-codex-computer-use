@@ -22,6 +22,7 @@ final class DisplayGuardian: NSObject {
     private var policy: LockedUseGuardianPolicy
     private let lock = ScreenLock()
     private let shields = DisplayShieldSurface()
+    private var displayPower: DisplayPowerAssertion?
     private var tap: CFMachPort?
     private var tapSource: CFRunLoopSource?
     private var timer: Timer?
@@ -54,6 +55,7 @@ final class DisplayGuardian: NSObject {
     private var unlockWorkPending = false
     private var unlockRequested = false
     private let unlockCancellation = UnlockCancellation()
+    private let lockUIObservation = LockUIObservation()
     private var physicalInput: PhysicalInputMonitor?
 
     init(session: LockedUseSession, injectWatchdogStall: Bool = false, brokerBootstrap: LockedUseGuardianBootstrap? = nil) throws {
@@ -91,6 +93,7 @@ final class DisplayGuardian: NSObject {
                 watchdogBootstrap = try .init(leaseID: bootstrap.leaseID, token: token)
             } else { createCaptureFixture() }
             try coverDisplays()
+            displayPower = try DisplayPowerAssertion()
             try startWatchdog()
             let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated { self?.poll() }
@@ -300,6 +303,7 @@ final class DisplayGuardian: NSObject {
 
     private func poll() {
         let now = ProcessInfo.processInfo.systemUptime
+        if stopping, unlockCancellation.quiesced { unlockWorkPending = false }
         let bytes = watchdogReader?.drain(allowed: [72, 82, 83]) ?? []
         if bytes.contains(83) {
             watchdogRelockSeen = true
@@ -312,7 +316,7 @@ final class DisplayGuardian: NSObject {
         do {
             if policy.phase == .preparing {
                 // Initial AppKit drawing and child launch can take a few frames.
-                if now - started >= 1.5 {
+                if now - started >= 3.5 {
                     emit("preparationFailed", details: ["coverageFailure": shields.coverageFailure() ?? "",
                         "watchdogReady": watchdogReady, "watchdogRunning": watchdog?.isRunning == true,
                         "watchdogPipeFailed": watchdogReader?.failed ?? true])
@@ -375,6 +379,7 @@ final class DisplayGuardian: NSObject {
     private func stop(_ reason: LockedUseGuardianPolicy.Reason) {
         fixtureGate.close()
         unlockCancellation.cancel()
+        if unlockCancellation.quiesced { unlockWorkPending = false }
         if !stopping { stopping = true; emit("stopping", details: ["reason": reason.rawValue]) }
         execute(policy.stop(reason, now: ProcessInfo.processInfo.systemUptime))
     }
@@ -435,6 +440,7 @@ final class DisplayGuardian: NSObject {
         tapSource = nil
         tap = nil
         shields.close()
+        displayPower?.close(); displayPower = nil
         fixtureWindow?.close()
         fixtureWindow = nil
         watchdogInput?.closeFile()
@@ -500,11 +506,12 @@ final class DisplayGuardian: NSObject {
         unlockWorkPending = true
         let session = policy.session
         let cancellation = unlockCancellation
+        let ui = lockUIObservation
         emit("unlockRequestStarting", details: ["lockedSessionObserved": true])
         Task { @MainActor in
-            let accepted = await Task.detached { LockScreenInteractor.confirm(session: session, cancellation: cancellation) }.value
+            let accepted = await Task.detached { LockScreenInteractor.wake(session: session, cancellation: cancellation, ui: ui) }.value
             unlockWorkPending = false
-            emit("unlockRequestReturned", details: ["submitted": accepted,
+            emit("unlockRequestReturned", details: ["displayWakeAccepted": accepted,
                 "session": LockedUseSession.current().state.rawValue])
             if !accepted, LockedUseSession.current().state != .unlocked { stop(.guardianFailure) }
         }

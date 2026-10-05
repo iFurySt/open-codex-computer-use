@@ -13,6 +13,7 @@ import select
 import subprocess
 import sys
 import time
+from locked_use_report import write_report
 
 
 class RPC:
@@ -35,7 +36,7 @@ class RPC:
         self.process.stdin.write(json.dumps(message).encode() + b"\n")
         self.process.stdin.flush()
 
-    def call(self, method, params=None, timeout=25):
+    def call(self, method, params=None, timeout=10):
         self.sequence += 1
         identifier = self.sequence
         self.send({"jsonrpc": "2.0", "id": identifier, "method": method, "params": params or {}})
@@ -78,16 +79,35 @@ def wait_for(guardian, state, timeout=15):
     raise TimeoutError("Did not observe original session " + state)
 
 
+def wait_for_release(rpc, timeout=3):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if rpc.call("ocu/locked-use/protection-released", timeout=min(2, deadline-time.monotonic()))["passed"]: return
+        time.sleep(0.1)
+    raise TimeoutError("Both protection release acknowledgments were not observed")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--prepare-only", action="store_true")
     mode.add_argument("--confirm-lock-test", action="store_true")
     mode.add_argument("--unlocked-fixture-test", action="store_true")
+    mode.add_argument("--confirm-recovery-test", action="store_true", help="Lock once and verify both guards drain, without issuing an unlock permit")
+    mode.add_argument("--confirm-wake-test", action="store_true", help="Validate protected unlock then immediately relock; no GUI/Keychain operations")
     parser.add_argument("--wait-for-manual-unlock", action="store_true", help="Observe normal user unlock without an interactive continue prompt")
     parser.add_argument("--legacy-only", action="store_true", help="Does not produce production validation evidence")
-    parser.add_argument("--hold-seconds", type=int, default=15, choices=range(5, 21))
+    parser.add_argument("--hold-seconds", type=int, default=15, choices=range(0, 21))
+    parser.add_argument("--fast", action="store_true", help="Relock immediately after the fixed AX/SCK validation")
     args = parser.parse_args()
+    if args.fast: args.hold_seconds = 0
+    run_started = time.time()
+    events = []
+    failure = None
+    def record(event, **details):
+        value = {"event": event, "elapsedSeconds": round(time.time()-run_started, 3), **details}
+        events.append(value)
+        print(json.dumps(value), flush=True)
     root = pathlib.Path(__file__).resolve().parent.parent
     binary = root / "dist/Open Computer Use (Dev).app/Contents/MacOS/OpenComputerUse"
     components = root / ".build/locked-use/components"
@@ -99,10 +119,35 @@ def main():
     locked = False
     completed = False
     try:
+        if args.confirm_lock_test or args.confirm_recovery_test or args.confirm_wake_test:
+            if not rpc.call("ocu/locked-use/ready", timeout=5)["passed"]:
+                raise RuntimeError("Broker has not observed a normal unlock and released protection; no lock test started")
+            record("brokerReady", passed=True)
+        if args.confirm_recovery_test or args.confirm_wake_test:
+            print("Locking in 5 seconds; recovery-only." if args.confirm_recovery_test else
+                  "Locking in 5 seconds; protected wake/unlock then immediate relock.", flush=True)
+            time.sleep(5)
+            subprocess.run([str(guardian), "--request-lock"], check=True, stdout=subprocess.DEVNULL, timeout=3)
+            locked = True
+            wait_for(guardian, "locked", timeout=5)
+            record("lockedObserved")
+            started = time.monotonic()
+            method = "ocu/locked-use/validate-recovery" if args.confirm_recovery_test else "ocu/locked-use/validate-unlock"
+            assert rpc.call(method, timeout=10)["passed"]
+            if args.confirm_wake_test:
+                record("protectedUnlockObserved", acquisitionSeconds=round(time.monotonic()-started, 3), guiActionsPerformed=False)
+                rpc.notify("notifications/turn-ended")
+                wait_for(guardian, "locked", timeout=5)
+            wait_for_release(rpc)
+            record("bothGuardsReleased", passed=True)
+            completed = True
+            record("bothGuardsRecoveryPassed" if args.confirm_recovery_test else "relockObserved",
+                   transactionSeconds=round(time.monotonic()-started, 3), unlockPermitIssued=args.confirm_wake_test, guiActionsPerformed=False)
+            return
         prepare = "prepare-legacy" if args.legacy_only else "prepare"
         result = rpc.call("ocu/locked-use/keychain/" + prepare)
         assert result["passed"] and result["existingItemsRead"] is False
-        print(json.dumps({"event": "isolatedKeychainPrepared", "dataProtectionIncluded": not args.legacy_only}), flush=True)
+        record("isolatedKeychainPrepared", dataProtectionIncluded=not args.legacy_only)
         if args.prepare_only:
             assert rpc.call("ocu/locked-use/keychain/cleanup")["passed"]
             completed = True
@@ -119,13 +164,17 @@ def main():
         time.sleep(5)
         subprocess.run([str(guardian), "--request-lock"], check=True, stdout=subprocess.DEVNULL, timeout=3)
         locked = True
-        wait_for(guardian, "locked")
-        result = rpc.call("ocu/locked-use/validate")
+        wait_for(guardian, "locked", timeout=5)
+        record("lockedObserved")
+        result = rpc.call("ocu/locked-use/validate", timeout=10)
         assert result["passed"]
-        print(json.dumps({"event": "protectedNativeAXSCKKeychainPassed", "dataProtectionIncluded": not args.legacy_only}), flush=True)
+        record("protectedNativeAXSCKKeychainPassed", dataProtectionIncluded=not args.legacy_only)
         time.sleep(args.hold_seconds)
         rpc.notify("notifications/turn-ended")
-        wait_for(guardian, "locked")
+        wait_for(guardian, "locked", timeout=5)
+        record("relockObserved")
+        wait_for_release(rpc)
+        record("bothGuardsReleased", passed=True)
         if args.wait_for_manual_unlock:
             print("Relock observed. Waiting for normal manual unlock.", flush=True)
             wait_for(guardian, "unlocked", timeout=120)
@@ -136,16 +185,41 @@ def main():
         assert rpc.call("ocu/locked-use/keychain/verify-manual")["passed"]
         assert rpc.call("ocu/locked-use/keychain/cleanup")["passed"]
         completed = True
-        print(json.dumps({"event": "manualUnlockKeychainCleanupPassed", "productionEvidenceEligible": not args.legacy_only}), flush=True)
+        record("manualUnlockKeychainCleanupPassed", productionEvidenceEligible=not args.legacy_only)
+    except Exception as error:
+        failure = type(error).__name__
+        record("failed", failureType=failure)
+        raise
     finally:
         if not completed and locked:
-            subprocess.run([str(guardian), "--request-lock"], stdout=subprocess.DEVNULL, timeout=3)
-            print("Validation failed; independent guards retain their recovery barrier. Unlock normally before retrying cleanup.", file=sys.stderr)
+            # Root and the independent guards own relock. An extra controller
+            # SPI request can interrupt a user's normal recovery login.
+            print("Validation failed; independent guards own recovery. Unlock normally before retrying cleanup.", file=sys.stderr)
+            try:
+                wait_for_release(rpc)
+                record("bothGuardsReleasedAfterFailure", passed=True)
+            except Exception:
+                record("bothGuardsReleasedAfterFailure", passed=False)
+            else:
+                if args.wait_for_manual_unlock:
+                    try:
+                        # Protection is gone; this wait does not keep the desktop
+                        # covered. Capture the normal-login mechanism diagnostics.
+                        wait_for(guardian, "unlocked", timeout=60)
+                        record("manualUnlockAfterFailure", passed=True)
+                        if fixture is not None:
+                            assert rpc.call("ocu/locked-use/keychain/verify-manual")["passed"]
+                            assert rpc.call("ocu/locked-use/keychain/cleanup")["passed"]
+                            record("isolatedKeychainCleanupAfterFailure", passed=True)
+                    except Exception:
+                        record("manualRecoveryVerification", passed=False)
         if not locked or completed:
             try: rpc.call("ocu/locked-use/keychain/cleanup", timeout=5)
             except Exception: pass
         rpc.close()
         if fixture is not None: fixture.terminate()
+        report = write_report(root, run_started, events, failure)
+        print(json.dumps({"event": "diagnosticReportSaved", "path": str(report)}), flush=True)
 
 
 if __name__ == "__main__":

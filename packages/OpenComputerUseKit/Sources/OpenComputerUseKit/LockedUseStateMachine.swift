@@ -94,7 +94,7 @@ public struct LockedUseStateMachine: Sendable {
 
     public static let idleTimeout: TimeInterval = 30
     public static let permitLifetime: TimeInterval = 5
-    public static let unlockTimeout: TimeInterval = 10
+    public static let unlockTimeout: TimeInterval = 8
     public static let heartbeatTimeout: TimeInterval = 3
     public static let maximumLease: TimeInterval = 300
 
@@ -235,7 +235,7 @@ public struct LockedUseStateMachine: Sendable {
     public mutating func tick(now: TimeInterval) throws -> [Effect] {
         try checkClock(now)
         guard [.preparing, .authorizing, .unlocking, .active].contains(phase) else { return [] }
-        if now - lastHeartbeatAt >= Self.heartbeatTimeout { return stop(.guardLost) }
+        if phase != .preparing, now - lastHeartbeatAt >= Self.heartbeatTimeout { return stop(.guardLost) }
         if now - startedAt >= Self.maximumLease { return stop(.leaseExpired) }
         if phase == .active, now - lastActivityAt >= Self.idleTimeout { return stop(.idleTimeout) }
         if phase != .active, now - startedAt >= Self.unlockTimeout { return stop(.unlockTimeout) }

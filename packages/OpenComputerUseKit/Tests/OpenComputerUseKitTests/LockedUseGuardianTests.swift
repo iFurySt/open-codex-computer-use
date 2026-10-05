@@ -34,6 +34,14 @@ final class LockedUseGuardianTests: XCTestCase {
         XCTAssertEqual(policy.phase, .relocking)
     }
 
+    func testDelayedChildPreparationStartsHeartbeatOnlyAfterHealthyRegistration() throws {
+        var policy = try LockedUseGuardianPolicy(session: locked, now: 100)
+        try policy.prepared(topology: "display-1", now: 103)
+        XCTAssertEqual(try policy.heartbeat(now: 103.1), [])
+        XCTAssertEqual(try policy.poll(session: locked, topology: "display-1", guardsHealthy: true, now: 104), [])
+        XCTAssertEqual(try policy.poll(session: locked, topology: "display-1", guardsHealthy: true, now: 104.6), [.requestRelock])
+    }
+
     func testLockedDrainWaitDoesNotRepeatedlyDismissLoginAndStillRelocksAnUnlock() throws {
         var policy = try shielding()
         XCTAssertEqual(policy.stop(.parentDisconnected, now: 100), [.requestRelock])

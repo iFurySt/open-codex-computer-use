@@ -238,6 +238,7 @@ enum GuardianError: Error { case message(String) }
     // Unlike the parent, this process drives RunLoop directly instead of
     // NSApplication.run(). Publish the first AppKit frame before health/RPC.
     if persistent { _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
+    lastHeartbeat = ProcessInfo.processInfo.systemUptime
     let brokerLink = bootstrap.map { WatchdogBrokerLink(bootstrap: $0, protected: shield?.healthy == true) }
     if !persistent { _ = HeartbeatPipe.send(82, to: STDOUT_FILENO) } // R requires root registration in broker mode
     while true {
