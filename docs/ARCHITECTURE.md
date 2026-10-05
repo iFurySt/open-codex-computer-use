@@ -5,11 +5,11 @@
 ## 当前目录结构
 
 - `apps/OpenComputerUse`
-  主入口，负责 `mcp`、`doctor`、`list-apps`、`snapshot`、`call`、`turn-ended` 等 CLI 命令，以及 `-h` / `--help` / `-v` / `--version` 这类全局参数；不带参数启动时会先检查权限，只有缺失时才进入无 Dock 图标的 app 模式权限引导窗口，`doctor` 也只会在检测到缺失权限时拉起这套 onboarding UI。
+  主入口，负责 `mcp`、`doctor`、`list-apps`、`snapshot`、`call`、`turn-ended` 等 CLI 命令，以及 `-h` / `--help` / `-v` / `--version` 这类全局参数；不带参数启动或再次打开 App 显示原生虚拟显示器工作区，权限不足时提供既有 onboarding 入口，`doctor` 也只会在检测到缺失权限时拉起这套 onboarding UI。
 - `apps/OpenComputerUseFixture`
   本地 GUI fixture app，用来承载低风险、可预测的点击/输入/滚动/拖拽验证路径。
 - `apps/OpenComputerUseSmokeSuite`
-  端到端 smoke runner，会拉起 fixture 和 MCP server，并通过 JSON-RPC 真实调用 9 个 tools；同时也支持单独的 visual cursor idle smoke，用跨进程 observation file 断言等待下一次 move 时是 anchored tip + tiny rotate wobble，而不是横向漂移。
+  端到端 smoke runner，会拉起 fixture 和 MCP server，并通过 JSON-RPC 验证既有 9 个交互 tools 与当前 tool registry；同时也支持单独的 visual cursor idle smoke，用跨进程 observation file 断言等待下一次 move 时是 anchored tip + tiny rotate wobble，而不是横向漂移。
 - `apps/OpenComputerUseWindows`
   实验性 Windows runtime。它不依赖 Swift 或 `.app` bundle，Go CLI/MCP 入口会嵌入 PowerShell UI Automation bridge，构建产物是 `open-computer-use.exe`，并随已有 npm 包的 `dist/windows/<arch>/` bundled artifacts 分发。
 - `apps/OpenComputerUseLinux`
@@ -37,8 +37,9 @@
 
 ### 1. App Mode 层
 
-- `OpenComputerUse` 默认 app 模式会拉起 `PermissionOnboardingApp`。
-- app bundle 以 `LSUIElement` agent-style 形态运行，默认不在 Dock 暴露常驻图标，但仍可按需显示权限窗口。
+- `OpenComputerUse` 默认 app 模式显示 `VirtualDisplayWorkspace`，通过权限入口拉起 `PermissionOnboardingApp`。
+- app bundle 保持 `LSUIElement` 身份，工具启动使用隐藏 agent 模式；显示 GUI 时切换 regular activation policy 和原生 App 菜单。
+- 从 CLI 无参数运行 bundle 内二进制时，同样通过 LaunchServices 启动独立 GUI 进程并退出 launcher，保持 App 的权限身份；已有同 namespace runtime 则显示其工作区。
 - 当用户从终端执行 macOS 版 `open-computer-use mcp`、`doctor`、`call`、`snapshot` 或 `list-apps` 时，CLI 会先通过 LaunchServices 启动同一个 `.app` bundle 的隐藏 app agent，并通过用户临时目录下的 Unix domain socket 转发请求；真正调用 Accessibility、ScreenCaptureKit 和动作 tools 的进程始终是 `Open Computer Use.app`，不是 iTerm / Terminal / Node launcher。默认 Socket 文件名保持历史兼容；嵌入式宿主可设置 `OPEN_COMPUTER_USE_AGENT_SOCKET_NAMESPACE`，使其使用 namespace 摘要对应的私有 Socket，避免与其他 OCU bundle 共用 Agent。
 - CLI 与 MCP proxy 会把调用进程中 `OPEN_COMPUTER_USE_*` 前缀的环境变量随请求转发给 app agent，并只在该请求执行期间临时覆盖 agent 环境；这让 `click_method=global` 的进程级安全门和 debug 开关在 app-agent 架构下仍按调用方配置生效。
 - 主窗口负责渲染 `Accessibility` / `Screen & System Audio Recording` 两类权限卡片、`Allow` / `Done` 状态和 relaunch 后的状态收敛；当两项权限都已完成时会自动关闭，不再要求用户手动退出。
@@ -164,3 +165,15 @@
   - `open-computer-use snapshot <app>`
   - `open-computer-use call list_apps`
   - `open-computer-use call --calls '[{"tool":"get_app_state","args":{"app":"TextEdit"}}]'`
+
+## macOS 虚拟显示器与工作区
+
+macOS tool registry 增加六个虚拟会话 tools（共 15），原有 app tools 可选择 `session_id`，`get_app_state` 可明确选择 `window_id`。Windows/Linux 保持原有 9 个 tools。无 session 的旧调用不变。
+
+`apps/VirtualDisplayHost` 经 `packages/VirtualDisplayBridge` 创建并持有私有 CGVirtualDisplay 对象。每个会话单独 helper，父进程管道关闭即退出；打包时复制到 `Contents/Helpers` 并先签 helper 后签主 bundle。AX、ScreenCaptureKit 与权限身份留在 OCU runtime。
+
+`VirtualDisplaySessionRegistry` 串行服务 GUI、CLI、MCP 和 JS；一个会话、一个应用、多个明确受管理窗口。窗口截图/AX 缓存按客户端、session、PID、window、布局与 turn epoch 隔离。暂停立即关闭输入门，布局/前台/桌面变化暂停；恢复必须重新 snapshot。session 不随客户端断开或 turn-ended 销毁。
+
+`VirtualDisplayCapture` 持有显示器 SCStream 最新帧，通过共享 Metal preview 或 Swift 帧订阅消费。`experiments/VirtualDisplay` 提供真实 AppKit target、结构化 runner 与复用生产组件的 GUI lab，不借 FixtureBridge 模拟目标操作。虚拟 session 禁止真实激活、AXRaise/global 输入和剪贴板输入，当前拒绝拖拽。
+
+完整生命周期、权限、GUI 操作及实测边界见 [虚拟工作区设计](design-docs/virtual-display.md)。

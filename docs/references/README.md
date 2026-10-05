@@ -21,3 +21,6 @@
   - 当抓包目录里的 `websocket/` + `local-sessions/` 仍不足以解释本地 tool / MCP 行为时，再补查 Codex 本地 `logs_2.sqlite`。
 - `codex-computer-use-cli.md`
   - 仓库内 `scripts/computer-use-cli/` 的用途、使用方法，以及为什么探测官方 bundled `computer-use` 时要优先走 `codex app-server` 代理而不是 direct stdio。
+
+- `macos-virtual-display.md`
+  - 私有显示器接口、Chromium/DeskPad 等参考、采用边界和真实验证入口。

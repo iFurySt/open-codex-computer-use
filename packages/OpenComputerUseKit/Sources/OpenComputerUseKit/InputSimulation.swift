@@ -67,15 +67,15 @@ enum InputSimulation {
         }
     }
 
-    static func clickTargeted(at point: CGPoint, button: MouseButtonKind, clickCount: Int, pid: pid_t) throws {
+    static func clickTargeted(at point: CGPoint, button: MouseButtonKind, clickCount: Int, pid: pid_t, isolateModifiers: Bool = false) throws {
         guard let source = CGEventSource(stateID: .combinedSessionState) else {
             throw ComputerUseError.message("Failed to create app-post event source.")
         }
 
         for _ in 0..<max(clickCount, 1) {
-            try postMouseEventToPid(type: .mouseMoved, source: source, point: point, button: button.cgButton, clickState: clickCount, pid: pid)
-            try postMouseEventToPid(type: button.downEvent, source: source, point: point, button: button.cgButton, clickState: clickCount, pid: pid)
-            try postMouseEventToPid(type: button.upEvent, source: source, point: point, button: button.cgButton, clickState: clickCount, pid: pid)
+            try postMouseEventToPid(type: .mouseMoved, source: source, point: point, button: button.cgButton, clickState: clickCount, pid: pid, isolateModifiers: isolateModifiers)
+            try postMouseEventToPid(type: button.downEvent, source: source, point: point, button: button.cgButton, clickState: clickCount, pid: pid, isolateModifiers: isolateModifiers)
+            try postMouseEventToPid(type: button.upEvent, source: source, point: point, button: button.cgButton, clickState: clickCount, pid: pid, isolateModifiers: isolateModifiers)
         }
     }
 
@@ -85,7 +85,8 @@ enum InputSimulation {
         windowBounds: CGRect,
         windowID: CGWindowID,
         clickCount: Int,
-        pid: pid_t
+        pid: pid_t,
+        isolateModifiers: Bool = false
     ) throws {
         try SkyClickDispatcher.click(
             target: SkyClickTarget(
@@ -95,15 +96,17 @@ enum InputSimulation {
                 windowID: windowID,
                 pid: pid
             ),
-            clickCount: clickCount
+            clickCount: clickCount,
+            isolateModifiers: isolateModifiers
         )
     }
 
-    static func scrollTargeted(at point: CGPoint, direction: String, pages: Double, pid: pid_t) throws {
+    static func scrollTargeted(at point: CGPoint, direction: String, pages: Double, pid: pid_t, isolateModifiers: Bool = false) throws {
         guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2, wheel1: wheel1(direction: direction, pages: pages), wheel2: wheel2(direction: direction, pages: pages), wheel3: 0) else {
             throw ComputerUseError.message("Failed to create scroll event.")
         }
 
+        if isolateModifiers { event.flags = [] }
         event.location = point
         event.postToPid(pid)
         Thread.sleep(forTimeInterval: 0.1)
@@ -165,8 +168,9 @@ enum InputSimulation {
         try postMouseEvent(type: .leftMouseUp, source: nil, point: end, button: .left, clickState: 1, eventNumber: gesture)
     }
 
-    static func typeText(_ text: String, pid: pid_t) throws {
+    static func typeText(_ text: String, pid: pid_t, isolateModifiers: Bool = false, beforeChunk: (() throws -> Void)? = nil) throws {
         for chunk in keyboardUnicodeChunks(for: text) {
+            try beforeChunk?()
             var mutableChunk = chunk
             guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true),
                   let up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false) else {
@@ -181,6 +185,7 @@ enum InputSimulation {
                 down.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: baseAddress)
                 up.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: baseAddress)
             }
+            if isolateModifiers { down.flags = []; up.flags = [] }
             down.postToPid(pid)
             up.postToPid(pid)
             Thread.sleep(forTimeInterval: 0.02)
@@ -300,11 +305,12 @@ enum InputSimulation {
         return min(max(Int((distance / 4).rounded(.up)), 10), 60)
     }
 
-    private static func postMouseEventToPid(type: CGEventType, source: CGEventSource, point: CGPoint, button: CGMouseButton, clickState: Int, pid: pid_t) throws {
+    private static func postMouseEventToPid(type: CGEventType, source: CGEventSource, point: CGPoint, button: CGMouseButton, clickState: Int, pid: pid_t, isolateModifiers: Bool = false) throws {
         guard let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: point, mouseButton: button) else {
             throw ComputerUseError.message("Failed to create mouse event \(type.rawValue).")
         }
 
+        if isolateModifiers { event.flags = [] }
         event.setIntegerValueField(.mouseEventClickState, value: Int64(clickState))
         event.postToPid(pid)
         Thread.sleep(forTimeInterval: 0.03)

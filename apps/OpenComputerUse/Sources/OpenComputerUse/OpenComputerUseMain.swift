@@ -31,6 +31,10 @@ enum OpenComputerUseMain {
             return
         }
 
+        if arguments.isEmpty {
+            try MacOSAppAgentProxy.runWorkspace()
+            return
+        }
         let command = try parseOpenComputerUseCLI(arguments: arguments)
 
         if MacOSAppAgentProxy.shouldProxy(command: command) {

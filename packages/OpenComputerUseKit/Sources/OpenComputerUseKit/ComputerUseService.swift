@@ -462,9 +462,35 @@ func shouldPreferContainingWebRowAXClickCandidate(
 
 public final class ComputerUseService {
     private var snapshotsByApp: [String: AppSnapshot] = [:]
+    public func clearSnapshotCache() { snapshotsByApp.removeAll() }
     // Read per call: the app agent applies the caller's OPEN_COMPUTER_USE_* variables
     // for the duration of each request.
-    private var actionReadBack: Bool { actionReadBackEnabled(environment: ProcessInfo.processInfo.environment) }
+    private var actionReadBack: Bool { virtualContext != nil || actionReadBackEnabled(environment: inputEnvironment) }
+
+    private var virtualContext: VirtualDisplayOperationContext?
+    private var inputEnvironment: [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        if virtualContext != nil { environment["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS"] = "0" }
+        return environment
+    }
+    func withVirtualContext<T>(_ context: VirtualDisplayOperationContext, _ operation: () throws -> T) rethrows -> T {
+        let previous = virtualContext
+        virtualContext = context
+        defer { virtualContext = previous }
+        return try operation()
+    }
+    private func verifyVirtualInput() throws {
+        if let context = virtualContext { try VirtualDisplaySessionRegistry.shared.checkInput(sessionID: context.sessionID) }
+    }
+    private func verifyVirtualKeyboardTarget(_ snapshot: AppSnapshot) throws {
+        try verifyVirtualInput()
+        guard let context = virtualContext else { return }
+        guard let focused = VirtualDisplayWindowAccess.attribute(AXUIElementCreateApplication(snapshot.app.pid), kAXFocusedWindowAttribute),
+              CFGetTypeID(focused) == AXUIElementGetTypeID(),
+              CFEqual(focused, context.window.element) else {
+            throw ComputerUseError.message("Keyboard focus does not belong to the selected managed window; use AX set_value or select a focused managed window")
+        }
+    }
 
     public init() {}
 
@@ -485,7 +511,15 @@ public final class ComputerUseService {
             return .text("ok")
         }
 
-        return snapshotResult(for: try refreshSnapshot(for: query, recoveryPolicy: recoveryPolicy), style: .actionResult)
+        let before = virtualContext.flatMap { snapshotsByApp[$0.cacheKey] }
+        let after = try refreshSnapshot(for: query, recoveryPolicy: recoveryPolicy)
+        let result = snapshotResult(for: after, style: .actionResult)
+        guard virtualContext != nil else { return result }
+        let changed = before.map { $0.renderedText != after.renderedText || $0.screenshotPNGData != after.screenshotPNGData } ?? false
+        var content = result.content
+        let index = content.firstIndex { $0.dictionary["type"] as? String == "image" } ?? content.endIndex
+        content.insert(.text(changed ? "Input delivered; a UI change was observed in AX or the captured image. Verify it matches the intended outcome." : "Input delivered; no UI change was verified by the fresh AX/capture state."), at: index)
+        return ToolCallResult(content: content, isError: result.isError)
     }
 
     public func listApps() -> ToolCallResult {
@@ -516,7 +550,7 @@ public final class ComputerUseService {
         try validateClickMethod(
             clickMethod,
             hasElementIndex: elementIndex != nil,
-            environment: ProcessInfo.processInfo.environment
+            environment: inputEnvironment
         )
         try validateSkyClickArguments(
             method: clickMethod,
@@ -705,6 +739,10 @@ public final class ComputerUseService {
             throw ComputerUseError.stateUnavailable("element \(elementIndex) has no backing accessibility object")
         }
 
+        try verifyVirtualInput()
+        if virtualContext != nil, ["raise", "activate", "focus", "makekey", "makemain"].contains(where: { rawAction.lowercased().contains($0) }) {
+            throw ComputerUseError.message("Activation actions are disabled in virtual sessions")
+        }
         let result = AXUIElementPerformAction(element, rawAction as CFString)
         guard result == .success else {
             throw ComputerUseError.message("AXUIElementPerformAction failed with \(result.rawValue)")
@@ -796,7 +834,8 @@ public final class ComputerUseService {
             throw ComputerUseError.stateUnavailable("type_text requires a focused editable text element. Click a text entry area first, or use set_value on a settable text element.")
         }
 
-        try InputSimulation.typeText(text, pid: snapshot.app.pid)
+        try verifyVirtualInput()
+        try InputSimulation.typeText(text, pid: snapshot.app.pid, isolateModifiers: virtualContext != nil, beforeChunk: { try self.verifyVirtualKeyboardTarget(snapshot) })
         return try actionResult(for: query)
     }
 
@@ -808,6 +847,7 @@ public final class ComputerUseService {
             return try actionResult(for: query)
         }
 
+        try verifyVirtualKeyboardTarget(snapshot)
         try InputSimulation.pressKey(key, pid: snapshot.app.pid)
         return try actionResult(for: query)
     }
@@ -841,6 +881,7 @@ public final class ComputerUseService {
         moveVisualCursor(to: cursorTarget)
 
         do {
+            try verifyVirtualInput()
             let result = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, value as CFString)
             guard result == .success else {
                 throw ComputerUseError.message("AXUIElementSetAttributeValue failed with \(result.rawValue)")
@@ -857,10 +898,16 @@ public final class ComputerUseService {
     }
 
     private func currentSnapshot(for query: String) throws -> AppSnapshot {
-        if let snapshot = snapshotsByApp[query.lowercased()] {
+        if let snapshot = snapshotsByApp[virtualContext?.cacheKey ?? query.lowercased()] {
+            try verifyVirtualInput()
+            if let context = virtualContext, let bounds = snapshot.windowBounds,
+               !VirtualDisplayWindowAccess.close(bounds, context.window.info.frame) {
+                throw ComputerUseError.stateUnavailable("Window geometry changed; run get_app_state again")
+            }
             return snapshot
         }
 
+        if virtualContext != nil { throw ComputerUseError.stateUnavailable("Run get_app_state for this session/window before acting") }
         return try refreshSnapshot(for: query)
     }
 
@@ -871,12 +918,14 @@ public final class ComputerUseService {
         treeLimits: AccessibilityTreeLimits = .defaults,
         recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation
     ) throws -> AppSnapshot {
-        let app = try AppDiscovery.resolve(query)
+        let app = try virtualContext?.app ?? AppDiscovery.resolve(query)
         let snapshot = try SnapshotBuilder.build(
             for: app,
             textLimit: textLimit,
             treeLimits: treeLimits,
-            recoveryPolicy: recoveryPolicy
+            recoveryPolicy: virtualContext == nil ? recoveryPolicy : .readOnly,
+            targetWindow: virtualContext?.window.element,
+            targetWindowID: virtualContext?.window.info.id
         )
 
         let keys = Set([
@@ -885,9 +934,11 @@ public final class ComputerUseService {
             (app.bundleIdentifier ?? "").lowercased(),
         ].filter { !$0.isEmpty })
 
-        for key in keys {
-            snapshotsByApp[key] = snapshot
+        if let context = virtualContext {
+            snapshotsByApp = snapshotsByApp.filter { !$0.key.hasPrefix(context.sessionID + ":") || $0.key == context.cacheKey }
+            snapshotsByApp[context.cacheKey] = snapshot
         }
+        else { for key in keys { snapshotsByApp[key] = snapshot } }
 
         return snapshot
     }
@@ -897,6 +948,10 @@ public final class ComputerUseService {
             throw ComputerUseError.invalidArguments("unknown element_index '\(index)'")
         }
 
+        if let context = virtualContext, let element = record.element,
+           !VirtualDisplayWindowAccess.contains(element, in: context.window.element) {
+            throw ComputerUseError.message("AX element is outside the selected managed window")
+        }
         return record
     }
 
@@ -978,6 +1033,7 @@ public final class ComputerUseService {
     }
 
     private func selectContainingListItem(for element: AXUIElement) throws -> Bool {
+        try verifyVirtualInput()
         guard let target = selectableListItem(containing: element) else {
             return false
         }
@@ -1108,12 +1164,15 @@ public final class ComputerUseService {
     }
 
     private func performAction(named action: String, on element: AXUIElement, availableActions: [String], repeatCount: Int = 1) throws -> Bool {
+        try verifyVirtualInput()
+        if virtualContext != nil, action.lowercased().contains("raise") { return false }
         guard availableActions.contains(where: { $0.caseInsensitiveCompare(action) == .orderedSame }) else {
             return false
         }
 
         let attempts = max(repeatCount, 1)
         for index in 0..<attempts {
+            try verifyVirtualInput()
             let result = AXUIElementPerformAction(element, action as CFString)
             switch result {
             case .success:
@@ -1133,6 +1192,7 @@ public final class ComputerUseService {
     }
 
     private func activateClickTarget(element: AXUIElement, availableActions: [String]) throws -> Bool {
+        if virtualContext != nil { return false }
         var activated = false
 
         if try performAction(named: kAXRaiseAction as String, on: element, availableActions: availableActions) {
@@ -1202,6 +1262,7 @@ public final class ComputerUseService {
             return nil
         }
 
+        if let context = virtualContext, !VirtualDisplayWindowAccess.contains(hitElement, in: context.window.element) { return nil }
         let rawActions = copyActions(for: hitElement) ?? []
         return ElementRecord(
             index: -1,
@@ -1440,6 +1501,7 @@ public final class ComputerUseService {
         }
 
         let baseValue = editableBaseValue(for: element)
+        try verifyVirtualInput()
         let result = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, (baseValue + text) as CFString)
         switch result {
         case .success:
@@ -1710,6 +1772,11 @@ public final class ComputerUseService {
             throw ComputerUseError.stateUnavailable("No window bounds are available for \(appReference). Run get_app_state after bringing the app on screen.")
         }
 
+        if virtualContext != nil {
+            guard point.x.isFinite, point.y.isFinite, CGRect(origin: .zero, size: windowBounds.size).contains(point) else {
+                throw ComputerUseError.invalidArguments("Input point is outside the selected managed window")
+            }
+        }
         return CGPoint(x: windowBounds.minX + point.x, y: windowBounds.minY + point.y)
     }
 
@@ -1744,7 +1811,15 @@ public final class ComputerUseService {
     }
 
     private func moveVisualCursor(to target: VisualCursorTarget?) {
-        guard let target else {
+        if let context = virtualContext, let target {
+            let mappings = currentVisualCursorScreenMappings()
+            if let mapping = mappings.first(where: { $0.appKitFrame.contains(target.point) }) {
+                let global = CGPoint(x: mapping.screenStateFrame.minX + target.point.x - mapping.appKitFrame.minX, y: mapping.screenStateFrame.minY + mapping.appKitFrame.maxY - target.point.y)
+                VirtualDisplaySessionRegistry.shared.setCursor(sessionID: context.sessionID, global: global)
+            }
+            return
+        }
+        guard virtualContext == nil, let target else {
             return
         }
 
@@ -1754,7 +1829,7 @@ public final class ComputerUseService {
     }
 
     private func settleVisualCursor(at target: VisualCursorTarget?) {
-        guard let target else {
+        guard virtualContext == nil, let target else {
             return
         }
 
@@ -1764,7 +1839,7 @@ public final class ComputerUseService {
     }
 
     private func pulseVisualCursor(at target: VisualCursorTarget?, clickCount: Int, mouseButton: MouseButtonKind) {
-        guard let target else {
+        guard virtualContext == nil, let target else {
             return
         }
 
@@ -1779,7 +1854,7 @@ public final class ComputerUseService {
     }
 
     private func debugInputFallback(tool: String, targetDescription: String, snapshot: AppSnapshot) {
-        guard inputFallbackDebugEnabled(environment: ProcessInfo.processInfo.environment) else {
+        guard inputFallbackDebugEnabled(environment: inputEnvironment) else {
             return
         }
 
@@ -1791,7 +1866,7 @@ public final class ComputerUseService {
     }
 
     private func debugClickDecision(_ message: String) {
-        guard inputFallbackDebugEnabled(environment: ProcessInfo.processInfo.environment) else {
+        guard inputFallbackDebugEnabled(environment: inputEnvironment) else {
             return
         }
 
@@ -1820,9 +1895,10 @@ public final class ComputerUseService {
         targetDescription: String,
         snapshot: AppSnapshot
     ) throws {
+        try verifyVirtualInput()
         let eventPoint = inputEventPoint(fromScreenStatePoint: point)
 
-        if globalPointerFallbacksEnabled(environment: ProcessInfo.processInfo.environment) {
+        if globalPointerFallbacksEnabled(environment: inputEnvironment) {
             debugInputFallback(
                 tool: "scroll",
                 targetDescription: targetDescription,
@@ -1833,7 +1909,8 @@ public final class ComputerUseService {
             return
         }
 
-        try InputSimulation.scrollTargeted(at: eventPoint, direction: direction, pages: pages, pid: snapshot.app.pid)
+        try verifyVirtualKeyboardTarget(snapshot)
+        try InputSimulation.scrollTargeted(at: eventPoint, direction: direction, pages: pages, pid: snapshot.app.pid, isolateModifiers: virtualContext != nil)
     }
 
     private func performDragEvent(
@@ -1842,9 +1919,10 @@ public final class ComputerUseService {
         targetDescription: String,
         snapshot: AppSnapshot
     ) throws -> DragDeliveryPath {
+        try verifyVirtualInput()
         let eventStart = inputEventPoint(fromScreenStatePoint: start)
         let eventEnd = inputEventPoint(fromScreenStatePoint: end)
-        let path = dragDeliveryPath(environment: ProcessInfo.processInfo.environment)
+        let path = dragDeliveryPath(environment: inputEnvironment)
 
         switch path {
         case .global:
@@ -1869,9 +1947,10 @@ public final class ComputerUseService {
         targetDescription: String,
         snapshot: AppSnapshot
     ) throws {
+        try verifyVirtualInput()
         let eventPoint = inputEventPoint(fromScreenStatePoint: point)
 
-        if globalPointerFallbacksEnabled(environment: ProcessInfo.processInfo.environment) {
+        if globalPointerFallbacksEnabled(environment: inputEnvironment) {
             debugInputFallback(
                 tool: "click",
                 targetDescription: targetDescription,
@@ -1883,15 +1962,18 @@ public final class ComputerUseService {
         }
 
         do {
+            try verifyVirtualKeyboardTarget(snapshot)
             try InputSimulation.clickTargeted(
                 at: eventPoint,
                 button: button,
                 clickCount: clickCount,
-                pid: snapshot.app.pid
+                pid: snapshot.app.pid,
+                isolateModifiers: virtualContext != nil
             )
             return
         } catch {
-            guard globalPointerFallbacksEnabled(environment: ProcessInfo.processInfo.environment) else {
+            if virtualContext != nil { throw error }
+            guard globalPointerFallbacksEnabled(environment: inputEnvironment) else {
                 throw ComputerUseError.message(
                     "click could not be handled through accessibility, and global pointer fallback is disabled. Set OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 to allow physical-pointer fallback for this process."
                 )
@@ -1908,16 +1990,19 @@ public final class ComputerUseService {
         targetDescription: String,
         snapshot: AppSnapshot
     ) throws {
+        try verifyVirtualInput()
         let eventPoint = inputEventPoint(fromScreenStatePoint: point)
 
         switch method {
         case .appPost:
+            try verifyVirtualKeyboardTarget(snapshot)
             debugClickDecision("requested=app_post executed=pid_post target=\(targetDescription)")
             try InputSimulation.clickTargeted(
                 at: eventPoint,
                 button: button,
                 clickCount: clickCount,
-                pid: snapshot.app.pid
+                pid: snapshot.app.pid,
+                isolateModifiers: virtualContext != nil
             )
         case .skyClick:
             guard let windowBounds = snapshot.windowBounds, let windowID = snapshot.targetWindowID else {
@@ -1932,10 +2017,11 @@ public final class ComputerUseService {
                 windowBounds: windowBounds,
                 windowID: windowID,
                 clickCount: clickCount,
-                pid: snapshot.app.pid
+                pid: snapshot.app.pid,
+                isolateModifiers: virtualContext != nil
             )
         case .global:
-            guard globalPointerFallbacksEnabled(environment: ProcessInfo.processInfo.environment) else {
+            guard globalPointerFallbacksEnabled(environment: inputEnvironment) else {
                 throw ComputerUseError.message(
                     "click_method 'global' requires OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 because it may move the system pointer and change foreground focus"
                 )

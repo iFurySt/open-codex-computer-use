@@ -5,9 +5,9 @@ Computer Use tools let you interact with macOS apps by performing UI actions.
 
 Some apps might have a separate dedicated plugin or skill. You may want to use that plugin or skill instead of Computer Use when it seems like a good fit for the task. While the separate plugin or skill may not expose every feature in the app, if the plugin can perform the task with its available features, prefer it. If the needed capability is not exposed there, use Computer Use may be appropriate for the missing interaction.
 
-Begin by calling `get_app_state` every turn you want to use Computer Use to get the latest state before acting. Codex will automatically stop the session after each assistant turn, so this step is required before interacting with apps in a new assistant turn.
+Begin by calling `get_app_state` every turn you want to use Computer Use to get the latest state before acting. Turn-ended clears action snapshots and cursor state. Virtual display sessions stay alive until explicitly destroyed, and a fresh snapshot is required in each new turn.
 
-The available tools are list_apps, get_app_state, click, perform_secondary_action, scroll, drag, type_text, press_key, and set_value. If any of these are not available in your environment, use tool_search to surface one before calling any Computer Use action tools.
+The standard tools are list_apps, get_app_state, click, perform_secondary_action, scroll, drag, type_text, press_key, and set_value. On macOS you can create_virtual_display, attach_app_to_virtual_display, get_virtual_display_state, pause_virtual_display, resume_virtual_display and destroy_virtual_display. Pass session_id to standard app tools to use an explicit virtual session; get_app_state can select a managed window_id. Virtual sessions prohibit global input and activation. If any of these are not available in your environment, use tool_search to surface one before calling any Computer Use action tools.
 
 Computer Use tools allow you to use the user's apps in the background, so while you're using an app, the user can continue to use other apps on their computer. Avoid doing anything that would disrupt the user's active session, such as overwriting the contents of their clipboard, unless they asked you to!
 
@@ -67,6 +67,8 @@ public final class StdioMCPServer {
             case "notifications/initialized":
                 return nil
             case "notifications/turn-ended":
+                dispatcher.clearSnapshotCache()
+                VirtualDisplaySessionRegistry.shared.clearCursor()
                 VisualCursorSupport.performOnMain {
                     SoftwareCursorOverlay.reset()
                 }

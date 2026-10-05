@@ -21,6 +21,35 @@ enum MacOSAppAgentProxy {
         try MacOSAppAgentRuntime.run(socketPath: arguments[1])
     }
 
+    @MainActor
+    static func runWorkspace() throws {
+        let path = defaultSocketPath()
+        if let client = AppAgentSocketClient.connect(path: path) {
+            if let appURL = PermissionSupport.currentAppBundleURL(),
+               (try? client.isCurrentAgent(for: appURL)) == true {
+                _ = try client.request(["kind": "showWorkspace"])
+                return
+            }
+            try retireAgent(client, socketPath: path)
+        }
+        if !isRunningFromLaunchServicesAppInstance, let appURL = PermissionSupport.currentAppBundleURL() {
+            // A terminal/Node parent must not become the GUI's TCC identity.
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = true; configuration.createsNewApplicationInstance = true
+            if let namespace = ProcessInfo.processInfo.environment[openComputerUseAppAgentSocketNamespaceEnvironmentKey] {
+                configuration.environment = [openComputerUseAppAgentSocketNamespaceEnvironmentKey: namespace]
+            }
+            NSWorkspace.shared.openApplication(at: appURL, configuration: configuration) { _, _ in }
+            let deadline = Date(timeIntervalSinceNow: 10)
+            while Date() < deadline {
+                if let client = AppAgentSocketClient.connect(path: path), (try? client.isCurrentAgent(for: appURL)) == true { return }
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+            throw OpenComputerUseCLIError(message: "Timed out launching the standalone OCU workspace through LaunchServices")
+        }
+        try MacOSAppAgentRuntime.run(socketPath: path, showWorkspace: true)
+    }
+
     static func shouldProxy(command: OpenComputerUseCLICommand) -> Bool {
         shouldUseMacOSAppAgentProxy(
             command: command,
@@ -65,7 +94,7 @@ enum MacOSAppAgentProxy {
         isRunningFromOpenComputerUseAppBundle && getppid() == 1
     }
 
-    private static func defaultSocketPath() -> String {
+    static func defaultSocketPath() -> String {
         FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 openComputerUseAppAgentSocketFileName(
@@ -87,8 +116,7 @@ enum MacOSAppAgentProxy {
                 return client
             }
 
-            _ = try? client.request(["kind": "terminate"])
-            unlink(socketPath)
+            try retireAgent(client, socketPath: socketPath)
         } else {
             unlink(socketPath)
         }
@@ -109,6 +137,19 @@ enum MacOSAppAgentProxy {
         }
 
         throw OpenComputerUseCLIError(message: "Timed out waiting for Open Computer Use.app agent to start.")
+    }
+
+    private static func retireAgent(_ client: AppAgentSocketClient, socketPath: String) throws {
+        let info = try client.request(["kind": "agentInfo"])
+        if let id = info["activeSessionID"] as? String, !id.isEmpty {
+            throw OpenComputerUseCLIError(message: "Another OCU build owns virtual session \(id). End it before switching builds, or use a separate socket namespace.")
+        }
+        _ = try client.request(["kind": "terminate"])
+        let deadline = Date(timeIntervalSinceNow: 10)
+        while FileManager.default.fileExists(atPath: socketPath), Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
+        guard !FileManager.default.fileExists(atPath: socketPath) else {
+            throw OpenComputerUseCLIError(message: "The previous OCU runtime has not completed safe shutdown; its socket was preserved.")
+        }
     }
 
     private static func proxyMCP(client: AppAgentSocketClient) throws {
@@ -161,16 +202,18 @@ private final class MacOSAppAgentRuntime: NSObject, NSApplicationDelegate {
     private let socketPath: String
     private var listener: AppAgentSocketListener?
     private var turnEndedObserver: NSObjectProtocol?
+    private var showWorkspaceAtLaunch = false
 
     private init(socketPath: String) {
         self.socketPath = socketPath
     }
 
-    static func run(socketPath: String) throws {
+    static func run(socketPath: String, showWorkspace: Bool = false) throws {
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
 
         let delegate = MacOSAppAgentRuntime(socketPath: socketPath)
+        delegate.showWorkspaceAtLaunch = showWorkspace
         application.delegate = delegate
         application.run()
     }
@@ -183,6 +226,7 @@ private final class MacOSAppAgentRuntime: NSObject, NSApplicationDelegate {
         ) { _ in
             Task { @MainActor in
                 resetOpenComputerUseVisualCursor()
+                VirtualDisplaySessionRegistry.shared.clearCursor()
             }
         }
 
@@ -190,6 +234,7 @@ private final class MacOSAppAgentRuntime: NSObject, NSApplicationDelegate {
             let listener = try AppAgentSocketListener(path: socketPath)
             self.listener = listener
             listener.start()
+            if showWorkspaceAtLaunch { VirtualDisplayWorkspaceController.shared.show() }
         } catch {
             writeAgentError(error)
             NSApp.terminate(nil)
@@ -201,6 +246,28 @@ private final class MacOSAppAgentRuntime: NSObject, NSApplicationDelegate {
             DistributedNotificationCenter.default().removeObserver(turnEndedObserver)
         }
         listener?.stop()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        VirtualDisplayWorkspaceController.shared.show()
+        return true
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        Task {
+            do {
+                try await Task.detached {
+                    let registry = VirtualDisplaySessionRegistry.shared
+                    if let state = registry.currentState() { try registry.destroy(sessionID: state.sessionID) }
+                }.value
+                sender.reply(toApplicationShouldTerminate: true)
+            } catch {
+                VirtualDisplayWorkspaceController.shared.model.message = error.localizedDescription
+                VirtualDisplayWorkspaceController.shared.show()
+                sender.reply(toApplicationShouldTerminate: false)
+            }
+        }
+        return .terminateLater
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -324,12 +391,16 @@ private final class AppAgentConnection: @unchecked Sendable {
             }
 
             switch kind {
+            case "showWorkspace":
+                Task { @MainActor in VirtualDisplayWorkspaceController.shared.show() }
+                return ["ok": true]
             case "agentInfo":
                 return [
                     "bundleIdentifier": Bundle.main.bundleIdentifier ?? "",
                     "bundleURL": Bundle.main.bundleURL.standardizedFileURL.path,
                     "executableURL": Bundle.main.executableURL?.standardizedFileURL.path ?? "",
                     "processStartTime": appAgentProcessStartDate.timeIntervalSince1970,
+                    "activeSessionID": VirtualDisplaySessionRegistry.shared.activeSessionID ?? "",
                 ]
             case "terminate":
                 Task { @MainActor in
@@ -420,10 +491,6 @@ private enum AppAgentEnvironment {
     private static let lock = NSLock()
 
     static func withOverrides<T>(_ overrides: [String: String], _ body: () throws -> T) rethrows -> T {
-        guard !overrides.isEmpty else {
-            return try body()
-        }
-
         lock.lock()
         defer { lock.unlock() }
 

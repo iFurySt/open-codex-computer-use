@@ -43,3 +43,14 @@
 - 任何面向真实 app 的能力新增，都不应该复用这条测试专用通道。
 
 仓库级的依赖、SBOM 和 provenance 默认能力，统一写在 `docs/SUPPLY_CHAIN_SECURITY.md`。
+
+## macOS 虚拟会话
+
+- 只有明确创建/绑定的 app、PID/window 可以操作。借用应用的其他窗口不自动接管，专用 Chrome 使用 0700 临时 profile，不复用用户浏览器 profile。
+- 虚拟会话始终禁止全局 HID、系统光标移动、真实 app 激活、AXRaise、snapshot activation recovery 和共享剪贴板文本输入；旧全局开关不会解除限制。未验证的拖拽明确拒绝。
+- pause 先关闭输入门，操作前后验证身份/几何/桌面状态，文本键盘 fallback 每个 chunk 再检查输入门。未知系统窗口、锁屏/睡眠/Space 变化和用户激活目标均暂停。
+- 恢复文件只记录进程启动身份、窗口与原位置/显示器，不含画面或输入内容，目录 0700、文件 0600。恢复前校验 PID、launchDate、bundle、window。正常清理恢复借用窗口，不退出借用应用；专用应用拒绝退出或恢复失败则保留会话，不强杀未保存内容。专用实例/临时 profile 的独立恢复标记在进程仍活着时保留，后续只清理确认原进程已退出且路径属于 OCU UUID 临时目录的 profile。
+- helper 只持有私有显示器，退出通过父进程私有管道 EOF 驱动。超时终止只针对本进程创建的 helper，不枚举并杀死其他显示器进程。
+- 原始视频帧仅在本地内存/Metal 渲染，排除宿主窗口，不经 MCP 传视频。虚拟显示器共享当前登录桌面，不是隔离登录会话或安全沙箱。
+
+实现和兼容性限制见 [虚拟工作区设计](design-docs/virtual-display.md)。

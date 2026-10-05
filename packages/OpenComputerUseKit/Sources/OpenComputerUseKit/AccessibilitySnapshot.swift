@@ -152,9 +152,11 @@ enum SnapshotBuilder {
         for app: RunningAppDescriptor,
         textLimit: SnapshotTextLimit = .defaults,
         treeLimits: AccessibilityTreeLimits = .defaults,
-        recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation
+        recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation,
+        targetWindow: AXUIElement? = nil,
+        targetWindowID: CGWindowID? = nil
     ) throws -> AppSnapshot {
-        if app.name == FixtureBridge.appName, let fixtureState = try FixtureBridge.readState() {
+        if targetWindow == nil, targetWindowID == nil, app.name == FixtureBridge.appName, let fixtureState = try FixtureBridge.readState() {
             return buildFixtureSnapshot(app: app, state: fixtureState)
         }
 
@@ -167,7 +169,7 @@ enum SnapshotBuilder {
         enableBestEffortAccessibilityModes(appElement)
         let systemWide = AXUIElementCreateSystemWide()
         var focusedApplication = copyElement(systemWide, attribute: kAXFocusedApplicationAttribute)
-        var focusedWindow = preferredFocusedWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
+        var focusedWindow = targetWindow ?? preferredFocusedWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
         if focusedWindow == nil,
            recoveryPolicy == .allowActivation,
            recoverVisibleWindow(for: app, appElement: appElement, preferredWindow: nil) {
@@ -182,7 +184,7 @@ enum SnapshotBuilder {
         rootWindow = resolvedFocusedWindow
 
         var windowTitle = stringValue(of: rootWindow, attribute: kAXTitleAttribute)
-        var windowCapture = WindowCapture.resolve(for: app.pid, titleHint: windowTitle)
+        var windowCapture = WindowCapture.resolve(for: app.pid, titleHint: windowTitle, windowID: targetWindowID)
         if windowCapture == nil,
            recoveryPolicy == .allowActivation,
            recoverVisibleWindow(for: app, appElement: appElement, preferredWindow: rootWindow) {
@@ -190,7 +192,7 @@ enum SnapshotBuilder {
             if let recoveredWindow = preferredFocusedWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide) {
                 rootWindow = recoveredWindow
                 windowTitle = stringValue(of: recoveredWindow, attribute: kAXTitleAttribute)
-                windowCapture = WindowCapture.resolve(for: app.pid, titleHint: windowTitle)
+                windowCapture = WindowCapture.resolve(for: app.pid, titleHint: windowTitle, windowID: targetWindowID)
             }
         }
 
@@ -202,6 +204,7 @@ enum SnapshotBuilder {
             app: app,
             appElement: appElement,
             rootElement: rootWindow,
+            restrictFocusToRoot: targetWindow != nil,
             windowTitle: windowTitle,
             windowCapture: windowCapture,
             focusedApplication: focusedApplication,
@@ -215,6 +218,7 @@ enum SnapshotBuilder {
         app: RunningAppDescriptor,
         appElement: AXUIElement,
         rootElement: AXUIElement,
+        restrictFocusToRoot: Bool,
         windowTitle: String?,
         windowCapture: WindowCapture,
         focusedApplication: AXUIElement?,
@@ -224,7 +228,10 @@ enum SnapshotBuilder {
     ) -> AppSnapshot {
         let windowBounds = windowCapture.bounds
         let screenshotPNGData = windowCapture.pngDataIfAvailable()
-        let focusedElement = preferredFocusedElement(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
+        let candidateFocus = preferredFocusedElement(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
+        let focusedElement = candidateFocus.flatMap { element in
+            !restrictFocusToRoot || VirtualDisplayWindowAccess.contains(element, in: rootElement) ? element : nil
+        }
         let selectedText = focusedElement.flatMap { copySelectedText($0, textLimit: textLimit) }
         let context = RenderContext(
             windowBounds: windowBounds,
@@ -235,7 +242,7 @@ enum SnapshotBuilder {
 
         var renderer = TreeRenderer(context: context)
         renderer.render(rootElement)
-        if let menuBar = copyElement(appElement, attribute: kAXMenuBarAttribute),
+        if !restrictFocusToRoot, let menuBar = copyElement(appElement, attribute: kAXMenuBarAttribute),
            !CFEqual(menuBar, rootElement)
         {
             renderer.render(menuBar)
@@ -428,7 +435,7 @@ private struct WindowCapture {
     let bounds: CGRect
     let image: CGImage?
 
-    static func resolve(for pid: pid_t, titleHint: String?) -> WindowCapture? {
+    static func resolve(for pid: pid_t, titleHint: String?, windowID: CGWindowID? = nil) -> WindowCapture? {
         guard let infoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
             return nil
         }
@@ -457,7 +464,7 @@ private struct WindowCapture {
             )
         }
 
-        guard let best = preferredWindowCaptureCandidate(candidates, titleHint: titleHint) else {
+        guard let best = windowID.flatMap({ id in candidates.first { $0.windowID == id } }) ?? (windowID == nil ? preferredWindowCaptureCandidate(candidates, titleHint: titleHint) : nil) else {
             return nil
         }
 
@@ -488,7 +495,10 @@ private struct WindowCapture {
     }
 
     private static func bestEffortScaleFactor(for bounds: CGRect) -> CGFloat {
-        NSScreen.screens.first(where: { $0.frame.intersects(bounds) })?.backingScaleFactor
+        NSScreen.screens.first(where: { screen in
+            guard let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return false }
+            return CGDisplayBounds(id.uint32Value).intersects(bounds)
+        })?.backingScaleFactor
             ?? NSScreen.main?.backingScaleFactor
             ?? 1
     }

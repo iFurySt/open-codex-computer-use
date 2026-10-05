@@ -8,6 +8,8 @@
 - 端到端 smoke：`./scripts/run-tool-smoke-tests.sh`
 - macOS SkyLight 实机回归：`OPEN_COMPUTER_USE_RUN_SKY_CLICK_LIVE_TEST=1 swift test --filter SkyClickLiveTests`
 - Linux runtime：`(cd apps/OpenComputerUseLinux && go test ./...)`、`./scripts/build-open-computer-use-linux.sh --arch arm64`
+- macOS 虚拟显示器：`./scripts/run-virtual-display-tests.sh --cycles 20 --scale 1` / `--scale 2`，前台 AppKit 检查使用 `--foreground-guard`，仅 holder EOF 检查使用 `--holder-only`。
+- 签名 bundle：`./scripts/build-open-computer-use-app.sh debug` 后 `codesign --verify --deep --strict "dist/Open Computer Use (Dev).app"`。
 - 本地诊断：
   - `open-computer-use doctor`
   - `open-computer-use snapshot <app>`
@@ -41,3 +43,7 @@
 - 增加普通 app 回归样本，而不是只覆盖 fixture。
 
 CI/CD 流程结构和 release 自动化的默认方案，统一写在 `docs/CICD.md`。
+
+虚拟会话采用 helper、CG 在线列表确认移除和 capture generation 防止残留显示器/旧帧。暂停时禁止继续输入，重连重新发现 ScreenCaptureKit 对象。无新帧只记录 frame age，不把静止画面误判失败。未保存内容、恢复失败保留会话供用户处理；旧 runtime 有会话时不自动替换 socket。
+
+当前 macOS 26.5.1/arm64 AppKit 真交互、1×/2× 与 20 次循环有实机证据；TextEdit 默认启动无普通窗口、Chrome 专用启动自行激活属于兼容性失败。Calculator 正式签名 GUI / CLI 共享会话、预览、暂停/继续、关窗保活和清理已实测；前台 AppKit 焦点保持、锁屏/睡眠、Space/Stage Manager、主进程崩溃等还需实测，不能以单元测试宣称支持。详见 [兼容性矩阵](design-docs/virtual-display.md)。

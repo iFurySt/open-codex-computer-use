@@ -204,3 +204,40 @@ test("worker session serializes concurrent callers", async () => {
   assert.equal((await second).content.at(-1).text, "first,second");
   await session.close();
 });
+
+test("virtual display bindings carry session identity through every action", async () => {
+  const calls = [];
+  const native = { async request(method, params) {
+    if (method === "tools/list") return {tools: [{name: "create_virtual_display"}]};
+    assert.equal(method, "tools/call");
+    calls.push(params);
+    if (["create_virtual_display", "attach_app_to_virtual_display", "get_virtual_display_state", "pause_virtual_display", "resume_virtual_display"].includes(params.name)) return textResult(JSON.stringify({ session_id: "virtual-1", phase: "ready" }));
+    return textResult("state");
+  } };
+  const session = new PersistentJavaScriptSession({ native });
+  const result = await session.run(`
+    var display = await cua.createVirtualDisplay({scale: 2});
+    await display.attachApp("com.example.App", {pid: 42, windowId: 123});
+    var app = await display.getApp("com.example.App", {windowId: 123});
+    await app.click(2); await app.typeText("hello"); await app.pressKey("Tab");
+    await app.drag([1,2], [3,4]); await app.scroll(4, "down");
+    await app.setValue(3, "text"); await app.performSecondaryAction(2, "Press");
+    await app.getAXState({emit:false}); await display.pause(); await display.resume(); var joined = await cua.getVirtualDisplay(display.id); await joined.getState(); await joined.destroy();
+  `);
+  assert.equal(result.isError, false);
+  assert.deepEqual(calls[0].arguments, {scale: 2});
+  assert.deepEqual(calls[1].arguments, {session_id: "virtual-1", app: "com.example.App", mode: "adopt", pid: 42, window_id: 123});
+  assert.equal(calls[2].arguments.window_id, 123);
+  for (const call of calls.slice(1)) assert.equal(call.arguments.session_id, "virtual-1");
+  for (const call of calls.slice(3)) assert.equal(call.arguments.window_id, undefined);
+});
+
+test("unsupported native runtimes cannot silently ignore a virtual session binding", async () => {
+  const calls = [];
+  const native = { async request(method) { calls.push(method); return {tools: [{name: "get_app_state"}]}; } };
+  const session = new PersistentJavaScriptSession({native});
+  const result = await session.run('await cua.getApp("Example", {sessionId: "virtual-1"});');
+  assert.equal(result.isError, true);
+  assert.match(result.content.at(-1).text, /unavailable/);
+  assert.deepEqual(calls, ["tools/list"]);
+});

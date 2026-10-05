@@ -37,6 +37,9 @@ The runtime exposes an asynchronous app-bound API:
 - \`await cua.getState({ emit? })\`: list current apps.
 - \`await cua.listApps({ emit? })\`: list current apps.
 - \`await cua.getApp(nameOrBundleID)\`: bind an app and emit its initial accessibility state.
+- \`await cua.createVirtualDisplay({ width?, height?, scale? })\` (macOS): returns a session with \`id\`, \`attachApp(app, { mode: "adopt"|"launch", pid?, windowId? })\`, \`getState()\`, \`pause()\`, \`resume()\`, \`destroy()\` and \`getApp(app, { windowId? })\`.
+- \`await cua.getVirtualDisplay(sessionId)\`: join an existing macOS session and get its lifecycle controller.
+- \`await cua.getApp(app, { sessionId, windowId? })\`: join an existing virtual session shown in the OCU GUI. Virtual sessions never activate apps, post global input or use the clipboard; drag is unsupported. Sessions survive client disconnect and turn-ended, but each new turn/resume needs a fresh state.
 - \`await app.getAXState({ emit?, textLimit?, maxTreeNodes?, maxTreeDepth? })\`
 - \`await app.getScreenshot({ emit? })\`
 - \`await app.getAXStateAndScreenshot(options?)\`
@@ -233,6 +236,31 @@ function optionsToClickArgs(options = {}) {
 
 export function createCuaApi(native, activeOutput) {
   let docsEmitted = false;
+  let virtualCapability;
+  async function requireVirtualSupport() {
+    virtualCapability ??= native.request("tools/list").then(result => {
+      if (!result?.tools?.some(tool => tool.name === "create_virtual_display")) {
+        throw new Error("Virtual display sessions are unavailable in this native runtime; session arguments will not be sent to legacy app tools.");
+      }
+    });
+    await virtualCapability;
+  }
+  function virtualDisplayBinding(id) {
+    return Object.freeze({
+      id,
+      async attachApp(app, options = {}) {
+        const args = { session_id: id, app, mode: options.mode ?? "adopt" };
+        if (options.pid !== undefined) args.pid = options.pid;
+        if (options.windowId !== undefined) args.window_id = options.windowId;
+        return JSON.parse(toolResultText(await call("attach_app_to_virtual_display", args)));
+      },
+      async getState() { return JSON.parse(toolResultText(await call("get_virtual_display_state", { session_id: id }))); },
+      async pause() { return JSON.parse(toolResultText(await call("pause_virtual_display", { session_id: id }))); },
+      async resume() { return JSON.parse(toolResultText(await call("resume_virtual_display", { session_id: id }))); },
+      async destroy() { await call("destroy_virtual_display", { session_id: id }); },
+      async getApp(app, options = {}) { return api.getApp(app, { ...options, sessionId: id }); },
+    });
+  }
   async function call(tool, args = {}) {
     const result = await native.request("tools/call", { name: tool, arguments: args });
     if (result?.isError) throw new Error(toolResultText(result) || `${tool} failed`);
@@ -251,16 +279,17 @@ export function createCuaApi(native, activeOutput) {
     activeOutput().write(COMPUTER_USE_GUIDANCE, "cua.core");
     docsEmitted = true;
   }
-  function appBinding(app) {
+  function appBinding(app, sessionArgs = {}) {
+    const appCall = (tool, args) => call(tool, { ...args, ...sessionArgs });
     return Object.freeze({
       async getAXState(options = {}) {
-        const result = await call("get_app_state", { app, ...optionsToSnapshotArgs(options) });
+        const result = await appCall("get_app_state", { app, ...optionsToSnapshotArgs(options) });
         const text = toolResultText(result);
         await emitText(text, options);
         return text;
       },
       async getScreenshot(options = {}) {
-        const result = await call("get_app_state", { app, text_limit: 1 });
+        const result = await appCall("get_app_state", { app, text_limit: 1 });
         const image = toolResultImages(result)[0];
         if (!image) throw new Error(`Screenshot unavailable for ${app}`);
         const bytes = Buffer.from(image.data, "base64");
@@ -268,7 +297,7 @@ export function createCuaApi(native, activeOutput) {
         return bytes;
       },
       async getAXStateAndScreenshot(options = {}) {
-        const result = await call("get_app_state", { app, ...optionsToSnapshotArgs(options) });
+        const result = await appCall("get_app_state", { app, ...optionsToSnapshotArgs(options) });
         const state = toolResultText(result);
         const images = toolResultImages(result);
         await emitText(state, options);
@@ -277,17 +306,17 @@ export function createCuaApi(native, activeOutput) {
       },
       async click(target, options = {}) {
         const targetArgs = Array.isArray(target) ? { x: target[0], y: target[1] } : { element_index: target };
-        await call("click", { app, ...targetArgs, ...optionsToClickArgs(options) });
+        await appCall("click", { app, ...targetArgs, ...optionsToClickArgs(options) });
       },
-      async drag(from, to) { await call("drag", { app, from_x: from[0], from_y: from[1], to_x: to[0], to_y: to[1] }); },
-      async pressKey(key) { await call("press_key", { app, key }); },
+      async drag(from, to) { await appCall("drag", { app, from_x: from[0], from_y: from[1], to_x: to[0], to_y: to[1] }); },
+      async pressKey(key) { await appCall("press_key", { app, key }); },
       async scroll(target, direction, pages = 1) {
         if (Array.isArray(target)) throw new Error("coordinate scroll is not supported by this Open Computer Use runtime");
-        await call("scroll", { app, element_index: target, direction, pages });
+        await appCall("scroll", { app, element_index: target, direction, pages });
       },
-      async setValue(elementIndex, value) { await call("set_value", { app, element_index: elementIndex, value }); },
-      async typeText(text) { await call("type_text", { app, text }); },
-      async performSecondaryAction(elementIndex, action) { await call("perform_secondary_action", { app, element_index: elementIndex, action }); },
+      async setValue(elementIndex, value) { await appCall("set_value", { app, element_index: elementIndex, value }); },
+      async typeText(text) { await appCall("type_text", { app, text }); },
+      async performSecondaryAction(elementIndex, action) { await appCall("perform_secondary_action", { app, element_index: elementIndex, action }); },
     });
   }
   const api = {
@@ -311,11 +340,31 @@ export function createCuaApi(native, activeOutput) {
       if (options.emit !== false) activeOutput().write(state.apps, "cua.state");
       return state.apps;
     },
-    async getApp(app) {
+    async getApp(app, options = {}) {
+      if (options.windowId !== undefined && options.sessionId === undefined) throw new Error("windowId requires sessionId");
       await emitDocs();
-      const result = await call("get_app_state", { app, text_limit: "max" });
+      const sessionArgs = {};
+      if (options.sessionId !== undefined) {
+        await requireVirtualSupport(); sessionArgs.session_id = options.sessionId;
+      }
+      if (options.windowId !== undefined) sessionArgs.window_id = options.windowId;
+      const result = await call("get_app_state", { app, text_limit: "max", ...sessionArgs });
       await emitText(toolResultText(result));
-      return appBinding(app);
+      // window_id chooses a window through get_app_state, not through action tools.
+      const binding = appBinding(app, options.sessionId === undefined ? {} : { session_id: options.sessionId });
+      return binding;
+    },
+    async createVirtualDisplay(options = {}) {
+      await requireVirtualSupport();
+      const args = {};
+      for (const key of ["width", "height", "scale"]) if (options[key] !== undefined) args[key] = options[key];
+      const state = JSON.parse(toolResultText(await call("create_virtual_display", args)));
+      return virtualDisplayBinding(state.session_id);
+    },
+    async getVirtualDisplay(id) {
+      await requireVirtualSupport();
+      await call("get_virtual_display_state", { session_id: id });
+      return virtualDisplayBinding(id);
     },
     async rewriteDocumentation() { activeOutput().write(COMPUTER_USE_GUIDANCE, "cua.core"); },
   };

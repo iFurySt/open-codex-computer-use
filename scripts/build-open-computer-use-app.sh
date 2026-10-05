@@ -88,6 +88,7 @@ PY
 build_binary() {
   local triple="${1:-}"
   local scratch_path="${2:-}"
+  local product="${3:-OpenComputerUse}"
   local -a args=(-c "${configuration}")
 
   if [[ -n "${triple}" ]]; then
@@ -100,8 +101,8 @@ build_binary() {
 
   local binary_dir
   binary_dir="$(swift build "${args[@]}" --show-bin-path)"
-  swift build "${args[@]}" --product OpenComputerUse >&2
-  printf '%s/OpenComputerUse\n' "${binary_dir}"
+  swift build "${args[@]}" --product "${product}" >&2
+  printf '%s/%s\n' "${binary_dir}" "${product}"
 }
 
 find_codesign_identity() {
@@ -287,6 +288,21 @@ case "${arch_mode}" in
     lipo -create -output "${macos_dir}/OpenComputerUse" "${arm_binary}" "${x86_binary}"
     ;;
 esac
+
+helpers_dir="${contents_dir}/Helpers"
+mkdir -p "${helpers_dir}"
+case "${arch_mode}" in
+  native) cp "$(build_binary "" "" "VirtualDisplayHost")" "${helpers_dir}/VirtualDisplayHost" ;;
+  arm64) cp "$(build_binary "arm64-apple-macosx14.0" ".build/arm64-${configuration}" "VirtualDisplayHost")" "${helpers_dir}/VirtualDisplayHost" ;;
+  x86_64) cp "$(build_binary "x86_64-apple-macosx14.0" ".build/x86_64-${configuration}" "VirtualDisplayHost")" "${helpers_dir}/VirtualDisplayHost" ;;
+  universal)
+    arm_helper="$(build_binary "arm64-apple-macosx14.0" ".build/arm64-${configuration}" "VirtualDisplayHost")"
+    x86_helper="$(build_binary "x86_64-apple-macosx14.0" ".build/x86_64-${configuration}" "VirtualDisplayHost")"
+    lipo -create -output "${helpers_dir}/VirtualDisplayHost" "${arm_helper}" "${x86_helper}"
+    ;;
+esac
+chmod +x "${helpers_dir}/VirtualDisplayHost"
+codesign_app_bundle "${helpers_dir}/VirtualDisplayHost"
 
 chmod +x "${macos_dir}/OpenComputerUse"
 

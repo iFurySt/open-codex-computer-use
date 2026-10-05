@@ -29,7 +29,36 @@ public struct ToolDefinition: @unchecked Sendable {
 }
 
 public enum ToolDefinitions {
-    public static let all: [ToolDefinition] = [
+    public static let all: [ToolDefinition] = standard.map { definition in
+        guard definition.name != "list_apps" else { return definition }
+        var schema = definition.inputSchema
+        var properties = schema["properties"] as? [String: Any] ?? [:]
+        properties["session_id"] = stringProperty(description: "Optional macOS virtual display session; enforces background-only input")
+        if definition.name == "get_app_state" { properties["window_id"] = positiveIntegerProperty(description: "Select an exact managed window in session_id") }
+        schema["properties"] = properties
+        return ToolDefinition(name: definition.name, description: (definition.name == "drag" ? definition.description.replacingOccurrences(of: "This tool is part of plugin", with: "Virtual display sessions reject drag until a background path is verified. This tool is part of plugin") : definition.description), annotations: definition.annotations, inputSchema: schema)
+    } + virtualDisplayTools
+
+    private static let virtualDisplayTools: [ToolDefinition] = [
+        ToolDefinition(name: "create_virtual_display", description: "Create a macOS extended virtual display session. Requires Accessibility and Screen Recording. Only one session is allowed.", annotations: defaultAnnotations(), inputSchema: objectSchema(properties: [
+            "width": positiveIntegerProperty(description: "Logical width in points; default 1920"),
+            "height": positiveIntegerProperty(description: "Logical height in points; default 1080"),
+            "scale": integerProperty(description: "Backing scale: 1 (default) or 2")], required: [])),
+        ToolDefinition(name: "attach_app_to_virtual_display", description: "Launch a dedicated app instance or adopt an exact existing pid/window into a virtual display. app must be a bundle identifier for launch. Target must not be frontmost.", annotations: defaultAnnotations(), inputSchema: objectSchema(properties: [
+            "session_id": stringProperty(description: "Virtual session identifier"), "app": stringProperty(description: "App name or bundle identifier"),
+            "mode": stringProperty(description: "adopt (default) or launch", enumValues: ["adopt", "launch"]),
+            "pid": positiveIntegerProperty(description: "Required for adopt"), "window_id": positiveIntegerProperty(description: "Required for adopt")], required: ["session_id", "app"])),
+        sessionTool("get_virtual_display_state", "Inspect virtual display lifecycle, managed windows, selection and errors.", readOnly: true),
+        sessionTool("pause_virtual_display", "Pause virtual-session input."),
+        sessionTool("resume_virtual_display", "Validate identity and geometry, then resume a paused session."),
+        sessionTool("destroy_virtual_display", "Restore borrowed windows and request dedicated app termination, then remove the display. Unsaved content may block cleanup.")
+    ]
+    private static func sessionTool(_ name: String, _ description: String, readOnly: Bool = false) -> ToolDefinition {
+        ToolDefinition(name: name, description: description, annotations: readOnly ? readOnlyAnnotations() : defaultAnnotations(),
+            inputSchema: objectSchema(properties: ["session_id": stringProperty(description: "Virtual session identifier")], required: ["session_id"]))
+    }
+
+    private static let standard: [ToolDefinition] = [
         ToolDefinition(
             name: "click",
             description: "Click an element by index or pixel coordinates from screenshot. This tool is part of plugin `Computer Use`.",

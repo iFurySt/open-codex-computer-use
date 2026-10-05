@@ -8,6 +8,9 @@ let package = Package(
         .macOS(.v14),
     ],
     products: [
+        .executable(name: "VirtualDisplayHost", targets: ["VirtualDisplayHost"]),
+        .executable(name: "VirtualDisplayRunner", targets: ["VirtualDisplayRunner"]),
+        .executable(name: "VirtualDisplayTestApp", targets: ["VirtualDisplayTestApp"]),
         .library(
             name: "OpenComputerUseKit",
             targets: ["OpenComputerUseKit"]
@@ -34,6 +37,10 @@ let package = Package(
         ),
     ],
     targets: [
+        .target(name: "VirtualDisplayBridge", path: "packages/VirtualDisplayBridge", publicHeadersPath: "include", linkerSettings: [.linkedFramework("CoreGraphics")]),
+        .executableTarget(name: "VirtualDisplayHost", dependencies: ["VirtualDisplayBridge"], path: "apps/VirtualDisplayHost/Sources"),
+        .executableTarget(name: "VirtualDisplayRunner", dependencies: ["OpenComputerUseKit"], path: "experiments/VirtualDisplay/Runner"),
+        .executableTarget(name: "VirtualDisplayTestApp", path: "experiments/VirtualDisplay/TestApp"),
         .target(
             name: "OpenComputerUseKit",
             path: "packages/OpenComputerUseKit/Sources/OpenComputerUseKit"

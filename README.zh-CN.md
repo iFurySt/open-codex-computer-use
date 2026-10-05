@@ -17,6 +17,15 @@
 
 在这期间我利用了之前写的 [harness 模版](https://github.com/iFurySt/harness-template) 开启了这个新项目。这是一个可以快速拉起面向 AI 仓库的 template，非常适合 100% AI-Generated 的项目，也是这一个月来我们最大的实践和收获。现在我们可以基于这套方法论快速实现很多东西；如果你有兴趣，我也写了一篇[文章](https://www.ifuryst.com/blog/2026/speedrunning-the-ai-era/)专门介绍这套方法论
 
+## macOS 虚拟工作区
+
+无参数启动现在显示独立原生 GUI：选择应用/窗口，创建虚拟外接显示器、实时观看、暂停/继续和结束会话。CLI、MCP 与 JS 共用 runtime。预览第一版仅观看；虚拟会话始终禁止全局输入与激活应用，当前不支持拖拽。
+
+本地运行 `./scripts/build-open-computer-use-app.sh debug`，打开 `dist/Open Computer Use (Dev).app` 并为 dev bundle 授权 Accessibility 与 Screen Recording。macOS 增加六个 session tools，Windows/Linux 保留原有九个工具。当前 macOS 26.5.1 / arm64 已验证真实 AppKit 操作和 20 次显示器启停，TextEdit/Chrome 默认专用启动仍有兼容性失败。
+
+详见 [GUI 使用、API、demo runner 与兼容性矩阵](docs/design-docs/virtual-display.md)。
+
+
 ## 演示
 
 ### Codex App 和 Codex CLI

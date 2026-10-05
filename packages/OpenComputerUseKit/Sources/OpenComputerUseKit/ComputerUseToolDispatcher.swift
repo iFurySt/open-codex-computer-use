@@ -29,11 +29,8 @@ private func normalizedElementIndexNumber(_ value: Double) -> String? {
         return nil
     }
 
-    guard value >= Double(Int.min), value <= Double(Int.max) else {
-        return nil
-    }
-
-    return String(Int(value))
+    guard let integer = Int(exactly: value) else { return nil }
+    return String(integer)
 }
 
 public final class ComputerUseToolDispatcher {
@@ -43,7 +40,58 @@ public final class ComputerUseToolDispatcher {
         self.service = service
     }
 
+    public func clearSnapshotCache() { service.clearSnapshotCache() }
+
     public func callTool(name: String, arguments: [String: Any]) throws -> ToolCallResult {
+        let registry = VirtualDisplaySessionRegistry.shared
+        func result(_ state: VirtualDisplayState) throws -> ToolCallResult {
+            .text(String(decoding: try JSONSerialization.data(withJSONObject: state.dictionary, options: [.sortedKeys]), as: UTF8.self))
+        }
+        switch name {
+        case "create_virtual_display":
+            return try result(registry.create(configuration: .init(
+                width: try optionalPositiveInt("width", in: arguments) ?? 1920,
+                height: try optionalPositiveInt("height", in: arguments) ?? 1080,
+                scale: try optionalPositiveInt("scale", in: arguments) ?? 1)))
+        case "attach_app_to_virtual_display":
+            let rawPID = try optionalPositiveInt("pid", in: arguments)
+            let rawWindow = try optionalPositiveInt("window_id", in: arguments)
+            guard rawPID == nil || rawPID! <= Int(Int32.max), rawWindow == nil || rawWindow! <= Int(UInt32.max) else {
+                throw ComputerUseError.invalidArguments("pid/window_id out of range")
+            }
+            let mode = optionalString("mode", in: arguments) ?? "adopt"
+            guard ["adopt", "launch"].contains(mode) else { throw ComputerUseError.invalidArguments("mode must be adopt or launch") }
+            return try result(registry.attach(sessionID: requireString("session_id", in: arguments),
+                app: requireString("app", in: arguments), pid: rawPID.map(Int32.init), windowID: rawWindow.map(UInt32.init), launch: mode == "launch"))
+        case "get_virtual_display_state":
+            return try result(registry.state(sessionID: requireString("session_id", in: arguments)))
+        case "pause_virtual_display":
+            return try result(registry.pause(sessionID: requireString("session_id", in: arguments)))
+        case "resume_virtual_display":
+            return try result(registry.resume(sessionID: requireString("session_id", in: arguments)))
+        case "destroy_virtual_display":
+            try registry.destroy(sessionID: requireString("session_id", in: arguments))
+            return .text("Virtual display session ended")
+        default: break
+        }
+        if arguments["session_id"] != nil {
+            let id = try requireString("session_id", in: arguments)
+            if name == "drag" { throw ComputerUseError.message("Drag is unsupported in virtual sessions: process-targeted delivery has not been verified; global drag is forbidden") }
+            if optionalString("click_method", in: arguments)?.lowercased() == "global" {
+                throw ComputerUseError.invalidArguments("Global input is forbidden in virtual sessions")
+            }
+            let rawWindow = try optionalPositiveInt("window_id", in: arguments)
+            guard rawWindow == nil || rawWindow! <= Int(UInt32.max) else { throw ComputerUseError.invalidArguments("window_id out of range") }
+            return try registry.withOperation(sessionID: id, app: requireString("app", in: arguments),
+                windowID: rawWindow.map(UInt32.init), isAction: name != "get_app_state") { context in
+                try service.withVirtualContext(context) { try callStandardTool(name: name, arguments: arguments) }
+            }
+        }
+        if arguments["window_id"] != nil { throw ComputerUseError.invalidArguments("window_id requires session_id") }
+        return try callStandardTool(name: name, arguments: arguments)
+    }
+
+    private func callStandardTool(name: String, arguments: [String: Any]) throws -> ToolCallResult {
         switch name {
         case "list_apps":
             return service.listApps()
@@ -62,7 +110,7 @@ public final class ComputerUseToolDispatcher {
                 elementIndex: optionalElementIndex(in: arguments),
                 x: optionalDouble("x", in: arguments),
                 y: optionalDouble("y", in: arguments),
-                clickCount: Int(optionalDouble("click_count", in: arguments) ?? 1),
+                clickCount: try optionalPositiveInt("click_count", in: arguments) ?? 1,
                 mouseButton: optionalString("mouse_button", in: arguments) ?? "left",
                 clickMethod: try parseClickMethod(optionalString("click_method", in: arguments))
             )
@@ -222,7 +270,10 @@ public final class ComputerUseToolDispatcher {
             throw ComputerUseError.invalidArguments("\(key) is outside the supported integer range")
         }
 
-        return try validatePositiveInt(Int(value), key: key, expectedDescription: expectedDescription)
+        guard let integer = Int(exactly: value) else {
+            throw ComputerUseError.invalidArguments("\(key) is outside the supported integer range")
+        }
+        return try validatePositiveInt(integer, key: key, expectedDescription: expectedDescription)
     }
 
     private func validatePositiveInt(_ value: Int, key: String, expectedDescription: String) throws -> Int {

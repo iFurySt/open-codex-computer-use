@@ -118,7 +118,8 @@ enum SkyClickDispatcher {
     static func click(
         target: SkyClickTarget,
         clickCount: Int,
-        spi: SkyLightSPI = .shared
+        spi: SkyLightSPI = .shared,
+        isolateModifiers: Bool = false
     ) throws {
         guard spi.capability.isAvailable else {
             throw ComputerUseError.message(
@@ -168,6 +169,7 @@ enum SkyClickDispatcher {
                     )
                 }
 
+                if isolateModifiers { event.flags = [] }
                 try stamp(
                     event,
                     target: target,

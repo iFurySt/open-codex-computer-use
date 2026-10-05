@@ -17,6 +17,15 @@ This project was inspired by OpenAI's [Codex Computer Use](https://openai.com/in
 
 I started this repo with my [harness template](https://github.com/iFurySt/harness-template), a template for quickly spinning up AI-first projects. It has been one of our most useful workflows lately, especially for nearly 100% AI-generated projects. I also wrote [a post](https://www.ifuryst.com/blog/2026/speedrunning-the-ai-era/) about the methodology behind it.
 
+## macOS virtual workspace
+
+No-argument launch now opens a standalone native workspace: choose an app/window, create an extended virtual monitor, watch its live preview, pause/resume or end the session. CLI, MCP and JS share that runtime. The preview is view-only. Virtual sessions always prohibit global input and activation; drag is currently unsupported.
+
+Build locally with `./scripts/build-open-computer-use-app.sh debug`, then open `dist/Open Computer Use (Dev).app`. Grant Accessibility and Screen Recording to that development bundle. macOS adds six session tools; Windows/Linux keep their existing nine tools. Current live evidence is macOS 26.5.1 / arm64, with AppKit interactions and 20 display lifecycle cycles. TextEdit/Chrome default dedicated launches still have compatibility failures.
+
+See [workspace usage, APIs, demo runner and compatibility](docs/design-docs/virtual-display.md).
+
+
 ## Demos
 
 ### Codex App and Codex CLI
