@@ -78,11 +78,11 @@ OCUPowerHost gui-smoke --closed-lid --seconds 30 --display-id DISPLAY_ID
 
 普通 smoke 在独立 coordinator 上验证真实 IOKit assertions、跨 CLI 手动请求、定时、连接死亡、强制结束和重启。不会改 disablesleep；若已有 coordinator 则拒绝接管。签名测试不登记服务、不改电源设置。
 
-lid smoke 要求已批准的签名 helper、初始 SleepDisabled=0 和没有活动协调器，验证真实开关、定时恢复与用户态协调器崩溃后的恢复；它不关闭物理盖子。helper 自身崩溃后的真实 launchd 恢复、物理合盖 / 插拔电源与功耗仍需独立实测。
+lid smoke 要求已批准的签名 helper、初始 SleepDisabled=0 和没有活动协调器，验证真实开关、定时恢复与用户态协调器崩溃后的恢复；它不关闭物理盖子。helper 自身崩溃后的真实 launchd 恢复、插拔电源与功耗仍需独立实测。
 
 GUI probe 启动独立真实 AppKit 进程，通过 AXPress 更新计数器，读回 AX 值，并验证前后 ScreenCaptureKit 窗口截图不同。可选择已有显示器，不创建虚拟屏幕，也不依赖 FixtureBridge。开盖测试会检查前台应用未改变；`--closed-lid` 在请求合盖保活后等待最多 60 秒供用户合盖，要求整个采样区间保持合盖，结束或失败均释放自身请求。窗口截图仅在内存。Power App 必须单独获得 Accessibility / Screen Recording；探针不会自动请求权限或解锁。
 
-当前已通过 20 项自动测试、真实普通保活跨进程 smoke，以及签名 host 接受 / 可注入副本拒绝 / 错误角色拒绝。开盖下真实 GUI AXPress / AX 值读回 / ScreenCaptureKit 前后截图验证已通过，且前台应用未改变。特权服务已获系统批准并通过签名 XPC 状态查询；真实 pmset 开关、8 秒定时恢复及强制结束协调器后的恢复均已通过。首次物理合盖探针因 60 秒内未检测到合盖而超时，确认清理后 SleepDisabled=0；物理合盖与功耗尚未验收。功能作为实验模块交付，不能把单元测试算作合盖支持证据。
+当前已通过 20 项自动测试、真实普通保活跨进程 smoke，以及签名 host 接受 / 可注入副本拒绝 / 错误角色拒绝。开盖下真实 GUI AXPress / AX 值读回 / ScreenCaptureKit 前后截图验证已通过，且前台应用未改变。特权服务已获系统批准并通过签名 XPC 状态查询；真实 pmset 开关、8 秒定时恢复及强制结束协调器后的恢复均已通过。2026-10-05 在 macOS 26.5.1 / Apple Silicon 上的物理合盖验收通过：内核 AppleClamshellState=true、SleepDisabled=true，30 秒合盖采样完成 11 次 AXPress、计数读回及前后 SCK 截图变化验证。探针结束后 hold=ended/released、SleepDisabled=0、helper_confirmed=false，fixture 退出；随后关闭空闲协调器。此次只证明本机当前配置下的 30 秒真实合盖 GUI 工作流，不代表所有设备、电源模式、锁屏状态或一分钟持续运行。helper 自身 SIGKILL/launchd 恢复、电源切换与功耗仍待验收。功能作为实验模块交付。
 
 ## 后续与其他模块合并
 

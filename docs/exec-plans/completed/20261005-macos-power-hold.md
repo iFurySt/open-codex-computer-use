@@ -18,13 +18,13 @@
 - [x] Core 生命周期 / 多请求 / 连接 / 时间 / 电源条件测试
 - [x] 普通 IOKit 后端与跨 CLI 真进程 smoke
 - [x] 签名 XPC helper、安装、journal mock 和协调器异常恢复测试（helper 自身 SIGKILL / launchd 恢复仍待实机）
-- [ ] 合盖 / 电源切换 / AX / SCK 实机验证
+- [x] 合盖 / AX / SCK 实机验证（电源切换转后续兼容性验收）
 - [x] 文档、history、回归与本地合并
 
 实机不可完成的边界明确记录，不改变用户锁屏 / 睡眠状态来伪装验证。开发日志不记录输入、画面、签名证书或机器绝对路径。
 
 ## 当前验证记录
 
-20 项独立 package 测试、普通保活跨进程 smoke、Developer ID 角色 / entitlement 校验及外部 SDK 编译通过。开盖下真实 AppKit fixture 的 AXPress、计数读回、ScreenCaptureKit 前后截图及前台应用保持验证通过。修复 GUI 探针 AppKit 初始化与父进程死亡后的 fixture 清理。特权服务已批准。macOS 26 的 BundleProgram 在路径解析阶段失败，改用标准 Applications 位置的 ProgramArguments 与 AssociatedBundleIdentifiers；真实签名 XPC、pmset 开关、8 秒定时恢复及协调器 SIGKILL 后恢复通过。首轮物理合盖等待超时，清理后确认 SleepDisabled=0，等待用户重试。
+20 项独立 package 测试、普通保活跨进程 smoke、Developer ID 角色 / entitlement 校验及外部 SDK 编译通过。开盖下真实 AppKit fixture 的 AXPress、计数读回、ScreenCaptureKit 前后截图及前台应用保持验证通过。修复 GUI 探针 AppKit 初始化与父进程死亡后的 fixture 清理。特权服务已批准。macOS 26 的 BundleProgram 在路径解析阶段失败，改用标准 Applications 位置的 ProgramArguments 与 AssociatedBundleIdentifiers；真实签名 XPC、pmset 开关、8 秒定时恢复及协调器 SIGKILL 后恢复通过。首轮物理合盖等待超时；重试确认 AppleClamshellState=true，30 秒内完成 11 次真实 AX 点击/读回/SCK 变化验证；结束确认请求释放、SleepDisabled=0、fixture 退出并关闭协调器。
 
-独立实现分支已无冲突合并回 awesome-extension；仓库架构、安全、可靠性和质量说明已同步。保留本 plan 为 active，直至补完实机验收或将未完成项明确转为后续任务。
+独立实现分支已无冲突合并回 awesome-extension；仓库架构、安全、可靠性和质量说明已同步。本机物理合盖核心工作流验收完成；helper 自身 SIGKILL/launchd 恢复、电源插拔、功耗及企业设备兼容性已转技术债，不宣称这些场景通过。

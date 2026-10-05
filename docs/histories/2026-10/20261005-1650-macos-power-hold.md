@@ -21,7 +21,7 @@
 无限持续是调用方的功能许可，30 秒内部租约是异常恢复机制。两者分开，避免猜测外部任务何时结束，也避免协调器失联后留下持久睡眠禁用。独立 package 不耦合 Virtual Display 或 Locked Use。
 
 ### ✅ Validation
-20 项自动测试、真实普通断言跨进程 smoke、签名角色/entitlement 负例、外部 SDK 编译及根仓库回归通过。已批准 helper 的真实 XPC、pmset 开关、8 秒定时恢复、协调器 SIGKILL 后恢复通过。开盖真实 AX/SCK 连续 3 次验证通过并保持前台应用。首轮物理合盖等待超时，清理后确认 SleepDisabled=0；物理合盖、helper 本身 SIGKILL 后的 launchd 恢复、电源插拔及功耗尚未验收。
+20 项自动测试、真实普通断言跨进程 smoke、签名角色/entitlement 负例、外部 SDK 编译及根仓库回归通过。已批准 helper 的真实 XPC、pmset 开关、8 秒定时恢复、协调器 SIGKILL 后恢复通过。开盖真实 AX/SCK 连续 3 次验证通过并保持前台应用。首轮物理合盖等待超时；重试验收通过：内核确认物理合盖，30 秒完成 11 次 AX 点击/计数读回/SCK 截图变化验证。结束后请求 released、SleepDisabled=0、fixture 退出，随后关闭协调器。证据限于本机当前配置；helper 本身 SIGKILL 后的 launchd 恢复、电源插拔及功耗尚未验收。
 
 ### 📁 Files Modified
 - `packages/OpenComputerUsePower/`
@@ -30,4 +30,4 @@
 - `scripts/run-power-hold-lid-smoke.py`
 - `scripts/test-power-hold-signing.py`
 - `docs/power-hold.md`
-- `docs/exec-plans/active/20261005-macos-power-hold.md`
+- `docs/exec-plans/completed/20261005-macos-power-hold.md`
