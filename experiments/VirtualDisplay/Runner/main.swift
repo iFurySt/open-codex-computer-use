@@ -113,7 +113,7 @@ func runChecks() throws {
     }
     desktop("before_create")
     let display = try registry.create(configuration: .init(scale: Int(argument("--scale") ?? "1") ?? 1))
-    defer { try? registry.destroy(sessionID: display.sessionID) }
+    defer { try? registry.destroy(sessionID: display.sessionID, retainDisplay: false) }
     report("display_ready", display.dictionary)
     desktop("after_create")
     let process = Process()
@@ -248,7 +248,7 @@ func runChecks() throws {
         try ensure(observed.global == 0, "Explicit input method posted into global event stream")
         report("input_matrix_global_stream_verified", ["global_events_from_runner": observed.global])
     }
-    try registry.destroy(sessionID: display.sessionID)
+    try registry.destroy(sessionID: display.sessionID, retainDisplay: false)
     let restored = registry.availableWindows(pid: process.processIdentifier).first { $0.id == window.id }
     try ensure(restored != nil, "Borrowed test application was closed")
     report("borrowed_app_preserved")
@@ -258,7 +258,7 @@ func runChecks() throws {
     for cycle in 1...cycles {
         let state = try registry.create()
         try ensure(registry.capture.isRunning, "Capture did not restart")
-        try registry.destroy(sessionID: state.sessionID)
+        try registry.destroy(sessionID: state.sessionID, retainDisplay: false)
         try ensure(registry.capture.latestFrame() == nil, "Old capture frame survived teardown")
         report("lifecycle", ["cycle": cycle])
     }
@@ -267,7 +267,7 @@ func runChecks() throws {
     Thread.sleep(forTimeInterval: 0.2)
     let faultState = try registry.state(sessionID: fault.sessionID)
     try ensure(faultState.phase == "paused", "Helper death did not pause the session")
-    try registry.destroy(sessionID: fault.sessionID)
+    try registry.destroy(sessionID: fault.sessionID, retainDisplay: false)
     report("helper_failure_cleanup_verified")
     report("complete", ["cycles": cycles])
 }
@@ -290,10 +290,10 @@ func thirdPartyCheck(_ bundle: String) throws {
         report("third_party_background_verified", ["app": bundle])
     } catch {
         report("third_party_compatibility_failure", ["app": bundle, "reason": error.localizedDescription, "state": registry.currentState()?.dictionary ?? [:]])
-        try registry.destroy(sessionID: state.sessionID)
+        try registry.destroy(sessionID: state.sessionID, retainDisplay: false)
         throw error
     }
-    try registry.destroy(sessionID: state.sessionID)
+    try registry.destroy(sessionID: state.sessionID, retainDisplay: false)
     report("third_party_cleanup_verified", ["app": bundle])
 }
 func holderCycles(_ cycles: Int) throws {

@@ -11,7 +11,7 @@ func exampleChecks() throws {
     let containment = WindowContainmentObservation(); containment.start()
     defer { _ = containment.stop(targets: []) }
     let session = try registry.create()
-    defer { try? registry.destroy(sessionID: session.sessionID) }
+    defer { try? registry.destroy(sessionID: session.sessionID, retainDisplay: false) }
     var ownedPIDs: Set<Int32> = []
     var containmentReported = false
     defer {
@@ -41,7 +41,7 @@ func exampleChecks() throws {
     try ensure(visibility.physicalSamples == 0 && !visibility.activated, "An owned app flashed on a physical screen or activated")
     let observation = observer.observation()
     try ensure(observation.available && observation.global == 0, "Global input reached the physical desktop")
-    try registry.destroy(sessionID: session.sessionID)
+    try registry.destroy(sessionID: session.sessionID, retainDisplay: false)
     try ensure(pids.allSatisfy { NSRunningApplication(processIdentifier: $0) == nil }, "Owned apps remained")
     try ensure(!FileManager.default.fileExists(atPath: document.deletingLastPathComponent().path), "Owned temporary document remained")
     try ensure(Set(VirtualDisplaySessionRegistry.onlineDisplayIDs()) == originalDisplays, "Display remained")

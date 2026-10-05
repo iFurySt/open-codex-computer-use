@@ -72,7 +72,7 @@ func multiSessionChecks() throws {
     while (firstCapture.latestFrame() == nil || secondCapture.latestFrame() == nil), Date() < frameDeadline { Thread.sleep(forTimeInterval: 0.1) }
     try ensure(firstCapture.latestFrame() != nil && secondCapture.latestFrame() != nil, "Independent captures did not produce frames")
     report("pause_and_capture_isolation_verified")
-    try registry.destroy(sessionID: second.sessionID)
+    try registry.destroy(sessionID: second.sessionID, retainDisplay: false)
     try ensure(registry.states().count == 1 && firstCapture.isRunning && secondCapture.latestFrame() == nil, "Destroy contaminated another capture/session")
     try ensure(!VirtualDisplaySessionRegistry.onlineDisplayIDs().contains(second.displayID), "Second display remained after destroy")
     _ = try registry.resume(sessionID: first.sessionID)

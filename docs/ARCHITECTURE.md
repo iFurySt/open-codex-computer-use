@@ -170,9 +170,9 @@
 
 macOS tool registry 增加六个虚拟会话 tools（共 15），原有 app tools 可选择 `session_id`，`get_app_state` 可明确选择 `window_id`。Windows/Linux 保持原有 9 个 tools。无 session 的旧调用不变。
 
-`apps/VirtualDisplayHost` 经 `packages/VirtualDisplayBridge` 创建并持有私有 CGVirtualDisplay 对象。每个会话单独 helper，父进程管道关闭即退出；打包时复制到 `Contents/Helpers` 并先签 helper 后签主 bundle。AX、ScreenCaptureKit 与权限身份留在 OCU runtime。serial 使用 bundle/socket namespace 下可复用的空闲槽位；helper 仅在实际 origin/mirror 不一致时提交额外布局事务，不反复重写未变的物理屏。创建观察记录物理 frame、主屏、前台 PID 和 Dock 所在屏；Dock 迁移会暂停会话。
+`apps/VirtualDisplayHost` 经 `packages/VirtualDisplayBridge` 创建并持有私有 CGVirtualDisplay 对象。每个显示器一个 helper；会话从本 runtime 的空屏池租用匹配配置的显示器，结束默认归还空屏，父进程管道关闭即退出；打包时复制到 `Contents/Helpers` 并先签 helper 后签主 bundle。AX、ScreenCaptureKit 与权限身份留在 OCU runtime。serial 使用 bundle/socket namespace 下可复用的空闲槽位；helper 仅在实际 origin/mirror 不一致时提交额外布局事务，不反复重写未变的物理屏。创建观察记录物理 frame、主屏、前台 PID 和 Dock 所在屏；Dock 迁移会暂停会话。
 
-`VirtualDisplaySessionRegistry` 串行服务 GUI、CLI、MCP 和 JS；多个独立会话，每会话多个应用和明确受管理窗口；同一进程只归属一个会话。每会话独立 capture 和恢复标记，物理布局检查排除本 runtime 的所有虚拟屏。窗口截图/AX 缓存按客户端、session、PID、window、布局与 turn epoch 隔离。暂停立即关闭输入门，布局/前台/桌面变化暂停；恢复必须重新 snapshot。session 不随客户端断开或 turn-ended 销毁。
+`VirtualDisplaySessionRegistry` 串行服务 GUI、CLI、MCP 和 JS；多个独立会话，每会话多个应用和明确受管理窗口；同一进程只归属一个会话。每会话独立 capture 和恢复标记，物理布局检查排除本 runtime 的活动和空闲虚拟屏；activeDisplayIDs 只返回活动屏，ownedDisplayIDs 也包含空闲屏。窗口截图/AX 缓存按客户端、session、PID、window、布局与 turn epoch 隔离。暂停立即关闭输入门，布局/前台/桌面变化暂停；恢复必须重新 snapshot。session 不随客户端断开或 turn-ended 销毁。
 
 `VirtualDisplayCapture` 每会话持有显示器 SCStream 最新帧，通过共享 Metal preview 或 Swift 帧订阅消费。预览的 Agent cursor 通过 CALayer 直接复用 OBU cursor-chat.png 及中性 hotspot；资源由 SwiftPM 管理并由打包脚本复制资源 bundle，不改变系统光标或捕获帧。`experiments/VirtualDisplay` 提供真实 AppKit target、结构化 runner 与复用生产组件的 GUI lab，不借 FixtureBridge 模拟目标操作。虚拟 session 禁止真实激活、AXRaise/global 输入和剪贴板输入，当前拒绝拖拽。session 的 sky_click 也禁用 synthetic-active records，使用 private event source 和屏内 primer；无 session 的既有 recipe 保持兼容。专属应用请求隐藏启动，等待窗口时维持 AXHidden，隐藏状态下移动并读回全部窗口后才 unhide；第三方应用在检查前创建可见窗口仍可能短暂闪现。
 
@@ -181,3 +181,5 @@ macOS tool registry 增加六个虚拟会话 tools（共 15），原有 app tool
 GUI 侧栏以会话为单位创建和切换，应用通过添加对话框加入。窗口启用 fullSizeContentView，原生 sidebar List 的顶部 safeAreaInset 固定单行 OpenComputerUse 品牌，顶部 toolbar 提供展开/折叠均可用的 New Session 创建入口；恢复系统唯一 sidebar toggle，New Session 保留 sidebar toolbar 声明，由原生 NavigationSplitView 管理位置与动画，当前会话标题与右侧操作由原生标题栏/toolbar 展示。桌面下方提供编辑式 action notebook；`VirtualDisplayNotebookKernel` 为每会话保留 dispatcher/cache，强制 session 绑定，逐条或顺序调用生产 tools，输出格式化 JSON、横向配对的 AX tree / 截图。新会话默认提供 `VirtualDisplayExample` 的 Calculator → 专属 TextEdit 临时文档编排，结果通过 AX 实际读回，示例不承诺保存；`VirtualDisplayNotebookOutput` 分离文本与图像载荷。无外部 Jupyter/Node/shell 依赖，输出不自动持久化。
 
 App-agent Quit 使用 RunLoop 调度 terminate/reply 与 worker 清理：terminateLater 会进入嵌套 AppKit loop，不能从占用 MainActor 或主 dispatch queue 的回调启动退出并依赖同一 executor 回复。Quit 期间禁用 GUI 新操作，notebook 在当前单元结束后停止；清理拒绝时恢复界面并保留会话。
+
+显示器生命周期默认复用：`create(reuseDisplay: true)` 创建全新 session/capture/cache 身份，只复用匹配 width/height/scale 且 helper/CG 在线的空屏；`destroy(retainDisplay: true)` 完成应用/窗口恢复和 journal 清理后停止捕获、清除帧/光标并归还 holder。`prewarm` 按空闲配置幂等且先验证权限/三层 ready，`releaseIdleDisplays` 只释放本 runtime 的空屏并确认 CG 移除；`destroyAll` 串行清理全部活动和空闲屏。GUI 使用相同默认；MCP/CLI 和 JS 暴露显式控制。客户端断开不释放空屏，不自动过期或驱逐。agentInfo 的 ownedDisplayCount 防止切换构建时隐式移除保留屏。首次接入、配置不匹配、显式禁用复用、释放及 Quit 仍会热插拔，不宣称 Dock 原位置无条件保持。

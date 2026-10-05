@@ -479,7 +479,7 @@ final class VirtualDisplayWorkspaceController: NSObject, NSWindowDelegate {
     }
     func keepOnPhysicalScreen() {
         guard let window else { return }
-        let virtualIDs = VirtualDisplaySessionRegistry.shared.activeDisplayIDs
+        let virtualIDs = VirtualDisplaySessionRegistry.shared.ownedDisplayIDs
         let physical = NSScreen.screens.filter { !virtualIDs.contains(($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0) }
         guard let screen = physical.first else { return }
         if !physical.contains(where: { $0.frame.contains(CGPoint(x: window.frame.midX, y: window.frame.midY)) }) {

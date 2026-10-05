@@ -58,12 +58,30 @@ public final class ComputerUseToolDispatcher {
         func result(_ state: VirtualDisplayState) throws -> ToolCallResult {
             .text(String(decoding: try JSONSerialization.data(withJSONObject: state.dictionary, options: [.sortedKeys]), as: UTF8.self))
         }
+        func boolean(_ key: String, default value: Bool) throws -> Bool {
+            guard let raw = arguments[key] else { return value }
+            guard let number = raw as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else {
+                throw ComputerUseError.invalidArguments("\(key) must be a boolean")
+            }
+            return number.boolValue
+        }
+        func configuration() throws -> VirtualDisplayConfiguration {
+            .init(width: try optionalPositiveInt("width", in: arguments) ?? 1920,
+                  height: try optionalPositiveInt("height", in: arguments) ?? 1080,
+                  scale: try optionalPositiveInt("scale", in: arguments) ?? 1)
+        }
         switch name {
+        case "prewarm_virtual_display":
+            let id = try registry.prewarm(configuration: configuration())
+            let value: [String: Any] = ["display_id": id, "idle_displays": registry.idleDisplayStates()]
+            return .text(String(decoding: try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]), as: UTF8.self))
+        case "release_virtual_displays":
+            let rawID = try optionalPositiveInt("display_id", in: arguments)
+            guard rawID == nil || rawID! <= Int(UInt32.max) else { throw ComputerUseError.invalidArguments("display_id out of range") }
+            try registry.releaseIdleDisplays(displayID: rawID.map(UInt32.init))
+            return .text("Idle virtual displays released")
         case "create_virtual_display":
-            return try result(registry.create(configuration: .init(
-                width: try optionalPositiveInt("width", in: arguments) ?? 1920,
-                height: try optionalPositiveInt("height", in: arguments) ?? 1080,
-                scale: try optionalPositiveInt("scale", in: arguments) ?? 1)))
+            return try result(registry.create(configuration: configuration(), reuseDisplay: boolean("reuse_display", default: true)))
         case "attach_app_to_virtual_display":
             let rawPID = try optionalPositiveInt("pid", in: arguments)
             let rawWindow = try optionalPositiveInt("window_id", in: arguments)
@@ -77,7 +95,7 @@ public final class ComputerUseToolDispatcher {
                 app: requireString("app", in: arguments), pid: rawPID.map(Int32.init), windowID: rawWindow.map(UInt32.init), launch: mode == "launch", newDocument: arguments["new_document"] as? Bool ?? false))
         case "get_virtual_display_state":
             if arguments["session_id"] == nil {
-                let value: [String: Any] = ["sessions": registry.states().map(\.dictionary)]
+                let value: [String: Any] = ["sessions": registry.states().map(\.dictionary), "idle_displays": registry.idleDisplayStates()]
                 return .text(String(decoding: try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]), as: UTF8.self))
             }
             return try result(registry.state(sessionID: requireString("session_id", in: arguments)))
@@ -86,8 +104,8 @@ public final class ComputerUseToolDispatcher {
         case "resume_virtual_display":
             return try result(registry.resume(sessionID: requireString("session_id", in: arguments)))
         case "destroy_virtual_display":
-            try registry.destroy(sessionID: requireString("session_id", in: arguments))
-            return .text("Virtual display session ended")
+            try registry.destroy(sessionID: requireString("session_id", in: arguments), retainDisplay: boolean("retain_display", default: true))
+            return .text("Virtual display session ended; query get_virtual_display_state for retained idle displays")
         default: break
         }
         if arguments["session_id"] != nil {

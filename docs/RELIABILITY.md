@@ -55,3 +55,5 @@ CI/CD 流程结构和 release 自动化的默认方案，统一写在 `docs/CICD
 `--desktop-lifecycle --cycles 20` 检查实际物理坐标、主屏和 Dock 屏归属。当前通过的上下排列基线中 Dock 已在下屏，不能替代上屏 Dock 保持验收。`--example` 加入 16ms 新目标窗口元数据采样，非零物理窗口样本直接失败；TextEdit 启动仍存在偶发单样本，严格零闪现尚未通过。静态最终 frame 或前台 PID 保持均不能替代瞬时窗口检查。
 
 `node scripts/run-app-agent-lifecycle-smoke.mjs --with-session` 验证签名 bundle 私有退出协议及活动 helper 清理（需要已有 AX/捕获权限）；不加参数验证空 runtime。独立 namespace 不接管已有会话。不要从 Swift Task 或正在执行的主 dispatch block 同步调用 terminate 并等待同一 executor 回复 terminateLater；使用 RunLoop 调度和后台清理。失败不强杀目标应用。
+
+显示器复用回归：`node scripts/run-virtual-display-reuse-smoke.mjs --cycles=20 --scale=1` / `--scale=2`，使用独立签名 runtime namespace 和真实 SCStream，不用 FixtureBridge。循环基线取自预热后的桌面；验证显示器/helper 不变、新会话/捕获帧、旧会话失效、活动屏释放拒绝、不同配置、强制新建、helper 退出后重新创建、释放和 Quit。默认会话结束保留空屏，只有显式 retain_display=false / release / Quit 才检查移除；旧 hotplug runner 显式使用 retainDisplay:false 保持测试含义。第一次接入、最终移除仍可能移动 Dock，不能把复用循环通过表述为所有生命周期零副作用。签名实测可用 `OPEN_COMPUTER_USE_APP_OUTPUT_DIR` 构建到独立目录，避免替换正在使用的 bundle。

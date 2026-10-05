@@ -144,6 +144,9 @@ enum MacOSAppAgentProxy {
         if let id = info["activeSessionID"] as? String, !id.isEmpty {
             throw OpenComputerUseCLIError(message: "Another OCU build owns virtual session \(id). End it before switching builds, or use a separate socket namespace.")
         }
+        if let count = info["ownedDisplayCount"] as? Int, count > 0 {
+            throw OpenComputerUseCLIError(message: "Another OCU build owns idle virtual displays. Release them before switching builds, or use a separate socket namespace.")
+        }
         _ = try client.request(["kind": "terminate"])
         let deadline = Date(timeIntervalSinceNow: 10)
         while FileManager.default.fileExists(atPath: socketPath), Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
@@ -416,6 +419,7 @@ private final class AppAgentConnection: @unchecked Sendable {
                     "executableURL": Bundle.main.executableURL?.standardizedFileURL.path ?? "",
                     "processStartTime": appAgentProcessStartDate.timeIntervalSince1970,
                     "activeSessionID": VirtualDisplaySessionRegistry.shared.activeSessionID ?? "",
+                    "ownedDisplayCount": VirtualDisplaySessionRegistry.shared.ownedDisplayIDs.count,
                 ]
             case "terminate":
                 RunLoop.main.perform(inModes: [.common]) {

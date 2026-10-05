@@ -64,12 +64,13 @@ public struct VirtualDisplayState: Sendable {
     public let additionalConfigurationApplied: Bool
     public let desktopBeforeCreation: VirtualDisplayDesktopObservation?
     public let desktopAfterCreation: VirtualDisplayDesktopObservation?
+    public var displayReused: Bool = false
     public let captureIsRunning: Bool
     public let lastFrameDate: Date?
     public let captureError: String?
     public var dictionary: [String: Any] {
         var value: [String: Any] = ["session_id": sessionID, "display_id": displayID, "helper_pid": helperPID,
-            "phase": phase, "layout_version": layoutVersion,
+            "phase": phase, "layout_version": layoutVersion, "display_reused": displayReused,
             "configuration": ["width": configuration.width, "height": configuration.height, "scale": configuration.scale],
             "frame": rectDictionary(frame), "windows": windows.map { ["window_id": $0.id, "pid": $0.pid, "title": $0.title, "frame": rectDictionary($0.frame)] as [String: Any] },
             "capabilities": ["global_input": false, "manual_preview_input": false, "system_drag_and_drop": false, "drag": false]]
@@ -302,6 +303,7 @@ private final class VirtualDisplaySession {
     let holder: VirtualDisplayHolder
     let configuration: VirtualDisplayConfiguration
     let capture = VirtualDisplayCapture()
+    var displayReused = false
     var bounds: CGRect
     var version = 1
     var physicalLayout: [UInt32: CGRect] = [:]
@@ -335,6 +337,8 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
     private let controlLock = NSLock()
     private var sessions: [String: VirtualDisplaySession] = [:]
     private var sessionOrder: [String] = []
+    private var idleDisplays: [(configuration: VirtualDisplayConfiguration, holder: VirtualDisplayHolder)] = []
+    private var idleDisplayIDs: Set<UInt32> = []
     private var controlledSessions: [String: VirtualDisplaySession] = [:]
     private var controlledOrder: [String] = []
     private var inputEpoch = 0
@@ -408,22 +412,36 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
                      selectedWindowID: s.selected, windows: windows,
                      applications: apps.map { .init(pid: $0.application.processIdentifier, app: $0.application.bundleIdentifier ?? $0.application.localizedName ?? "Unknown", name: $0.application.localizedName ?? "Application", owned: $0.owned, documentURL: $0.documentURL, selectedWindowID: $0.selected) },
                      layoutVersion: s.version, foregroundBeforeCreation: s.foregroundBefore, foregroundAfterCreation: s.foregroundAfter,
-                     physicalLayoutPreserved: s.layoutPreserved, displaySerial: s.holder.serial, additionalConfigurationApplied: s.holder.additionalConfigurationApplied, desktopBeforeCreation: s.desktopBefore, desktopAfterCreation: s.desktopAfter, captureIsRunning: s.capture.isRunning, lastFrameDate: s.capture.latestFrameDate, captureError: s.capture.error)
+                     physicalLayoutPreserved: s.layoutPreserved, displaySerial: s.holder.serial, additionalConfigurationApplied: !s.displayReused && s.holder.additionalConfigurationApplied, desktopBeforeCreation: s.desktopBefore, desktopAfterCreation: s.desktopAfter, displayReused: s.displayReused, captureIsRunning: s.capture.isRunning, lastFrameDate: s.capture.latestFrameDate, captureError: s.capture.error)
     }
-    public func create(configuration: VirtualDisplayConfiguration = .init()) throws -> VirtualDisplayState {
+    public func create(configuration: VirtualDisplayConfiguration = .init(), reuseDisplay: Bool = true) throws -> VirtualDisplayState {
         lock.lock(); defer { lock.unlock() }
         guard !Thread.isMainThread else { throw ComputerUseError.message("Create virtual displays on a worker thread") }
         try configuration.validate()
         guard AXIsProcessTrusted(), CGPreflightScreenCaptureAccess() else { throw ComputerUseError.permissionDenied("Accessibility and Screen Recording permissions are required") }
         if sessions.isEmpty { try recoverWindows() }
         let originalPhysical = physicalLayout()
-        let desktopBefore = VirtualDisplayDesktopObservation.current(excluding: activeDisplayIDs)
+        let desktopBefore = VirtualDisplayDesktopObservation.current(excluding: ownedDisplayIDs)
         let originalForeground = desktopBefore.foregroundPID
-        let identity = (Bundle.main.bundleIdentifier ?? "com.ifuryst.opencomputeruse.cli") + "|" + (ProcessInfo.processInfo.environment[openComputerUseAppAgentSocketNamespaceEnvironmentKey] ?? "")
-        let occupied = Set(Self.onlineDisplayIDs().map(CGDisplaySerialNumber)).union(sessions.values.map { $0.holder.serial })
-        let serial = try VirtualDisplayIdentity.availableSerial(identity: identity, occupied: occupied)
-        let holder = try VirtualDisplayHolder(configuration: configuration, serial: serial)
+        // Prune disconnected holders before leasing; never reuse an active session.
+        for entry in idleDisplays where !entry.holder.process.isRunning || CGDisplayIsActive(entry.holder.displayID) == 0 {
+            try releaseIdleDisplays(displayID: entry.holder.displayID)
+        }
+        let holder: VirtualDisplayHolder
+        let reused: Bool
+        if reuseDisplay, let index = idleDisplays.firstIndex(where: { $0.configuration == configuration }) {
+            holder = idleDisplays.remove(at: index).holder
+            updateIdleDisplayIDs()
+            reused = true
+        } else {
+            let identity = (Bundle.main.bundleIdentifier ?? "com.ifuryst.opencomputeruse.cli") + "|" + (ProcessInfo.processInfo.environment[openComputerUseAppAgentSocketNamespaceEnvironmentKey] ?? "")
+            let occupied = Set(Self.onlineDisplayIDs().map(CGDisplaySerialNumber)).union(sessions.values.map { $0.holder.serial }).union(idleDisplays.map { $0.holder.serial })
+            let serial = try VirtualDisplayIdentity.availableSerial(identity: identity, occupied: occupied)
+            holder = try VirtualDisplayHolder(configuration: configuration, serial: serial)
+            reused = false
+        }
         let s = VirtualDisplaySession(holder: holder, configuration: configuration)
+        s.displayReused = reused
         do {
             let deadline = Date(timeIntervalSinceNow: 10)
             var ready = false
@@ -440,7 +458,7 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
             s.physicalLayout = physicalLayout(excluding: holder.displayID)
             s.foregroundBefore = originalForeground; s.foregroundAfter = NSWorkspace.shared.frontmostApplication?.processIdentifier
             s.desktopBefore = desktopBefore
-            s.desktopAfter = VirtualDisplayDesktopObservation.current(excluding: activeDisplayIDs.union([holder.displayID]))
+            s.desktopAfter = VirtualDisplayDesktopObservation.current(excluding: ownedDisplayIDs.union([holder.displayID]))
             s.layoutPreserved = s.physicalLayout == originalPhysical
             if !s.layoutPreserved { s.pause("Physical display layout changed during setup; inspect before resuming") }
             if s.foregroundBefore != s.foregroundAfter { s.pause("Foreground changed during setup; inspect before resuming") }
@@ -448,7 +466,57 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
             sessions[s.id] = s; sessionOrder.append(s.id)
             controlLock.lock(); controlledSessions[s.id] = s; controlledOrder.append(s.id); controlLock.unlock()
             return state(s)
-        } catch { s.capture.stop(); holder.stop(); throw error }
+        } catch {
+            s.capture.stop()
+            if reused {
+                idleDisplays.append((configuration, holder)); updateIdleDisplayIDs()
+            } else { holder.stop() }
+            throw error
+        }
+    }
+    /// Reserve an empty display. Repeated prewarm with a matching live configuration is idempotent.
+    public func prewarm(configuration: VirtualDisplayConfiguration = .init()) throws -> UInt32 {
+        lock.lock(); defer { lock.unlock() }
+        guard !Thread.isMainThread else { throw ComputerUseError.message("Prewarm virtual displays on a worker thread") }
+        try configuration.validate()
+        guard AXIsProcessTrusted(), CGPreflightScreenCaptureAccess() else { throw ComputerUseError.permissionDenied("Accessibility and Screen Recording permissions are required") }
+        if let entry = idleDisplays.first(where: { $0.configuration == configuration && $0.holder.process.isRunning && CGDisplayIsActive($0.holder.displayID) != 0 }) {
+            return entry.holder.displayID
+        }
+        let session = try create(configuration: configuration)
+        try destroy(sessionID: session.sessionID, retainDisplay: true)
+        return session.displayID
+    }
+    public func idleDisplayStates() -> [[String: Any]] {
+        lock.lock(); defer { lock.unlock() }
+        return idleDisplays.map { entry in
+            ["display_id": entry.holder.displayID, "helper_pid": entry.holder.process.processIdentifier,
+             "configuration": ["width": entry.configuration.width, "height": entry.configuration.height, "scale": entry.configuration.scale],
+             "online": entry.holder.process.isRunning && CGDisplayIsActive(entry.holder.displayID) != 0,
+             "frame": rectDictionary(CGDisplayBounds(entry.holder.displayID))]
+        }
+    }
+    /// Release only idle displays owned by this runtime. Active sessions cannot be released here.
+    public func releaseIdleDisplays(displayID: UInt32? = nil) throws {
+        lock.lock(); defer { lock.unlock() }
+        guard !Thread.isMainThread else { throw ComputerUseError.message("Release virtual displays on a worker thread") }
+        if let displayID, !idleDisplays.contains(where: { $0.holder.displayID == displayID }) {
+            throw ComputerUseError.message("Unknown idle display; active or foreign displays cannot be released")
+        }
+        for entry in idleDisplays.filter({ displayID == nil || $0.holder.displayID == displayID }) {
+            try removeDisplay(entry.holder)
+            idleDisplays.removeAll { $0.holder === entry.holder }
+            updateIdleDisplayIDs()
+        }
+    }
+    private func updateIdleDisplayIDs() {
+        controlLock.lock(); idleDisplayIDs = Set(idleDisplays.map { $0.holder.displayID }); controlLock.unlock()
+    }
+    private func removeDisplay(_ holder: VirtualDisplayHolder) throws {
+        holder.stop()
+        let deadline = Date(timeIntervalSinceNow: 5)
+        while Self.onlineDisplayIDs().contains(holder.displayID), Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
+        guard !Self.onlineDisplayIDs().contains(holder.displayID) else { throw ComputerUseError.message("Display removal was not confirmed") }
     }
     public static func onlineDisplayIDs() -> [UInt32] {
         var ids = [CGDirectDisplayID](repeating: 0, count: 64); var count: UInt32 = 0
@@ -489,6 +557,11 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
     public var activeDisplayIDs: Set<UInt32> {
         controlLock.lock(); defer { controlLock.unlock() }
         return Set(controlledSessions.values.map { $0.holder.displayID })
+    }
+    /// All displays held by this runtime, including idle reservations.
+    public var ownedDisplayIDs: Set<UInt32> {
+        controlLock.lock(); defer { controlLock.unlock() }
+        return Set(controlledSessions.values.map { $0.holder.displayID }).union(idleDisplayIDs)
     }
     public var activeDisplayID: UInt32? {
         controlLock.lock(); defer { controlLock.unlock() }
@@ -651,7 +724,7 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
         } catch { s.pause("Attach failed: \(error.localizedDescription). End the session to restore any moved windows."); throw error }
     }
     private func manage(_ window: VirtualDisplayWindow, session s: VirtualDisplaySession) throws {
-        let originalDisplay = Self.onlineDisplayIDs().filter { !activeDisplayIDs.contains($0) }.max {
+        let originalDisplay = Self.onlineDisplayIDs().filter { !ownedDisplayIDs.contains($0) }.max {
             let left = CGDisplayBounds($0).intersection(window.info.frame)
             let right = CGDisplayBounds($1).intersection(window.info.frame)
             return (left.isNull ? 0 : left.width * left.height) < (right.isNull ? 0 : right.width * right.height)
@@ -755,7 +828,7 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
         try validate(s, requireApp: true)
     }
     private func physicalLayout(excluding id: UInt32 = 0) -> [UInt32: CGRect] {
-        let virtual = Set(sessions.values.map { $0.holder.displayID }).union([id])
+        let virtual = Set(sessions.values.map { $0.holder.displayID }).union(idleDisplays.map { $0.holder.displayID }).union([id])
         return Dictionary(uniqueKeysWithValues: Self.onlineDisplayIDs().filter { !virtual.contains($0) }.map { ($0, CGDisplayBounds($0)) })
     }
     private func validate(_ s: VirtualDisplaySession, requireApp: Bool, recoveringCapture: Bool = false) throws {
@@ -808,9 +881,11 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
         for s in sessions.values where s.reason == nil { try? validate(s, requireApp: false) }
     }
     public func destroyAll() throws {
-        for state in states() { try destroy(sessionID: state.sessionID) }
+        lock.lock(); defer { lock.unlock() }
+        for state in states() { try destroy(sessionID: state.sessionID, retainDisplay: false) }
+        try releaseIdleDisplays()
     }
-    public func destroy(sessionID: String) throws {
+    public func destroy(sessionID: String, retainDisplay: Bool = true) throws {
         lock.lock(); defer { lock.unlock() }
         guard let s = sessions[sessionID] else { throw ComputerUseError.message("Unknown virtual display session") }
         s.pause("Ending session")
@@ -841,12 +916,13 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
                 let record = ownedRecoveryFile(s.id, pid: app.processIdentifier)
                 if FileManager.default.fileExists(atPath: record.path) { try FileManager.default.removeItem(at: record) }
             }
-            s.capture.stop(); s.holder.stop()
-            let deadline = Date(timeIntervalSinceNow: 5)
-            while Self.onlineDisplayIDs().contains(s.holder.displayID), Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
-            guard !Self.onlineDisplayIDs().contains(s.holder.displayID) else { throw ComputerUseError.message("Display removal was not confirmed") }
+            s.capture.stop()
+            if !retainDisplay { try removeDisplay(s.holder) }
             // Journal writes happen before removal from memory, so failed writes retain cleanup state.
             try persistRecovery(excluding: s.id)
+            if retainDisplay {
+                idleDisplays.append((s.configuration, s.holder)); updateIdleDisplayIDs()
+            }
             sessions.removeValue(forKey: s.id); sessionOrder.removeAll { $0 == s.id }
             controlLock.lock(); controlledSessions.removeValue(forKey: s.id); controlledOrder.removeAll { $0 == s.id }; controlLock.unlock()
         } catch { s.pause("Cleanup incomplete: \(error.localizedDescription)"); throw error }
@@ -908,8 +984,8 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
         var target = record.frame
         var ids = [CGDirectDisplayID](repeating: 0, count: 64); var count: UInt32 = 0
         CGGetActiveDisplayList(64, &ids, &count)
-        let physical = ids.prefix(Int(count)).filter { !activeDisplayIDs.contains($0) }.map { CGDisplayBounds($0) }
-        let preferred = record.displayID.flatMap { id in ids.prefix(Int(count)).contains(id) && !activeDisplayIDs.contains(id) ? CGDisplayBounds(id) : nil }
+        let physical = ids.prefix(Int(count)).filter { !ownedDisplayIDs.contains($0) }.map { CGDisplayBounds($0) }
+        let preferred = record.displayID.flatMap { id in ids.prefix(Int(count)).contains(id) && !ownedDisplayIDs.contains(id) ? CGDisplayBounds(id) : nil }
         if let preferred, let oldDisplay = record.displayFrame, oldDisplay.intersects(record.frame) {
             target.origin.x += preferred.minX - oldDisplay.minX
             target.origin.y += preferred.minY - oldDisplay.minY

@@ -37,7 +37,8 @@ The runtime exposes an asynchronous app-bound API:
 - \`await cua.getState({ emit? })\`: list current apps.
 - \`await cua.listApps({ emit? })\`: list current apps.
 - \`await cua.getApp(nameOrBundleID)\`: bind an app and emit its initial accessibility state.
-- \`await cua.createVirtualDisplay({ width?, height?, scale? })\` (macOS): returns a session with \`id\`, \`attachApp(app, { mode: "adopt"|"launch", pid?, windowId? })\`, \`getState()\`, \`pause()\`, \`resume()\`, \`destroy()\` and \`getApp(app, { windowId? })\`.
+- \`await cua.createVirtualDisplay({ width?, height?, scale?, reuseDisplay? })\` (macOS): returns a session with \`id\`, \`attachApp(app, { mode: "adopt"|"launch", pid?, windowId? })\`, \`getState()\`, \`pause()\`, \`resume()\`, \`destroy({ retainDisplay? })\` and \`getApp(app, { windowId? })\`.
+- macOS display reuse: \`await cua.prewarmVirtualDisplay({scale: 1})\`, \`await cua.listIdleVirtualDisplays()\`, \`await cua.releaseVirtualDisplays({displayId?})\`. Create reuses matching idle displays by default; destroy retains an empty display by default. First creation and final release may move Dock.
 - \`await cua.getVirtualDisplay(sessionId)\`: join an existing macOS session and get its lifecycle controller. Use \`await cua.listVirtualDisplays()\` to discover sessions; each can contain multiple applications.
 - \`await cua.getApp(app, { sessionId, windowId? })\`: join an existing virtual session shown in the OCU GUI. Virtual sessions never activate apps, post global input or use the clipboard; drag is unsupported. Sessions survive client disconnect and turn-ended, but each new turn/resume needs a fresh state.
 - \`await app.getAXState({ emit?, textLimit?, maxTreeNodes?, maxTreeDepth? })\`
@@ -257,7 +258,11 @@ export function createCuaApi(native, activeOutput) {
       async getState() { return JSON.parse(toolResultText(await call("get_virtual_display_state", { session_id: id }))); },
       async pause() { return JSON.parse(toolResultText(await call("pause_virtual_display", { session_id: id }))); },
       async resume() { return JSON.parse(toolResultText(await call("resume_virtual_display", { session_id: id }))); },
-      async destroy() { await call("destroy_virtual_display", { session_id: id }); },
+      async destroy(options = {}) {
+        const args = { session_id: id };
+        if (options.retainDisplay !== undefined) args.retain_display = options.retainDisplay;
+        await call("destroy_virtual_display", args);
+      },
       async getApp(app, options = {}) { return api.getApp(app, { ...options, sessionId: id }); },
     });
   }
@@ -358,8 +363,25 @@ export function createCuaApi(native, activeOutput) {
       await requireVirtualSupport();
       const args = {};
       for (const key of ["width", "height", "scale"]) if (options[key] !== undefined) args[key] = options[key];
+      if (options.reuseDisplay !== undefined) args.reuse_display = options.reuseDisplay;
       const state = JSON.parse(toolResultText(await call("create_virtual_display", args)));
       return virtualDisplayBinding(state.session_id);
+    },
+    async prewarmVirtualDisplay(options = {}) {
+      await requireVirtualSupport();
+      const args = {};
+      for (const key of ["width", "height", "scale"]) if (options[key] !== undefined) args[key] = options[key];
+      return JSON.parse(toolResultText(await call("prewarm_virtual_display", args)));
+    },
+    async listIdleVirtualDisplays() {
+      await requireVirtualSupport();
+      return JSON.parse(toolResultText(await call("get_virtual_display_state", {}))).idle_displays ?? [];
+    },
+    async releaseVirtualDisplays(options = {}) {
+      await requireVirtualSupport();
+      const args = {};
+      if (options.displayId !== undefined) args.display_id = options.displayId;
+      await call("release_virtual_displays", args);
     },
     async listVirtualDisplays() {
       await requireVirtualSupport();

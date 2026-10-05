@@ -40,10 +40,11 @@ public enum ToolDefinitions {
     } + virtualDisplayTools
 
     private static let virtualDisplayTools: [ToolDefinition] = [
-        ToolDefinition(name: "create_virtual_display", description: "Create a macOS extended virtual display session. Requires Accessibility and Screen Recording. Each session owns an independent display; multiple sessions can coexist.", annotations: defaultAnnotations(), inputSchema: objectSchema(properties: [
+        ToolDefinition(name: "create_virtual_display", description: "Create a macOS extended virtual display session. Requires Accessibility and Screen Recording. Reuse a matching idle display by default; otherwise create one. First creation and final release can move the Dock. Multiple sessions can coexist.", annotations: defaultAnnotations(), inputSchema: objectSchema(properties: [
             "width": positiveIntegerProperty(description: "Logical width in points; default 1920"),
             "height": positiveIntegerProperty(description: "Logical height in points; default 1080"),
-            "scale": integerProperty(description: "Backing scale: 1 (default) or 2")], required: [])),
+            "scale": integerProperty(description: "Backing scale: 1 (default) or 2"),
+            "reuse_display": ["type": "boolean", "description": "Reuse a matching idle display; default true"]], required: [])),
         ToolDefinition(name: "attach_app_to_virtual_display", description: "Launch a dedicated app instance or adopt an exact existing pid/window into a virtual display. app must be a bundle identifier for launch. Multiple applications can share a display; each process belongs to only one session. Target must not be frontmost.", annotations: defaultAnnotations(), inputSchema: objectSchema(properties: [
             "session_id": stringProperty(description: "Virtual session identifier"), "app": stringProperty(description: "App name or bundle identifier"),
             "mode": stringProperty(description: "adopt (default) or launch", enumValues: ["adopt", "launch"]),
@@ -52,7 +53,15 @@ public enum ToolDefinitions {
         ToolDefinition(name: "get_virtual_display_state", description: "Inspect one virtual session, including managed applications/windows. Omit session_id to list all sessions.", annotations: readOnlyAnnotations(), inputSchema: objectSchema(properties: ["session_id": stringProperty(description: "Optional virtual session identifier; omit to list")], required: [])),
         sessionTool("pause_virtual_display", "Pause virtual-session input."),
         sessionTool("resume_virtual_display", "Validate identity and geometry, then resume a paused session."),
-        sessionTool("destroy_virtual_display", "Restore borrowed windows and request dedicated app termination, then remove the display. Unsaved content may block cleanup.")
+        ToolDefinition(name: "destroy_virtual_display", description: "Restore borrowed windows and request dedicated app termination. Retain the empty display by default to avoid hotplug; retain_display=false removes it. Unsaved content may block cleanup.", annotations: defaultAnnotations(), inputSchema: objectSchema(properties: [
+            "session_id": stringProperty(description: "Virtual session identifier"),
+            "retain_display": ["type": "boolean", "description": "Keep empty display for reuse; default true. False removes it and may move Dock."]], required: ["session_id"])),
+        ToolDefinition(name: "prewarm_virtual_display", description: "Reserve an empty macOS virtual display without an input session. Idempotent for an idle matching configuration. First creation can move Dock; subsequent sessions reuse it.", annotations: defaultAnnotations(), inputSchema: objectSchema(properties: [
+            "width": positiveIntegerProperty(description: "Logical width; default 1920"),
+            "height": positiveIntegerProperty(description: "Logical height; default 1080"),
+            "scale": integerProperty(description: "Backing scale: 1 (default) or 2")], required: [])),
+        ToolDefinition(name: "release_virtual_displays", description: "Remove this runtime's idle virtual displays. Does not remove active sessions or foreign displays. Final release can move Dock.", annotations: defaultAnnotations(), inputSchema: objectSchema(properties: [
+            "display_id": positiveIntegerProperty(description: "Optional idle display ID; omit to release all idle displays")], required: []))
     ]
     private static func sessionTool(_ name: String, _ description: String, readOnly: Bool = false) -> ToolDefinition {
         ToolDefinition(name: name, description: description, annotations: readOnly ? readOnlyAnnotations() : defaultAnnotations(),

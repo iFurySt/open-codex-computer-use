@@ -31,12 +31,12 @@ Release 使用原有 `Open Computer Use.app`、bundle ID、`OPEN_COMPUTER_USE_CO
 
 TextEdit 通过 `attach_app_to_virtual_display` 的可选 `new_document: true` 启动会话专属临时 `Result.txt`（仅限专用 TextEdit 启动），避免空启动只有文件选择面板。不会隐式接管用户应用/文档。示例只验证 UI 中的内容，不承诺落盘：当前 AX set_value 的文本能读回，但 TextEdit Save 仍禁用，后台 ⌘S 也未保存。临时文件目录 0700、初始文件 0600；正常退出后移除，崩溃恢复只清理已确认退出的专属进程留下的可验证目录。未经保存的其他真实编辑仍可能阻止安全退出。
 
-会话 ID 可复制到工具调用。关闭主窗口保留后台会话，再次打开 App 显示同一窗口。Quit 恢复借用窗口，专用实例留在虚拟屏上礼貌退出，再停止捕获并移除显示器；专用实例拒绝退出时把窗口移回物理屏供用户处理，保留会话并显示原因。恢复失败也保留会话。借用应用不会被退出。切换 OCU 构建时，有活动会话的旧 runtime 不会被替换；需要先结束会话，或明确使用独立 socket namespace。
+会话 ID 可复制到工具调用。关闭主窗口保留后台会话，再次打开 App 显示同一窗口。Quit 恢复借用窗口，专用实例留在虚拟屏上礼貌退出，再停止捕获并移除显示器；专用实例拒绝退出时把窗口移回物理屏供用户处理，保留会话并显示原因。恢复失败也保留会话。借用应用不会被退出。切换 OCU 构建时，有活动会话的旧 runtime 不会被替换；需要先结束会话并显式释放空屏，或明确使用独立 socket namespace。
 
 ## 实现分层
 
 - `packages/VirtualDisplayBridge`：自行维护的小型 Objective-C bridge，运行时探测 `CGVirtualDisplay*` 类与 selector，检查创建和 `applySettings`。私有 ABI 缺失时明确失败。
-- `apps/VirtualDisplayHost`：每会话一个 helper，只持有显示器。stdin/stdout 交换配置与 ready/error；stdin EOF / stop 退出，诊断写 stderr。父进程等待系统在线列表确认移除，超时只终止自己创建的 helper。
+- `apps/VirtualDisplayHost`：每显示器一个 helper，只持有显示器；会话默认从空屏池租用，正常结束后保留 helper/display。stdin/stdout 交换配置与 ready/error；stdin EOF / stop 退出，诊断写 stderr。父进程等待系统在线列表确认移除，超时只终止自己创建的 helper。
 - `VirtualDisplaySession.swift`：串行会话操作、精确 PID/CGWindowID/AX 关联、窗口位置读回、暂停门、恢复记录与应用生命周期。GUI 使用 worker 执行阻塞操作，暂停先关闭输入门。
 - `VirtualDisplayCapture.swift`：显示器级 ScreenCaptureKit 流，最高 30 fps、BGRA、无音频、隐藏系统光标、排除当前宿主 PID。只保存最新 `CVPixelBuffer`，共享 Metal 预览直接渲染；视频不经过 MCP 或逐帧 PNG。
 - 既有 `ComputerUseService`：窗口级 AX tree 和截图，增加明确 session context。窗口选择与恢复策略受会话约束，旧调用保持原行为。
@@ -49,15 +49,17 @@ TextEdit 通过 `attach_app_to_virtual_display` 的可选 `new_document: true` �
 
 Swift：`VirtualDisplaySessionRegistry.shared` 提供 `create`、`states` / `currentState` / `state`、`attach`、`availableApplications` / `availableWindows`、`selectWindow`、`pause` / `resume` / `destroy` / `destroyAll`。阻塞生命周期 API 在 worker 调用。`capture(sessionID:).subscribeFrames` / `unsubscribeFrames` 在捕获队列提供原始帧；消费者必须及时返回，最多保留最新一帧。
 
-macOS 增加六个 MCP tools：
+macOS 增加八个 MCP tools：
 
 | 工具 | 关键参数 |
 | --- | --- |
-| `create_virtual_display` | 可选 `width`, `height`, `scale` |
+| `create_virtual_display` | 可选 `width`, `height`, `scale`, `reuse_display=true` |
 | `attach_app_to_virtual_display` | `session_id`, `app`, `mode=adopt/launch`；adopt 必须提供 `pid`, `window_id` |
-| `get_virtual_display_state` | 可选 `session_id`；省略时返回所有 sessions |
+| `get_virtual_display_state` | 可选 `session_id`；省略时返回所有 sessions 和 idle_displays |
 | `pause_virtual_display` / `resume_virtual_display` | `session_id` |
-| `destroy_virtual_display` | `session_id` |
+| `destroy_virtual_display` | `session_id`, `retain_display=true`；false 真正移除 |
+| `prewarm_virtual_display` | 可选 `width`, `height`, `scale`；相同空闲配置幂等 |
+| `release_virtual_displays` | 可选 `display_id`；省略释放本 runtime 的全部空屏 |
 
 原有 app tools 增加可选 `session_id`；`get_app_state` 可用 `window_id` 选择受管理窗口。必须匹配会话中受管理应用；多个同 bundle 的实例用 window_id 消除歧义；未指定 session 的旧行为不变。Windows/Linux 仍只暴露原有 9 tools；JS 在绑定 session 前检查 native 工具能力，避免旧 runtime 静默忽略 session 参数。
 
@@ -98,7 +100,7 @@ var existing = await cua.getApp("APP_BUNDLE_ID", { sessionId: "SESSION_ID" });
 
 拖拽明确拒绝：当前 process-targeted 事件未在真实测试中驱动内部拖拽，不能以投递成功声明支持。菜单、IME、特殊快捷键和系统拖放没有通用兼容承诺。未知系统对话框暂停，借用应用其他窗口不会自动被挪走；专用实例的新窗口验证身份后才纳入管理。
 
-恢复文件仅保存 PID、进程启动时间、bundle ID、window ID、原 frame 与显示器身份，启动时间优先通过内核查询，必要时回退 LaunchServices，不能验证时拒绝移动。恢复路径按 bundle/socket namespace 隔离，日志合并本 runtime 的所有会话；目录 0700、文件 0600，不保存截图或输入内容。下次创建前核对进程身份再恢复；原显示器消失时回到可用物理屏。无法安全恢复或专用应用拒绝退出时保留会话，不强杀有未保存内容的应用。专用实例另存逐会话恢复标记；进程仍存活时保留其 profile，不因崩溃强制退出，下次创建时只在确认原进程已退出后清理可验证的 OCU 临时 profile。helper 通过管道 EOF 跟随父进程退出，不把“释放对象必然移除”作为通用规律。
+恢复文件仅保存 PID、进程启动时间、bundle ID、window ID、原 frame 与显示器身份，启动时间优先通过内核查询，必要时回退 LaunchServices，不能验证时拒绝移动。恢复路径按 bundle/socket namespace 隔离，日志合并本 runtime 的所有会话；目录 0700、文件 0600，不保存截图或输入内容。下次创建前核对进程身份再恢复；原显示器消失时回到可用物理屏（排除本 runtime 的空屏池）。无法安全恢复或专用应用拒绝退出时保留会话，不强杀有未保存内容的应用。专用实例另存逐会话恢复标记；进程仍存活时保留其 profile，不因崩溃强制退出，下次创建时只在确认原进程已退出后清理可验证的 OCU 临时 profile。helper 通过管道 EOF 跟随父进程退出，不把“释放对象必然移除”作为通用规律。
 
 ## 可重复验证
 
@@ -167,3 +169,32 @@ node scripts/run-app-agent-lifecycle-smoke.mjs --with-session
 空状态移除解释段落，仅保留显示器图标、Virtual sessions 标题和中性的胶囊形 Create Session 按钮（macOS 26 原生 glass，旧版 bordered）。顶部与中央创建入口共用名称重置和 sheet 展示逻辑。
 
 Display scale 使用原生 AppKit NSPopUpButton，菜单覆盖其下方内容；固定 230 × 34 points 控件区域，选中行锚定在当前控件位置，选择 1×/2× 不改变 sheet 尺寸。模式选项只在创建控件时生成，后续只同步 selection 和 enabled 状态，避免刷新时重建菜单。
+
+## 显示器预热与复用（2026-10-05）
+
+新建会话默认 `reuse_display=true`，正常结束默认 `retain_display=true`。GUI 使用同一策略，停止会话后空显示器仍在线，下一次相同配置直接复用；不会自动预热、超时驱逐或修改已有显示器分辨率。配置不匹配/没有空屏时创建新屏。借用窗口恢复或专属应用礼貌退出失败，仍保留暂停会话，不能归还为可复用空屏。
+
+空屏没有 session ID、可操作应用或捕获流；每次租用产生新的 session ID 和 capture 对象，读实际布局并重新发现 ScreenCaptureKit 对象、验证权限。不同客户端的旧 session snapshot 不会变成新会话缓存，旧 session ID 的请求失败。窗口恢复排除全部自有活动/空闲屏；断开客户端保留空屏，显式 Quit 清理全部，父进程崩溃依赖管道 EOF 退出 helper。切换不同构建时，已有空屏也阻止隐式替换 runtime。
+
+Swift worker API：`prewarm(configuration:) -> UInt32`、`create(configuration:reuseDisplay:)`、`destroy(sessionID:retainDisplay:)`、`idleDisplayStates()`、`releaseIdleDisplays(displayID:)`、`destroyAll()`。`activeDisplayIDs` 不包含空闲屏，`ownedDisplayIDs` 包含。预热权限与创建相同；重复预热只有在已有匹配的空闲屏时幂等，正在使用的屏不能被复用或通过 release 接口释放。想预热多个同配置屏，可显式 create(reuseDisplay:false) 后 destroy(retainDisplay:true)。
+
+```bash
+open-computer-use call prewarm_virtual_display --args '{"scale":1}'
+open-computer-use call create_virtual_display --args '{"reuse_display":true,"scale":1}'
+open-computer-use call destroy_virtual_display --args '{"session_id":"SESSION_ID","retain_display":true}'
+open-computer-use call get_virtual_display_state # sessions + idle_displays
+open-computer-use call release_virtual_displays # 真正移除空屏，可能触发 Dock 重置
+```
+
+```js
+await cua.prewarmVirtualDisplay({scale: 1});
+const session = await cua.createVirtualDisplay({scale: 1, reuseDisplay: true});
+// attach/getApp 和动作仍显式绑定 session.id
+await session.destroy({retainDisplay: true});
+const idle = await cua.listIdleVirtualDisplays();
+await cua.releaseVirtualDisplays({displayId: idle[0].display_id});
+```
+
+复用是减少热插拔的缓解方案；首次接入、配置不匹配/强制新建、最终释放及 Quit 仍可能刷新桌面或使 Dock 移动。没有用系统光标、Dock 重启/偏好或物理显示器重排恢复 Dock。[DockKeeper 实测](https://github.com/blamechris/DockKeeper/blob/main/docs/spikes/separate-spaces-pinning.md) 未提供符合当前边界的可靠底部 Dock host setter；[Apple 回调文档](https://developer.apple.com/documentation/coregraphics/cgdisplayreconfigurationcallback) 是通知接口；[VirtualDisplay 技术记录](https://github.com/PrimeLab-Foundation/VirtualDisplay/blob/main/docs/platform/macos-virtual-display-apis.md) 的持有/复用建议作为参考，私有 API 行为仍按实际系统版本验证。
+
+真实回归：`node scripts/run-virtual-display-reuse-smoke.mjs 'PATH/TO/Open Computer Use.app' --cycles=20 --scale=1`（或 2）。独立 namespace、生产工具/registry 和 ScreenCaptureKit，不调用 FixtureBridge；测试每次新 session 身份、同 display/helper、收到帧、主屏/物理布局/Dock 归属、旧 ID 失效、活动屏释放拒绝、配置隔离、强制新建、helper 异常退出以及显式释放/Quit。基线在预热之后，不代替首次接入上屏 Dock 保持或可辨识图案/真实并行输入验收。

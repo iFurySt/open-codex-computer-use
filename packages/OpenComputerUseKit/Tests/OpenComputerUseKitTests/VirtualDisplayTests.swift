@@ -3,6 +3,21 @@ import XCTest
 @testable import OpenComputerUseKit
 
 final class VirtualDisplayTests: XCTestCase {
+    func testDisplayLifecycleRejectsMalformedControlBeforeSideEffects() {
+        let dispatcher = ComputerUseToolDispatcher()
+        for (tool, arguments) in [
+            ("create_virtual_display", ["reuse_display": "false"] as [String: Any]),
+            ("create_virtual_display", ["reuse_display": 1]),
+            ("destroy_virtual_display", ["session_id": "missing", "retain_display": 0]),
+            ("release_virtual_displays", ["display_id": Int64(UInt32.max) + 1]),
+            ("release_virtual_displays", ["display_id": -1])
+        ] {
+            let result = dispatcher.callToolAsResult(name: tool, arguments: arguments)
+            XCTAssertTrue(result.isError, tool)
+            XCTAssertFalse(result.primaryText?.contains("permissions are required") == true)
+        }
+    }
+
     func testBrowserCursorAssetLoadsFromPackageResources() throws {
         let image = try XCTUnwrap(BrowserUseCursorArtwork.image)
         XCTAssertEqual(image.width, 46)

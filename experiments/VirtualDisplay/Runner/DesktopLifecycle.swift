@@ -9,7 +9,7 @@ func desktopLifecycleChecks(cycles: Int) throws {
         let session = try registry.create()
         let created = VirtualDisplayDesktopObservation.current(excluding: registry.activeDisplayIDs)
         report("desktop_created", ["cycle": cycle,"desktop":created.dictionary,"session":session.dictionary])
-        try registry.destroy(sessionID: session.sessionID)
+        try registry.destroy(sessionID: session.sessionID, retainDisplay: false)
         Thread.sleep(forTimeInterval: 0.5)
         let ended = VirtualDisplayDesktopObservation.current(excluding: registry.activeDisplayIDs)
         report("desktop_ended", ["cycle":cycle,"desktop":ended.dictionary])

@@ -268,3 +268,33 @@ test("virtual session discovery and multi-app bindings retain independent identi
   const clicks = calls.filter(c => c.name === "click");
   assert.deepEqual(clicks.map(c => [c.arguments.app, c.arguments.session_id]), [["First", "one"], ["Second", "one"], ["Third", "two"]]);
 });
+
+
+test("virtual display lifecycle exposes prewarm, reuse, retention and scoped idle release", async () => {
+  const calls = [];
+  const native = { async request(method, params) {
+    if (method === "tools/list") return {tools: [{name: "create_virtual_display"}]};
+    calls.push(params);
+    if (params.name === "get_virtual_display_state") return textResult(JSON.stringify({sessions: [], idle_displays: [{display_id: 42}]}));
+    return textResult(JSON.stringify({session_id: "lease", display_id: 42}));
+  }};
+  const session = new PersistentJavaScriptSession({native});
+  const result = await session.run(`
+    await cua.prewarmVirtualDisplay({scale: 2});
+    var lease = await cua.createVirtualDisplay({scale: 2, reuseDisplay: false});
+    await lease.destroy({retainDisplay: false});
+    var idle = await cua.listIdleVirtualDisplays();
+    if (idle[0].display_id !== 42) throw Error('missing idle state');
+    await cua.releaseVirtualDisplays({displayId: 42});
+    await cua.releaseVirtualDisplays();
+  `);
+  assert.equal(result.isError, false);
+  assert.deepEqual(calls.map(call => [call.name, call.arguments]), [
+    ["prewarm_virtual_display", {scale: 2}],
+    ["create_virtual_display", {scale: 2, reuse_display: false}],
+    ["destroy_virtual_display", {session_id: "lease", retain_display: false}],
+    ["get_virtual_display_state", {}],
+    ["release_virtual_displays", {display_id: 42}],
+    ["release_virtual_displays", {}],
+  ]);
+});

@@ -58,3 +58,5 @@
 会话 notebook 直接调用生产 dispatcher，单元自动绑定所属 session，显式跨会话参数被拒绝；仅允许会话内 OCU tools 和受约束的 Calculator/TextEdit 示例编排，不执行任意 shell/JavaScript。示例通过 AX 读取实际计算结果与写入内容；TextEdit 专属临时文档不接管用户现有文档，清理核对 PID 启动身份和临时目录来源，不强制退出未保存应用。每会话保留独立 snapshot cache，单元输出/截图只驻留内存。多应用进程归属唯一会话，动作仍验证具体 PID/window，不能因共享显示器放宽输入边界。
 
 虚拟 session 的 sky_click 禁止 synthetic focus records，定向事件使用 private source、屏内 primer，保留显式方法且不切换 fallback。隐藏仅用于核对过返回 PID 的全新专属实例；不隐藏用户既有或当前前台应用。首窗口在隐藏状态下移动/读回，但第三方文档启动仍可能短暂可见，不能宣称完全独立桌面。Dock 回归只观察几何和屏归属，不修改偏好、不重启 Dock或劫持光标。
+
+空屏复用只保留本 runtime 私有管道持有的 helper/display，不保留输入会话、视频帧或光标；没有 session ID 的空屏不能操作。正常归还必须先完成借用窗口恢复、专属应用礼貌退出与恢复标记清理；失败保留暂停会话。release 仅能选择自有空屏，拒绝活动/未知 ID；Quit 及父进程 EOF 释放全部，不枚举或终止其他用户显示器。桌面仍属于当前登录用户，用户自行移入空屏的其他窗口不会被自动接管。

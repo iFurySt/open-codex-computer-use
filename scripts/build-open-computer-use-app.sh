@@ -18,6 +18,7 @@ Examples:
   ./scripts/build-open-computer-use-app.sh --configuration release --arch universal
 
 Environment:
+  OPEN_COMPUTER_USE_APP_OUTPUT_DIR=/path/to/isolated-output (default: repo dist)
   OPEN_COMPUTER_USE_CODESIGN_MODE=auto|identity|adhoc|none
   OPEN_COMPUTER_USE_CODESIGN_IDENTITY="Developer ID Application: Example, Inc. (TEAMID)"
   OPEN_COMPUTER_USE_CODESIGN_KEYCHAIN=/path/to/signing.keychain-db
@@ -259,10 +260,11 @@ if [[ "${configuration}" != "release" ]]; then
   app_bundle_name="${development_app_bundle_name}"
 fi
 
-app_root="${repo_root}/dist/${app_bundle_name}"
-release_app_root="${repo_root}/dist/${release_app_bundle_name}"
-development_app_root="${repo_root}/dist/${development_app_bundle_name}"
-legacy_app_root="${repo_root}/dist/${legacy_app_bundle_name}"
+app_output_dir="${OPEN_COMPUTER_USE_APP_OUTPUT_DIR:-${repo_root}/dist}"
+app_root="${app_output_dir}/${app_bundle_name}"
+release_app_root="${app_output_dir}/${release_app_bundle_name}"
+development_app_root="${app_output_dir}/${development_app_bundle_name}"
+legacy_app_root="${app_output_dir}/${legacy_app_bundle_name}"
 contents_dir="${app_root}/Contents"
 macos_dir="${contents_dir}/MacOS"
 resources_dir="${contents_dir}/Resources"
