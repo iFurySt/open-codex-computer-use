@@ -21,3 +21,5 @@ UI 状态在 MainActor 更新，显示器/AX/捕获生命周期在 worker 执行
 创建会话的 Display scale 使用 NSViewRepresentable 封装的 NSPopUpButton，参考 HeyYo Audio/Microphone 选择器：固定控件尺寸，原生菜单覆盖内容、选中行锚定控件，切换倍率不改变 sheet 布局。
 
 虚拟屏幕预览的 Agent cursor 直接复用 OBU 的 cursor-chat.png（23×24 points，原始 46×48 pixels），以 CALayer 显示，使用 OBU 中性姿态的 hotspot 转换。资源由 SwiftPM 管理并随签名 App 分发；不再维护预览专属手绘轮廓。系统光标仍隐藏，预览光标不写入 ScreenCaptureKit 原始帧。
+
+侧栏内容分为 Sessions / Displays，独立可折叠；分组标题整行点击折叠，hover 显示展开方向的 chevron 与右侧 +（两处都新建会话），项目 hover 显示 trash。分组标题禁用 List selection，折叠造成的 nil selection 不清除当前预览。Session trash 默认删除会话并保留空屏，右键可选 Delete Session and Display；Display trash 安全删除该屏与关联会话。Displays 包含活动/空闲资源，活动屏选中后查看会话；空屏展示配置与复用入口，创建精确绑定该 display ID 并锁定配置。失败展示原因并保留资源，操作期间禁用删除；独立捕获不在空闲页自动恢复。保留原生 NavigationSplitView 全高、品牌和 toolbar；空闲页复用原生 glass/bordered Create Session 按钮。

@@ -168,7 +168,7 @@
 
 ## macOS 虚拟显示器与工作区
 
-macOS tool registry 增加六个虚拟会话 tools（共 15），原有 app tools 可选择 `session_id`，`get_app_state` 可明确选择 `window_id`。Windows/Linux 保持原有 9 个 tools。无 session 的旧调用不变。
+macOS tool registry 增加九个虚拟会话/显示器 tools（共 18），原有 app tools 可选择 `session_id`，`get_app_state` 可明确选择 `window_id`。Windows/Linux 保持原有 9 个 tools。无 session 的旧调用不变。
 
 `apps/VirtualDisplayHost` 经 `packages/VirtualDisplayBridge` 创建并持有私有 CGVirtualDisplay 对象。每个显示器一个 helper；会话从本 runtime 的空屏池租用匹配配置的显示器，结束默认归还空屏，父进程管道关闭即退出；打包时复制到 `Contents/Helpers` 并先签 helper 后签主 bundle。AX、ScreenCaptureKit 与权限身份留在 OCU runtime。serial 使用 bundle/socket namespace 下可复用的空闲槽位；helper 仅在实际 origin/mirror 不一致时提交额外布局事务，不反复重写未变的物理屏。创建观察记录物理 frame、主屏、前台 PID 和 Dock 所在屏；Dock 迁移会暂停会话。
 
@@ -187,3 +187,5 @@ App-agent Quit 使用 RunLoop 调度 terminate/reply 与 worker 清理：termina
 ## 独立 macOS 电源模块
 
 `packages/OpenComputerUsePower` 为独立 SwiftPM package，不改变根构建或虚拟/锁屏模块。`PowerCore` SDK 和 `OCUPowerHost` 提供 manual（无限持续）、timed、connection 请求；用户态 coordinator 聚合 IOKit 闲置/显示器断言，签名 root `OCUPowerHelper` 管理 pmset 合盖开关、30 秒内部租约和恢复 journal。用户态请求不自动关联外部 Agent 任务，电量/温度截止默认关闭。独立 App 通过 SMAppService 安装，需系统后台项批准。真实 AX/SCK 探针和验证脚本见 [电源保活](power-hold.md)；保活本身不解锁会话，也不保证合盖后图形会话可用。
+
+侧栏将 Sessions 与 Displays 分组，显示器资源通过 typed `displayStates()` 查询活动/空闲状态及 sessionIDs。当前每屏零或一个活动会话、多应用；分组折叠不清除当前桌面选择，原生整体侧栏 toolbar/动画保留。精确租用传 create 的 displayID（必须匹配配置且空闲），显示器级 destroyDisplay 在 registry 串行锁内安全结束关联会话后再释放；应用退出与窗口恢复不可回滚，不承诺跨这些操作的 all-or-nothing。失败保留未完成状态，不终止其他屏或强杀应用。

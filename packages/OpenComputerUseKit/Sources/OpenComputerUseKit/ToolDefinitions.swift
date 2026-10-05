@@ -44,6 +44,7 @@ public enum ToolDefinitions {
             "width": positiveIntegerProperty(description: "Logical width in points; default 1920"),
             "height": positiveIntegerProperty(description: "Logical height in points; default 1080"),
             "scale": integerProperty(description: "Backing scale: 1 (default) or 2"),
+            "display_id": positiveIntegerProperty(description: "Optional exact idle display to reuse; configuration must match"),
             "reuse_display": ["type": "boolean", "description": "Reuse a matching idle display; default true"]], required: [])),
         ToolDefinition(name: "attach_app_to_virtual_display", description: "Launch a dedicated app instance or adopt an exact existing pid/window into a virtual display. app must be a bundle identifier for launch. Multiple applications can share a display; each process belongs to only one session. Target must not be frontmost.", annotations: defaultAnnotations(), inputSchema: objectSchema(properties: [
             "session_id": stringProperty(description: "Virtual session identifier"), "app": stringProperty(description: "App name or bundle identifier"),
@@ -60,6 +61,8 @@ public enum ToolDefinitions {
             "width": positiveIntegerProperty(description: "Logical width; default 1920"),
             "height": positiveIntegerProperty(description: "Logical height; default 1080"),
             "scale": integerProperty(description: "Backing scale: 1 (default) or 2")], required: [])),
+        ToolDefinition(name: "delete_virtual_display", description: "Safely end all sessions on this runtime's display, then remove it. Cleanup failure preserves unfinished state; never force quits apps. Display removal may move Dock.", annotations: defaultAnnotations(), inputSchema: objectSchema(properties: [
+            "display_id": positiveIntegerProperty(description: "Exact owned display ID")], required: ["display_id"])),
         ToolDefinition(name: "release_virtual_displays", description: "Remove this runtime's idle virtual displays. Does not remove active sessions or foreign displays. Final release can move Dock.", annotations: defaultAnnotations(), inputSchema: objectSchema(properties: [
             "display_id": positiveIntegerProperty(description: "Optional idle display ID; omit to release all idle displays")], required: []))
     ]

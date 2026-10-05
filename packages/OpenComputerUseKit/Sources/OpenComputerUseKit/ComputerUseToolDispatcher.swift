@@ -73,15 +73,22 @@ public final class ComputerUseToolDispatcher {
         switch name {
         case "prewarm_virtual_display":
             let id = try registry.prewarm(configuration: configuration())
-            let value: [String: Any] = ["display_id": id, "idle_displays": registry.idleDisplayStates()]
+            let value: [String: Any] = ["display_id": id, "idle_displays": registry.idleDisplayStates(), "displays": registry.displayStates().map(\.dictionary)]
             return .text(String(decoding: try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]), as: UTF8.self))
+        case "delete_virtual_display":
+            guard let rawID = try optionalPositiveInt("display_id", in: arguments) else { throw ComputerUseError.invalidArguments("display_id is required") }
+            guard rawID <= Int(UInt32.max) else { throw ComputerUseError.invalidArguments("display_id out of range") }
+            try registry.destroyDisplay(displayID: UInt32(rawID))
+            return .text("Virtual display and its sessions deleted")
         case "release_virtual_displays":
             let rawID = try optionalPositiveInt("display_id", in: arguments)
             guard rawID == nil || rawID! <= Int(UInt32.max) else { throw ComputerUseError.invalidArguments("display_id out of range") }
             try registry.releaseIdleDisplays(displayID: rawID.map(UInt32.init))
             return .text("Idle virtual displays released")
         case "create_virtual_display":
-            return try result(registry.create(configuration: configuration(), reuseDisplay: boolean("reuse_display", default: true)))
+            let rawID = try optionalPositiveInt("display_id", in: arguments)
+            guard rawID == nil || rawID! <= Int(UInt32.max) else { throw ComputerUseError.invalidArguments("display_id out of range") }
+            return try result(registry.create(configuration: configuration(), reuseDisplay: boolean("reuse_display", default: true), displayID: rawID.map(UInt32.init)))
         case "attach_app_to_virtual_display":
             let rawPID = try optionalPositiveInt("pid", in: arguments)
             let rawWindow = try optionalPositiveInt("window_id", in: arguments)
@@ -95,7 +102,7 @@ public final class ComputerUseToolDispatcher {
                 app: requireString("app", in: arguments), pid: rawPID.map(Int32.init), windowID: rawWindow.map(UInt32.init), launch: mode == "launch", newDocument: arguments["new_document"] as? Bool ?? false))
         case "get_virtual_display_state":
             if arguments["session_id"] == nil {
-                let value: [String: Any] = ["sessions": registry.states().map(\.dictionary), "idle_displays": registry.idleDisplayStates()]
+                let value: [String: Any] = ["sessions": registry.states().map(\.dictionary), "idle_displays": registry.idleDisplayStates(), "displays": registry.displayStates().map(\.dictionary)]
                 return .text(String(decoding: try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]), as: UTF8.self))
             }
             return try result(registry.state(sessionID: requireString("session_id", in: arguments)))

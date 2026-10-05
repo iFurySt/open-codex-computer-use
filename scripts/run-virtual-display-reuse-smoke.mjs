@@ -134,6 +134,27 @@ try {
   await call("release_virtual_displays");
   assert.equal(alive(replaced.helper_pid), false);
   assert.deepEqual((await call("get_virtual_display_state")).idle_displays, []);
+  // Two matching idle resources: explicitly lease the second, then delete only that resource.
+  const base = await call("prewarm_virtual_display", configuration);
+  const duplicate = await call("create_virtual_display", {...configuration, reuse_display: false});
+  await call("destroy_virtual_display", {session_id: duplicate.session_id});
+  await call("create_virtual_display", {scale: scale === 1 ? 2 : 1, display_id: duplicate.display_id}, true);
+  const exact = await call("create_virtual_display", {...configuration, display_id: duplicate.display_id});
+  assert.equal(exact.display_id, duplicate.display_id);
+  assert.equal(exact.display_reused, true);
+  let resourceState = await call("get_virtual_display_state");
+  assert.deepEqual(resourceState.displays.find(display => display.display_id === exact.display_id).session_ids, [exact.session_id]);
+  await call("create_virtual_display", {...configuration, display_id: exact.display_id}, true);
+  await call("delete_virtual_display", {display_id: 2147483647}, true);
+  await call("delete_virtual_display", {display_id: exact.display_id});
+  assert.equal(alive(exact.helper_pid), false);
+  await call("get_virtual_display_state", {session_id: exact.session_id}, true);
+  resourceState = await call("get_virtual_display_state");
+  assert.deepEqual(resourceState.sessions, []);
+  assert.deepEqual(resourceState.displays.map(display => display.display_id), [base.display_id]);
+  await call("delete_virtual_display", {display_id: base.display_id});
+  assert.deepEqual((await call("get_virtual_display_state")).displays, []);
+  console.log(JSON.stringify({check: "exact_display_lease_and_cascade_deletion", passed: true}));
   const quitWarm = await call("prewarm_virtual_display", configuration);
   const quitHolder = quitWarm.idle_displays[0];
   assert.equal((await request({kind: "terminate"})).ok, true);
@@ -145,6 +166,8 @@ try {
 } catch (error) {
   // Never force-terminate a runtime after cleanup failure; retain it for diagnosis.
   console.error(error.message);
+  if (error.stdout) console.error(error.stdout);
+  if (error.stderr) console.error(error.stderr);
   console.error(JSON.stringify({namespace, socketPath}));
   try { await request({kind: "terminate"}); } catch {}
   process.exitCode = 1;

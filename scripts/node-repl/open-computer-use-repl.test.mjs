@@ -298,3 +298,26 @@ test("virtual display lifecycle exposes prewarm, reuse, retention and scoped idl
     ["release_virtual_displays", {}],
   ]);
 });
+
+
+test("display resource APIs preserve exact identity and cascade deletion arguments", async () => {
+  const calls = [];
+  const native = { async request(method, params) {
+    if (method === "tools/list") return {tools: [{name: "create_virtual_display"}]};
+    calls.push(params);
+    if (params.name === "get_virtual_display_state") return textResult(JSON.stringify({displays: [{display_id: 42, session_ids: []}]}));
+    return textResult(JSON.stringify({session_id: "exact"}));
+  }};
+  const session = new PersistentJavaScriptSession({native});
+  const result = await session.run(`
+    const displays = await cua.listDisplayResources();
+    await cua.createVirtualDisplay({scale: 2, displayId: displays[0].display_id});
+    await cua.deleteVirtualDisplay(displays[0].display_id);
+  `);
+  assert.equal(result.isError, false);
+  assert.deepEqual(calls.map(call => [call.name, call.arguments]), [
+    ["get_virtual_display_state", {}],
+    ["create_virtual_display", {scale: 2, display_id: 42}],
+    ["delete_virtual_display", {display_id: 42}],
+  ]);
+});

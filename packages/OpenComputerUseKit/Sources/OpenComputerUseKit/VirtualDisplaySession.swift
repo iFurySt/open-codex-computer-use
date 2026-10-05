@@ -43,6 +43,22 @@ public struct VirtualDisplayApplicationInfo: Identifiable, Sendable {
     public var id: Int32 { pid }
 }
 
+/// A display resource can be leased to a session or held idle for reuse.
+public struct VirtualDisplayResourceState: Identifiable, Sendable {
+    public let displayID: UInt32
+    public let helperPID: Int32
+    public let configuration: VirtualDisplayConfiguration
+    public let frame: CGRect
+    public let sessionIDs: [String]
+    public let online: Bool
+    public var id: UInt32 { displayID }
+    public var dictionary: [String: Any] {
+        ["display_id": displayID, "helper_pid": helperPID,
+         "configuration": ["width": configuration.width, "height": configuration.height, "scale": configuration.scale],
+         "frame": rectDictionary(frame), "session_ids": sessionIDs, "online": online]
+    }
+}
+
 public struct VirtualDisplayState: Sendable {
     public let sessionID: String
     public let displayID: UInt32
@@ -414,11 +430,16 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
                      layoutVersion: s.version, foregroundBeforeCreation: s.foregroundBefore, foregroundAfterCreation: s.foregroundAfter,
                      physicalLayoutPreserved: s.layoutPreserved, displaySerial: s.holder.serial, additionalConfigurationApplied: !s.displayReused && s.holder.additionalConfigurationApplied, desktopBeforeCreation: s.desktopBefore, desktopAfterCreation: s.desktopAfter, displayReused: s.displayReused, captureIsRunning: s.capture.isRunning, lastFrameDate: s.capture.latestFrameDate, captureError: s.capture.error)
     }
-    public func create(configuration: VirtualDisplayConfiguration = .init(), reuseDisplay: Bool = true) throws -> VirtualDisplayState {
+    public func create(configuration: VirtualDisplayConfiguration = .init(), reuseDisplay: Bool = true, displayID: UInt32? = nil) throws -> VirtualDisplayState {
         lock.lock(); defer { lock.unlock() }
         guard !Thread.isMainThread else { throw ComputerUseError.message("Create virtual displays on a worker thread") }
         try configuration.validate()
         guard AXIsProcessTrusted(), CGPreflightScreenCaptureAccess() else { throw ComputerUseError.permissionDenied("Accessibility and Screen Recording permissions are required") }
+        if let displayID {
+            guard reuseDisplay, idleDisplays.contains(where: { $0.holder.displayID == displayID && $0.configuration == configuration }) else {
+                throw ComputerUseError.invalidArguments("display_id must identify a matching idle display and reuse_display must be true")
+            }
+        }
         if sessions.isEmpty { try recoverWindows() }
         let originalPhysical = physicalLayout()
         let desktopBefore = VirtualDisplayDesktopObservation.current(excluding: ownedDisplayIDs)
@@ -429,11 +450,12 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
         }
         let holder: VirtualDisplayHolder
         let reused: Bool
-        if reuseDisplay, let index = idleDisplays.firstIndex(where: { $0.configuration == configuration }) {
+        if reuseDisplay, let index = idleDisplays.firstIndex(where: { $0.configuration == configuration && (displayID == nil || $0.holder.displayID == displayID) }) {
             holder = idleDisplays.remove(at: index).holder
             updateIdleDisplayIDs()
             reused = true
         } else {
+            guard displayID == nil else { throw ComputerUseError.message("Selected idle display disconnected; refresh displays before creating a session") }
             let identity = (Bundle.main.bundleIdentifier ?? "com.ifuryst.opencomputeruse.cli") + "|" + (ProcessInfo.processInfo.environment[openComputerUseAppAgentSocketNamespaceEnvironmentKey] ?? "")
             let occupied = Set(Self.onlineDisplayIDs().map(CGDisplaySerialNumber)).union(sessions.values.map { $0.holder.serial }).union(idleDisplays.map { $0.holder.serial })
             let serial = try VirtualDisplayIdentity.availableSerial(identity: identity, occupied: occupied)
@@ -486,6 +508,34 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
         let session = try create(configuration: configuration)
         try destroy(sessionID: session.sessionID, retainDisplay: true)
         return session.displayID
+    }
+    /// Snapshot resources and their association under the same registry lock.
+    public func displayStates() -> [VirtualDisplayResourceState] {
+        lock.lock(); defer { lock.unlock() }
+        var result = sessionOrder.compactMap { sessions[$0] }.map { session in
+            VirtualDisplayResourceState(displayID: session.holder.displayID, helperPID: session.holder.process.processIdentifier,
+                configuration: session.configuration, frame: CGDisplayBounds(session.holder.displayID), sessionIDs: [session.id],
+                online: session.holder.process.isRunning && CGDisplayIsActive(session.holder.displayID) != 0)
+        }
+        result += idleDisplays.map { entry in
+            VirtualDisplayResourceState(displayID: entry.holder.displayID, helperPID: entry.holder.process.processIdentifier,
+                configuration: entry.configuration, frame: CGDisplayBounds(entry.holder.displayID), sessionIDs: [],
+                online: entry.holder.process.isRunning && CGDisplayIsActive(entry.holder.displayID) != 0)
+        }
+        return result.sorted { $0.displayID < $1.displayID }
+    }
+    /// Serialized cascade: safe session cleanup must succeed before retiring the display.
+    /// Quitting apps/restoring windows cannot be rolled back; failure preserves unfinished state.
+    public func destroyDisplay(displayID: UInt32) throws {
+        lock.lock(); defer { lock.unlock() }
+        guard !Thread.isMainThread else { throw ComputerUseError.message("Delete virtual displays on a worker thread") }
+        guard displayStates().contains(where: { $0.displayID == displayID }) else {
+            throw ComputerUseError.message("Unknown or foreign virtual display")
+        }
+        for session in states().filter({ $0.displayID == displayID }) {
+            try destroy(sessionID: session.sessionID, retainDisplay: true)
+        }
+        try releaseIdleDisplays(displayID: displayID)
     }
     public func idleDisplayStates() -> [[String: Any]] {
         lock.lock(); defer { lock.unlock() }

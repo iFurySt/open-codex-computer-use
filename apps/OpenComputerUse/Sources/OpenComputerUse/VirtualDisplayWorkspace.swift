@@ -37,11 +37,19 @@ final class WorkspaceNotebook: ObservableObject {
     init(sessionID: String) { kernel = .init(sessionID: sessionID) }
 }
 
+enum WorkspaceSidebarSelection: Hashable {
+    case session(String)
+    case display(UInt32)
+}
+
 @MainActor
 final class VirtualDisplayWorkspaceModel: ObservableObject {
     @Published var applications: [VirtualDisplayAppChoice] = []
     @Published var sessions: [VirtualDisplayState] = []
     @Published var selectedSession: String?
+    @Published var selectedDisplay: UInt32?
+    @Published var displays: [VirtualDisplayResourceState] = []
+    @Published var preferredDisplay: UInt32?
     @Published var names: [String: String] = [:]
     @Published var notebooks: [String: WorkspaceNotebook] = [:]
     @Published var selectedApp: String?
@@ -79,28 +87,35 @@ final class VirtualDisplayWorkspaceModel: ObservableObject {
         let values = await Task.detached { [registry] in
             let apps = VirtualDisplaySessionRegistry.availableApplications()
             let selected = apps.first { $0.id == selection }
-            return (apps, registry.states(), selected?.pid.map { registry.availableWindows(pid: $0) } ?? [], PermissionDiagnostics.current().allGranted)
+            return (apps, registry.states(), selected?.pid.map { registry.availableWindows(pid: $0) } ?? [], PermissionDiagnostics.current().allGranted, registry.displayStates())
         }.value
-        let previousDisplays = Set(sessions.map(\.displayID))
-        applications = values.0; sessions = values.1; permissionsGranted = values.3
+        let previousDisplays = Set(displays.map(\.displayID))
+        applications = values.0; sessions = values.1; permissionsGranted = values.3; displays = values.4
         if selection == selectedApp { windows = values.2 }
         let live = Set(sessions.map(\.sessionID))
         notebooks = notebooks.filter { live.contains($0.key) }
         names = names.filter { live.contains($0.key) }
         for state in sessions where notebooks[state.sessionID] == nil { notebooks[state.sessionID] = WorkspaceNotebook(sessionID: state.sessionID) }
-        if !live.contains(selectedSession ?? "") { selectedSession = sessions.first?.sessionID }
-        if previousDisplays != Set(sessions.map(\.displayID)) { displayDidChange?() }
+        if let id = selectedDisplay, let display = displays.first(where: { $0.displayID == id }) {
+            selectedSession = display.sessionIDs.first
+        } else {
+            selectedDisplay = nil
+            if !live.contains(selectedSession ?? "") { selectedSession = sessions.first?.sessionID }
+        }
+        if previousDisplays != Set(displays.map(\.displayID)) { displayDidChange?() }
         if selectedWindow == nil || !windows.contains(where: { $0.id == selectedWindow }) { selectedWindow = windows.first?.id }
     }
     func create() {
         guard !busy else { return }
         busy = true; message = nil
         let scale = scale; let title = sessionName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayID = preferredDisplay
+        let configuration = displays.first(where: { $0.displayID == displayID })?.configuration ?? .init(scale: scale)
         Task {
             do {
-                let created = try await Task.detached { [registry] in try registry.create(configuration: .init(scale: scale)) }.value
+                let created = try await Task.detached { [registry] in try registry.create(configuration: configuration, displayID: displayID) }.value
                 names[created.sessionID] = title.isEmpty ? "Session \(sessions.count + 1)" : title
-                selectedSession = created.sessionID; showingCreate = false
+                selectedDisplay = nil; selectedSession = created.sessionID; showingCreate = false
             } catch { message = error.localizedDescription }
             busy = false; await refresh()
         }
@@ -135,6 +150,24 @@ final class VirtualDisplayWorkspaceModel: ObservableObject {
     func end() {
         guard let state else { return }
         perform { [registry] in try registry.destroy(sessionID: state.sessionID) }
+    }
+    var sidebarSelection: WorkspaceSidebarSelection? {
+        get { selectedDisplay.map(WorkspaceSidebarSelection.display) ?? selectedSession.map(WorkspaceSidebarSelection.session) }
+        set {
+            switch newValue {
+            case .session(let id): selectedDisplay = nil; selectedSession = id
+            case .display(let id): selectedDisplay = id; selectedSession = displays.first { $0.displayID == id }?.sessionIDs.first
+            case nil: break // Collapsing a group must not clear the current desktop.
+            }
+        }
+    }
+    func deleteSession(_ id: String, deleteDisplay: Bool = false) {
+        notebooks[id]?.stopRequested = true
+        perform { [registry] in try registry.destroy(sessionID: id, retainDisplay: !deleteDisplay) }
+    }
+    func deleteDisplay(_ display: VirtualDisplayResourceState) {
+        for id in display.sessionIDs { notebooks[id]?.stopRequested = true }
+        perform { [registry] in try registry.destroyDisplay(displayID: display.displayID) }
     }
     func selectManagedWindow(_ id: UInt32) {
         guard let state else { return }
@@ -187,14 +220,37 @@ final class VirtualDisplayWorkspaceModel: ObservableObject {
 struct VirtualDisplayWorkspaceView: View {
     @ObservedObject var model: VirtualDisplayWorkspaceModel
     var requestPermissions: () -> Void
+    @State private var sessionsExpanded = true
+    @State private var displaysExpanded = true
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            List(model.sessions, id: \.sessionID, selection: $model.selectedSession) { state in
-                VStack(alignment: .leading, spacing: 4) {
-                    Label(model.name(state), systemImage: "display")
-                    Text("\(state.phase.capitalized) · \(state.applications.count) apps").font(.caption).foregroundStyle(.secondary)
-                }.padding(.vertical, 4).tag(state.sessionID)
+            List(selection: Binding(get: { model.sidebarSelection }, set: { model.sidebarSelection = $0 })) {
+                WorkspaceSidebarGroupHeader(title: "Sessions", expanded: $sessionsExpanded, busy: model.busy, create: showCreateSession)
+                    .selectionDisabled().listRowSeparator(.hidden).listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 4, trailing: 12))
+                if sessionsExpanded {
+                    ForEach(model.sessions, id: \.sessionID) { state in
+                        WorkspaceSidebarResourceRow(title: model.name(state), subtitle: "\(state.phase.capitalized) · \(state.applications.count) apps", icon: "rectangle.stack", busy: model.busy,
+                            delete: { model.deleteSession(state.sessionID) })
+                            .tag(WorkspaceSidebarSelection.session(state.sessionID))
+                            .contextMenu {
+                                Button("Delete Session", role: .destructive) { model.deleteSession(state.sessionID) }.disabled(model.busy)
+                                Button("Delete Session and Display", role: .destructive) { model.deleteSession(state.sessionID, deleteDisplay: true) }.disabled(model.busy)
+                            }
+                    }
+                }
+                WorkspaceSidebarGroupHeader(title: "Displays", expanded: $displaysExpanded, busy: model.busy, create: showCreateSession)
+                    .selectionDisabled().listRowSeparator(.hidden).listRowInsets(EdgeInsets(top: 16, leading: 12, bottom: 4, trailing: 12))
+                if displaysExpanded {
+                    ForEach(model.displays) { display in
+                        WorkspaceSidebarResourceRow(title: "Display \(display.displayID)", subtitle: displaySubtitle(display), icon: "display", busy: model.busy,
+                            delete: { model.deleteDisplay(display) })
+                            .tag(WorkspaceSidebarSelection.display(display.displayID))
+                            .contextMenu {
+                                Button("Delete Display and Sessions", role: .destructive) { model.deleteDisplay(display) }.disabled(model.busy)
+                            }
+                    }
+                }
             }
             .listStyle(.sidebar)
             .safeAreaInset(edge: .top, spacing: 0) {
@@ -245,6 +301,15 @@ struct VirtualDisplayWorkspaceView: View {
                                     .frame(minHeight: 180, idealHeight: 300)
                             }
                         }
+                    } else if let id = model.selectedDisplay, let display = model.displays.first(where: { $0.displayID == id }) {
+                        ContentUnavailableView {
+                            Label("Display \(display.displayID)", systemImage: "display")
+                        } description: {
+                            Text(displaySubtitle(display))
+                        } actions: {
+                            sessionCreationButton { showCreateSession(on: display) }
+                                .disabled(!display.online || !model.permissionsGranted)
+                        }
                     } else if !model.permissionsGranted {
                         ContentUnavailableView {
                             Label("Permissions needed", systemImage: "lock.shield")
@@ -261,7 +326,7 @@ struct VirtualDisplayWorkspaceView: View {
                     if let message = model.message ?? model.state?.reason {
                         Text(message).foregroundStyle(.secondary).padding(10).frame(maxWidth: .infinity, alignment: .leading).background(.bar)
                     }
-                }.navigationTitle(model.state.map(model.name) ?? "Virtual sessions")
+                }.navigationTitle(model.selectedDisplay.map { "Display \($0)" } ?? model.state.map(model.name) ?? "Virtual sessions")
                 .toolbar {
                     ToolbarItemGroup(placement: .primaryAction) {
                         Button { model.showingAddApp = true } label: { Label("Add application", systemImage: "plus.app") }
@@ -280,10 +345,21 @@ struct VirtualDisplayWorkspaceView: View {
     }
     private func showCreateSession() {
         model.sessionName = ""
+        model.preferredDisplay = nil
         model.showingCreate = true
     }
-    @ViewBuilder private var createSessionButton: some View {
-        let button = Button(action: showCreateSession) {
+    private func showCreateSession(on display: VirtualDisplayResourceState) {
+        showCreateSession()
+        model.preferredDisplay = display.displayID
+        model.scale = display.configuration.scale
+    }
+    private func displaySubtitle(_ display: VirtualDisplayResourceState) -> String {
+        let status = !display.online ? "Disconnected" : display.sessionIDs.isEmpty ? "Ready for reuse" : "In use"
+        return "\(display.configuration.width) × \(display.configuration.height) · \(display.configuration.scale)× · \(status)"
+    }
+    private var createSessionButton: some View { sessionCreationButton(action: showCreateSession) }
+    @ViewBuilder private func sessionCreationButton(action: @escaping () -> Void) -> some View {
+        let button = Button(action: action) {
             Label("Create Session", systemImage: "plus")
                 .font(.system(size: 14, weight: .semibold))
                 .padding(.horizontal, 12).padding(.vertical, 5)
@@ -301,10 +377,10 @@ struct VirtualDisplayWorkspaceView: View {
             HStack {
                 Text("Display scale")
                 Spacer()
-                DisplayScalePopUp(selection: $model.scale, enabled: !model.busy)
+                DisplayScalePopUp(selection: $model.scale, enabled: !model.busy && model.preferredDisplay == nil)
                     .frame(width: 230, height: 34)
             }
-            Text("Each session has its own virtual display. Applications can be added after creation.").foregroundStyle(.secondary)
+            Text(model.preferredDisplay.map { "Use Display \($0). Applications can be added after creation." } ?? "Reuse a matching display, or create one. Applications can be added after creation.").foregroundStyle(.secondary)
             if model.busy {
                 HStack(spacing: 10) {
                     ProgressView().controlSize(.small)
@@ -341,6 +417,53 @@ struct VirtualDisplayWorkspaceView: View {
             if let message = model.message { Text(message).foregroundStyle(.red) }
         }.padding(24).frame(width: 500)
         .onChange(of: model.selectedApp) { _, _ in model.selectedWindow = nil; Task { await model.refresh() } }
+    }
+}
+
+private struct WorkspaceSidebarGroupHeader: View {
+    let title: String
+    @Binding var expanded: Bool
+    let busy: Bool
+    let create: () -> Void
+    @State private var hovering = false
+    var body: some View {
+        HStack(spacing: 6) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.16)) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Text(title).font(.system(size: 13, weight: .medium))
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .semibold)).opacity(hovering ? 1 : 0)
+                    Spacer(minLength: 0)
+                }.contentShape(Rectangle())
+            }.buttonStyle(.plain).accessibilityLabel("\(expanded ? "Collapse" : "Expand") \(title)")
+            Button(action: create) { Image(systemName: "plus").frame(width: 22, height: 22) }
+                .buttonStyle(.plain).opacity(hovering ? 1 : 0).disabled(busy)
+                .help("New Session").accessibilityLabel("New Session in \(title)")
+        }.foregroundStyle(.secondary).onHover { hovering = $0 }
+    }
+}
+
+private struct WorkspaceSidebarResourceRow: View {
+    let title: String
+    let subtitle: String
+    let icon: String
+    let busy: Bool
+    let delete: () -> Void
+    @State private var hovering = false
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon).frame(width: 20)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).lineLimit(1)
+                Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            Button(action: delete) { Image(systemName: "trash").frame(width: 22, height: 24) }
+                .buttonStyle(.borderless).opacity(hovering ? 1 : 0).disabled(busy)
+                .help("Delete \(title)").accessibilityLabel("Delete \(title)")
+        }.padding(.vertical, 4).contentShape(Rectangle()).onHover { hovering = $0 }
     }
 }
 

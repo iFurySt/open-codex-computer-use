@@ -49,16 +49,17 @@ TextEdit 通过 `attach_app_to_virtual_display` 的可选 `new_document: true` �
 
 Swift：`VirtualDisplaySessionRegistry.shared` 提供 `create`、`states` / `currentState` / `state`、`attach`、`availableApplications` / `availableWindows`、`selectWindow`、`pause` / `resume` / `destroy` / `destroyAll`。阻塞生命周期 API 在 worker 调用。`capture(sessionID:).subscribeFrames` / `unsubscribeFrames` 在捕获队列提供原始帧；消费者必须及时返回，最多保留最新一帧。
 
-macOS 增加八个 MCP tools：
+macOS 增加九个 MCP tools：
 
 | 工具 | 关键参数 |
 | --- | --- |
-| `create_virtual_display` | 可选 `width`, `height`, `scale`, `reuse_display=true` |
+| `create_virtual_display` | 可选 `width`, `height`, `scale`, `reuse_display=true`, 可选精确 `display_id` |
 | `attach_app_to_virtual_display` | `session_id`, `app`, `mode=adopt/launch`；adopt 必须提供 `pid`, `window_id` |
-| `get_virtual_display_state` | 可选 `session_id`；省略时返回所有 sessions 和 idle_displays |
+| `get_virtual_display_state` | 可选 `session_id`；省略时返回所有 sessions、idle_displays 和 displays |
 | `pause_virtual_display` / `resume_virtual_display` | `session_id` |
 | `destroy_virtual_display` | `session_id`, `retain_display=true`；false 真正移除 |
 | `prewarm_virtual_display` | 可选 `width`, `height`, `scale`；相同空闲配置幂等 |
+| `delete_virtual_display` | `display_id`；安全结束关联会话后移除屏 |
 | `release_virtual_displays` | 可选 `display_id`；省略释放本 runtime 的全部空屏 |
 
 原有 app tools 增加可选 `session_id`；`get_app_state` 可用 `window_id` 选择受管理窗口。必须匹配会话中受管理应用；多个同 bundle 的实例用 window_id 消除歧义；未指定 session 的旧行为不变。Windows/Linux 仍只暴露原有 9 tools；JS 在绑定 session 前检查 native 工具能力，避免旧 runtime 静默忽略 session 参数。
@@ -198,3 +199,11 @@ await cua.releaseVirtualDisplays({displayId: idle[0].display_id});
 复用是减少热插拔的缓解方案；首次接入、配置不匹配/强制新建、最终释放及 Quit 仍可能刷新桌面或使 Dock 移动。没有用系统光标、Dock 重启/偏好或物理显示器重排恢复 Dock。[DockKeeper 实测](https://github.com/blamechris/DockKeeper/blob/main/docs/spikes/separate-spaces-pinning.md) 未提供符合当前边界的可靠底部 Dock host setter；[Apple 回调文档](https://developer.apple.com/documentation/coregraphics/cgdisplayreconfigurationcallback) 是通知接口；[VirtualDisplay 技术记录](https://github.com/PrimeLab-Foundation/VirtualDisplay/blob/main/docs/platform/macos-virtual-display-apis.md) 的持有/复用建议作为参考，私有 API 行为仍按实际系统版本验证。
 
 真实回归：`node scripts/run-virtual-display-reuse-smoke.mjs 'PATH/TO/Open Computer Use.app' --cycles=20 --scale=1`（或 2）。独立 namespace、生产工具/registry 和 ScreenCaptureKit，不调用 FixtureBridge；测试每次新 session 身份、同 display/helper、收到帧、主屏/物理布局/Dock 归属、旧 ID 失效、活动屏释放拒绝、配置隔离、强制新建、helper 异常退出以及显式释放/Quit。基线在预热之后，不代替首次接入上屏 Dock 保持或可辨识图案/真实并行输入验收。
+
+## Sessions / Displays 资源管理
+
+侧栏展示两组，可独立折叠；hover 才显示 chevron/+，+ 新建会话；行 hover 显示 Delete。折叠不会清除当前桌面选择。Session 行删除默认保留显示器，右键菜单可选同时删除显示器；Display 行删除先安全结束其会话再释放屏，未保存内容/恢复失败保留未完成资源。当前一块屏同时只能租给一个会话（该会话可含多个 app），所以显示器关联 session_ids 当前为空或一个元素。
+
+选中活动 Display 查看关联会话，空闲 Display 展示实际配置与 Create Session；该入口显式租用所选 ID，不能占用活动屏或静默替换失效屏。`create_virtual_display.display_id` 必须指向匹配 width/height/scale 的自有空闲资源；Swift 为 `create(configuration:reuseDisplay:displayID:)`。typed `displayStates()` 提供 displayID/helperPID/configuration/frame/sessionIDs/online。
+
+`delete_virtual_display({display_id})` / Swift `destroyDisplay(displayID:)` / JS `cua.deleteVirtualDisplay(displayId)` 在 registry 串行锁下完成安全级联，拒绝未知或其他 runtime 的屏。它与只允许空屏的 release_virtual_displays 区分。已成功退出的应用/已恢复的窗口不能回滚，因此失败保留剩余状态，不承诺事务 all-or-nothing。`get_virtual_display_state` 未指定 session 时新增 displays；JS `cua.listDisplayResources()` 查询资源，create 的 displayId 可精确选择。所有实际移除依然可能重置 Dock。
