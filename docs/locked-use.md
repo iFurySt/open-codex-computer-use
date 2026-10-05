@@ -232,6 +232,15 @@ xcrun swiftc -framework Security -framework CoreGraphics experiments/LockedUse/S
 
 它仅评估本项目独立 remote right，不创建租约、不请求 screensaver right、不提交密码；无租约时预期 denied。通过仍须核对实际机制日志、Broker 签名返回码和无许可 claim 被拒绝，不能仅凭 denied 判定成功。快速测试失败后，控制器先检查双保护已释放；指定自动观测手动解锁时，随后等待正常登录并重试隔离测试项清理，再保存报告，以纳入手动认证阶段的诊断。
 
-授权插件在 macOS 14.4+ 使用 `SecTaskValidateForRequirement` 的内核进程检查，要求正确 signing ID / Team、Developer ID 验证类别、动态有效签名、hardened runtime 与 Library Validation，拒绝危险 entitlement。旧系统保留 SecCode；现代检查失败不回退。构建流程含独立签名的正确 / 错误 ID / ad hoc / get-task-allow 反例，不安装这些测试 executable。单轮日志分别记录连接、task verification、claim、consume、SetResult、阶段和停止原因；authd 原始账号 / caller 字段仅归一化为系统 right 成败布尔事件。
+授权插件在 macOS 14.4+ 使用 `SecTaskValidateForRequirement` 的内核进程检查，要求正确 signing ID / Team、Developer ID 验证类别、动态有效签名、hardened runtime 与 Library Validation，拒绝危险 entitlement。旧系统保留 SecCode；现代检查失败不回退。构建流程含独立签名的正确 / 错误 ID / ad hoc / get-task-allow 反例，不安装这些测试 executable。单轮日志分别记录连接、task verification、claim、consume、SetResult、阶段和停止原因；authd / loginwindow / 认证宿主原始字段仅在内存中归一化为固定诊断枚举，不保存账户或 caller。
 
-共享遮罩采用不激活的 NSPanel（borderless + nonactivatingPanel、关闭 hidesOnDeactivate；主遮罩位于 CGShieldingWindowLevel + 1，备用低一层），避免普通窗口参与登录切换的缩放；实际 WindowServer 全屏 bounds / layer / owner / alpha 检查仍严格保留，动画时覆盖不合格也必须重锁。
+共享遮罩采用不激活的 NSPanel（borderless + nonactivatingPanel、关闭 hidesOnDeactivate；主遮罩位于 CGShieldingWindowLevel + 1，备用低一层），避免普通窗口参与登录切换的缩放；实际 WindowServer bounds 与 CGDisplayBounds 均按 Quartz 全局坐标检查完整包含，允许大于屏幕的遮罩；任何未覆盖边缘或无效矩形仍拒绝，layer / owner / alpha / 可见性 / 拓扑检查继续保留，动画时覆盖不合格也必须重锁。
+
+
+锁屏前实时采集认证诊断，私有报告 schema 2 区分 authorizing 许可窗口与之后的手动恢复。日志活动、机制 Allow 和实际自动解锁是不同证据；缺失日志不证明事务或 helper 不存在。采集器最长 150 秒、最多 2000 条固定诊断、单条原始记录最多 64 KiB，不保存原始字段；不可用时不改变保护或授权。仅需正常桌面观察时可执行：
+
+```sh
+python3 scripts/run-locked-use-native-validation.py --observe-auth-only --observe-seconds 5
+```
+
+该入口不需要安装验证 profile，不锁屏、不请求认证、不创建租约。空输入 / 合成点击候选尚未实现认证提交，须先在隔离环境检验 Keychain 影响，详见 [认证时序复核](references/macos-locked-use-auth-transaction-timing-review.md)。

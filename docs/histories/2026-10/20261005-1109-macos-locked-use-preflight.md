@@ -136,3 +136,5 @@ root Broker 增加 boot-bound crash journal，回复授权前 fsync，不保存 
 - 正常手动登录才调用插件，现代 Broker 签名校验通过，已失效许可被拒绝，系统原 fallback 完成登录；自有 legacy Keychain 测试项验证与清理通过。
 - 未到达 active / 原生 AX-SCK 操作阶段，不能将本轮记为完整闭环或自动解锁时遮罩覆盖验证。仍需定位认证事务启动时机差异；生产保持关闭，未合并。
 - 测试后验证配置卸载成功，原认证策略恢复；主保护、watchdog 和 Broker 已退出。
+
+- 2026-10-05：复核新认证时序资料与本机 Guardian build 1001365，发现参考路径实际写空字符串、AXValue 是属性名，并调用 SynthesizedEvent.click / send；未确认 Return 或真实认证效果，未照搬到日常账户。历史 SetResult(Allow) 不排除人工认证重叠，不能算自动唤醒成功。新增锁屏前只读实时白名单采集、schema 2 许可 / 手动恢复分窗和不锁屏被动入口，缺失日志不证明缺失事务。遮罩使用 Quartz 全局坐标完整包含，仍拒绝任何未覆盖边缘和 90% 缩小。Swift 251 项（1 跳过、0 失败）、Python 报告 10 项 / rehearsal 5 项、签名组件 / ABI / 内核签名正反例、不锁屏 surface 自检通过；被动采集完成。本轮没有安装 / 真实解锁；空输入新认证路径因已有 Keychain 故障报告等待隔离环境。生产关闭，未合并。

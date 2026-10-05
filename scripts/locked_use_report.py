@@ -6,6 +6,7 @@ import os
 import pathlib
 import re
 import subprocess
+import threading
 import time
 import uuid
 
@@ -31,6 +32,25 @@ PATTERNS = {
     "WatchdogBroker": ["registered"],
     "Watchdog": [r"stopping reason=shieldBoundsMismatch expected=[0-9.,{} -]+ actual=[0-9.,{} -]+", r"stopping reason=(?:topologyChanged|shieldNotVisible|shieldNotInWindowServer|shieldLayerMismatch|hardwareMonitorUnhealthy|inputTapDisabled|parentDisconnected)"],
 }
+PATTERNS["UnlockTrigger"].append(r"lockUIState=(?:candidateFound|candidateUnavailable|unknown) authenticationEvidence=false")
+
+# Normalize markers into enums; never retain the surrounding user/context text.
+SYSTEM_MARKERS = {
+    "loginwindow": [
+        ("loginPressed", "localSubmitObserved"),
+        ("APEventTouchIDMatch", "touchIDMatchObserved"),
+        ("evaluatePolicy", "localAuthenticationEvaluationObserved"),
+        ("askForPasswordSecAgent", "securityAgentUIRequested"),
+        ("Screensaver authorization succeeded", "screensaverAuthorizationSucceeded"),
+        ("Unlock succeeded", "sessionUnlockReported"),
+        ("did NOT unlock the user's keychain", "keychainUnlockSkipped"),
+        ("SecKeychainLogin failed", "keychainLoginFailed"),
+        ("attempting to unlock with empty might rekey", "emptyInputKeychainPathObserved"),
+    ],
+}
+LOG_PREDICATE = ('subsystem == "dev.opencomputeruse.locked-use" OR process == "loginwindow" '
+                 'OR process == "authd" OR process == "SecurityAgentHelper-arm64" '
+                 'OR process == "SecurityAgentHelper-x86_64"')
 
 
 def curate(records, started):
@@ -40,39 +60,149 @@ def curate(records, started):
         if not isinstance(entry, dict): continue
         if not all(isinstance(entry.get(key, ""), str) for key in ["processImagePath", "category", "eventMessage", "timestamp"]): continue
         process = pathlib.Path(entry.get("processImagePath", "")).name
-        if process == "authd" and "system.login.screensaver" in entry.get("eventMessage", ""):
-            message = entry["eventMessage"]
-            action = "systemRightSucceeded" if "Succeeded authorizing right" in message else "systemRightFailed" if "Failed authorizing right" in message else None
-            if action:
-                try: timestamp = datetime.datetime.fromisoformat(entry["timestamp"]).timestamp()
-                except (KeyError, ValueError): continue
-                if timestamp >= started:
-                    events.append({"elapsedSeconds": round(timestamp-started, 3), "category": "SystemAuthorization", "message": action})
+        try: timestamp = datetime.datetime.fromisoformat(entry["timestamp"]).timestamp()
+        except (KeyError, ValueError, OverflowError): continue
+        if not math.isfinite(timestamp) or timestamp < started: continue
+        def emit(category, message):
+            events.append({"elapsedSeconds": round(timestamp-started, 3), "category": category, "message": message})
+        message = entry["eventMessage"]
+        if process == "authd":
+            if "system.login.screensaver" in message:
+                action = "systemRightSucceeded" if "Succeeded authorizing right" in message else "systemRightFailed" if "Failed authorizing right" in message else "systemRightEvaluationObserved" if "evaluates" in message and "rights" in message else None
+                if action: emit("SystemAuthorization", action)
+            if "running mechanism OpenComputerUseLockedUseAuthorizationPlugin:remote" in message:
+                emit("SystemAuthorization", "remoteMechanismRunning")
             continue
+        if process in SYSTEM_MARKERS:
+            for marker, action in SYSTEM_MARKERS[process]:
+                if marker in message: emit("LoginWindow", action)
+            continue
+        if process in {"SecurityAgentHelper-arm64", "SecurityAgentHelper-x86_64"}:
+            emit("SecurityAgentHost", "helperActivityObserved")
         if process not in {"OpenComputerUse", "OpenComputerUseGuardian", "OpenComputerUseLockedUseBroker",
                            "SecurityAgentHelper-arm64", "SecurityAgentHelper-x86_64"}: continue
         category = entry.get("category", "")
         message = entry.get("eventMessage", "")
         if not any(re.fullmatch(pattern, message) for pattern in PATTERNS.get(category, [])): continue
-        try: timestamp = datetime.datetime.fromisoformat(entry["timestamp"]).timestamp()
-        except (KeyError, ValueError): continue
-        if timestamp < started: continue
-        events.append({"elapsedSeconds": round(timestamp-started, 3), "category": category, "message": message})
+        emit(category, message)
     return events
 
 
-def write_report(root, started, events, error=None):
+def authentication_windows(events):
+    """Keep manual recovery outside the permit window. Silence is not absence."""
+    windows = []
+    current = None
+    for event in sorted(events, key=lambda item: item["elapsedSeconds"]):
+        message = event["message"]
+        if event["category"] == "Broker" and message == "phase=authorizing stopReason=none":
+            current = {"startedAt": event["elapsedSeconds"], "endedAt": None,
+                       "rightEvaluationObserved": False, "mechanismObserved": False,
+                       "allowObserved": False, "localAuthenticationObserved": False}
+            windows.append(current)
+        elif event["category"] == "Broker" and message.split(" ")[0] in {
+            "phase=relocking", "phase=awaitingManualUnlock", "phase=idle"} and current:
+            current["endedAt"] = event["elapsedSeconds"]
+            current = None
+        if current:
+            if event["category"] == "SystemAuthorization" and message in {
+                "systemRightEvaluationObserved", "systemRightSucceeded", "systemRightFailed"}:
+                current["rightEvaluationObserved"] = True
+            if message in {"mechanismInvoked", "remoteMechanismRunning"}:
+                current["mechanismObserved"] = True
+            if message == "resultDelivered allowed=1 status=0": current["allowObserved"] = True
+            if event["category"] == "LoginWindow" and message in {
+                "localSubmitObserved", "touchIDMatchObserved", "localAuthenticationEvaluationObserved"}:
+                current["localAuthenticationObserved"] = True
+    return windows
+
+
+class LiveAuthenticationTrace:
+    """Read debug logs before a lock; retain bounded enums in memory only.
+
+    This collector never invokes authentication or holds protection. A broken
+    stream is diagnostic only, never permission to unlock or remove a shield.
+    """
+    def __init__(self, started, max_seconds=150):
+        self.started = started
+        self.max_seconds = max_seconds
+        self.events = []
+        self.process = None
+        self.thread = None
+        self.stop = threading.Event()
+        self.status = "unavailable"
+
+    def start(self):
+        try:
+            self.process = subprocess.Popen(["/usr/bin/log", "stream", "--level", "debug",
+                                            "--style", "ndjson", "--predicate", LOG_PREDICATE],
+                                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        except OSError: return
+        self.status = "started"
+        self.thread = threading.Thread(target=self._read, daemon=True)
+        self.thread.start()
+
+    def _read(self):
+        import select
+        deadline = time.monotonic() + self.max_seconds
+        buffer = b""
+        discarding = False
+        try:
+            while not self.stop.is_set() and time.monotonic() < deadline:
+                ready, _, _ = select.select([self.process.stdout], [], [], 0.2)
+                if not ready: continue
+                chunk = os.read(self.process.stdout.fileno(), 16384)
+                if not chunk:
+                    self.status = "stopped" if self.stop.is_set() else "ended"
+                    return
+                self.status = "receiving"
+                for part in chunk.splitlines(keepends=True):
+                    ended = part.endswith(b"\n")
+                    if not discarding: buffer += part
+                    if len(buffer) > 65536:
+                        buffer = b""
+                        discarding = True
+                    if ended:
+                        if not discarding:
+                            try: record = json.loads(buffer)
+                            except (ValueError, UnicodeError): record = None
+                            if len(self.events) < 2000:
+                                self.events.extend(curate([record], self.started)[:2000-len(self.events)])
+                        buffer = b""
+                        discarding = False
+            if not self.stop.is_set(): self.status = "deadlineReached"
+        except (OSError, ValueError): self.status = "readFailed"
+        finally:
+            if self.process.poll() is None: self.process.terminate()
+
+    def finish(self):
+        self.stop.set()
+        if self.process and self.process.poll() is None: self.process.terminate()
+        if self.thread: self.thread.join(timeout=1)
+        if self.process:
+            try: self.process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                self.process.kill()  # Only this read-only collector.
+                self.process.wait(timeout=1)
+            if self.process.stdout: self.process.stdout.close()
+        return list(self.events), self.status
+
+
+def write_report(root, started, events, error=None, live_events=None, trace_status="notStarted"):
     records = []
     try:
         result = subprocess.run(["/usr/bin/log", "show", "--last", f"{math.ceil(time.time()-started)+2}s",
-                                 "--style", "json", "--predicate", 'subsystem == "dev.opencomputeruse.locked-use" OR (process == "authd" AND eventMessage CONTAINS "system.login.screensaver")'],
+                                 "--style", "json", "--predicate", LOG_PREDICATE],
                                 capture_output=True, timeout=5, check=True)
         if len(result.stdout) <= 4*1024*1024: records = json.loads(result.stdout)
-    except (subprocess.SubprocessError, ValueError): pass
-    timeline = curate(records, started)
-    payload = {"schemaVersion": 1, "diagnosticOnly": True, "productionEvidenceEligible": False,
+    except (OSError, subprocess.SubprocessError, ValueError): pass
+    timeline = curate(records, started) + (live_events or [])
+    timeline = sorted({(event["elapsedSeconds"], event["category"], event["message"]): event
+                       for event in timeline}.values(), key=lambda item: item["elapsedSeconds"])
+    payload = {"schemaVersion": 2, "diagnosticOnly": True, "productionEvidenceEligible": False,
                "elapsedSeconds": round(time.time()-started, 3), "controllerEvents": events,
-               "systemEvents": timeline, "failureType": error}
+               "systemEvents": timeline, "failureType": error,
+               "liveTraceStatus": trace_status, "missingEventsProveAbsence": False,
+               "authorizationWindows": authentication_windows(timeline)}
     directory = pathlib.Path(root)/".build/locked-use/reports"
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     path = directory/(uuid.uuid4().hex+".json")

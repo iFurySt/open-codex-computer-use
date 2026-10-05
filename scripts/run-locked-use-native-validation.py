@@ -13,7 +13,7 @@ import select
 import subprocess
 import sys
 import time
-from locked_use_report import write_report
+from locked_use_report import LiveAuthenticationTrace, write_report
 
 
 class RPC:
@@ -93,12 +93,14 @@ def main():
     mode.add_argument("--prepare-only", action="store_true")
     mode.add_argument("--confirm-lock-test", action="store_true")
     mode.add_argument("--unlocked-fixture-test", action="store_true")
+    mode.add_argument("--observe-auth-only", action="store_true", help="Read normalized authentication logs only; never lock, submit credentials or acquire a permit")
     mode.add_argument("--confirm-recovery-test", action="store_true", help="Lock once and verify both guards drain, without issuing an unlock permit")
     mode.add_argument("--confirm-wake-test", action="store_true", help="Validate protected unlock then immediately relock; no GUI/Keychain operations")
     parser.add_argument("--wait-for-manual-unlock", action="store_true", help="Observe normal user unlock without an interactive continue prompt")
     parser.add_argument("--legacy-only", action="store_true", help="Does not produce production validation evidence")
     parser.add_argument("--hold-seconds", type=int, default=15, choices=range(0, 21))
     parser.add_argument("--fast", action="store_true", help="Relock immediately after the fixed AX/SCK validation")
+    parser.add_argument("--observe-seconds", type=int, default=30, choices=range(5, 61))
     args = parser.parse_args()
     if args.fast: args.hold_seconds = 0
     run_started = time.time()
@@ -109,6 +111,17 @@ def main():
         events.append(value)
         print(json.dumps(value), flush=True)
     root = pathlib.Path(__file__).resolve().parent.parent
+    if args.observe_auth_only:
+        trace = LiveAuthenticationTrace(run_started, max_seconds=args.observe_seconds)
+        trace.start()
+        record("authenticationObserverStarted", authenticationRequested=False, lockRequested=False)
+        try:
+            time.sleep(args.observe_seconds)
+        finally:
+            live_events, trace_status = trace.finish()
+            report = write_report(root, run_started, events, live_events=live_events, trace_status=trace_status)
+            record("diagnosticReportSaved", path=str(report), traceStatus=trace_status)
+        return
     binary = root / "dist/Open Computer Use (Dev).app/Contents/MacOS/OpenComputerUse"
     components = root / ".build/locked-use/components"
     guardian = components / "Open Computer Use Guardian (Dev).app/Contents/MacOS/OpenComputerUseGuardian"
@@ -118,6 +131,8 @@ def main():
     fixture = None
     locked = False
     completed = False
+    trace = LiveAuthenticationTrace(run_started)
+    trace.start()
     try:
         if args.confirm_lock_test or args.confirm_recovery_test or args.confirm_wake_test:
             if not rpc.call("ocu/locked-use/ready", timeout=5)["passed"]:
@@ -218,7 +233,8 @@ def main():
             except Exception: pass
         rpc.close()
         if fixture is not None: fixture.terminate()
-        report = write_report(root, run_started, events, failure)
+        live_events, trace_status = trace.finish()
+        report = write_report(root, run_started, events, failure, live_events, trace_status)
         print(json.dumps({"event": "diagnosticReportSaved", "path": str(report)}), flush=True)
 
 

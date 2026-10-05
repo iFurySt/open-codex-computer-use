@@ -83,6 +83,8 @@ enum LockScreenInteractor {
         visit(root, depth: 0)
         logger.notice("AXProbe nodes=\(visited.count, privacy: .public) primaryMatches=\(primary.count, privacy: .public) fallbackMatches=\(fallback.count, privacy: .public) complete=\(complete, privacy: .public)")
         let candidates = primary.isEmpty ? fallback : primary
+        let uiState = complete && candidates.count == 1 ? "candidateFound" : complete ? "candidateUnavailable" : "unknown"
+        logger.notice("lockUIState=\(uiState, privacy: .public) authenticationEvidence=false")
         guard complete, candidates.count == 1, cancellation.allowsRequest(),
               LockedUseSession.current() == session, trusted() else { return }
         var settable: DarwinBoolean = false

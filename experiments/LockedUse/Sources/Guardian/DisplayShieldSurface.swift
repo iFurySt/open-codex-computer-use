@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import OpenComputerUseKit
 
 private final class ShieldWindow: NSPanel {
     override var canBecomeKey: Bool { false }
@@ -108,7 +109,7 @@ final class DisplayShieldSurface {
             guard (info[kCGWindowLayer as String] as? NSNumber)?.intValue == window.level.rawValue else { return "shieldLayerMismatch" }
             guard let bounds = info[kCGWindowBounds as String] as? [String: Any],
                   let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary) else { return "shieldBoundsUnavailable" }
-            guard rect == CGDisplayBounds(id) else { return "shieldBoundsMismatch expected=\(NSStringFromRect(CGDisplayBounds(id))) actual=\(NSStringFromRect(rect))" }
+            guard LockedUseShieldCoverage.covers(rect, display: CGDisplayBounds(id)) else { return "shieldBoundsMismatch expected=\(NSStringFromRect(CGDisplayBounds(id))) actual=\(NSStringFromRect(rect))" }
         }
         return nil
     }

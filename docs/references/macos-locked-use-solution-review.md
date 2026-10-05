@@ -32,7 +32,7 @@
 
 系统行为随 macOS 版本变化。以上 API 文档不能替代本机真实锁屏和正常密码 / Touch ID 恢复验证。
 
-用户补充的二进制分析只观察到固定 AXValue 写入，没有密码输入、Keychain 或输入事件合成调用；这是参考样本的结论，不是本项目自动解锁已通过的证据。本项目将其实现为取消可阻断的有界探测，并增加单轮完整短流程与私有白名单诊断时间线。Keychain API 仅存在于隔离验证测试项路径，不参与解锁。
+此前用户补充的分析认为参考样本只写固定 AXValue、没有事件合成；本机 build 1001365 的后续调用链核对发现实际写入空字符串、AXValue 是属性名，并有可达的 SynthesizedEvent.click / send。该差异不能推广到所有版本，详见 [认证时序复核](macos-locked-use-auth-transaction-timing-review.md)。本项目仍保留取消可阻断的固定 AXValue 观察性探测，没有据此加入空输入认证。Keychain API 仅存在于隔离验证测试项路径，不参与解锁；系统认证自身的 Keychain 影响仍需验证。
 
 ## 探针与裁决链的证据区分
 

@@ -134,3 +134,5 @@ Apple DTS 确认过 screensaver authorization plugin 的 Data Protection Keychai
 - 待查：独立诊断中的合成 PID-version 实验发生进程退出未完成，已撤销该注入用例；生产前仍必须覆盖真实 Broker 死亡 / socket token 过期时 verifier 和认证宿主的有界恢复。合法 / 错误身份 / ad hoc / debug 的实际签名测试通过。
 
 - 2026-10-05：新版 NSPanel 的真实快速闭环复测未自动解锁。双保护准备成功；单次显示器唤醒与固定 AXValue 写入成功，但整个 5 秒 authorizing 窗口没有机制调用，随后 unlockTimeout。锁定观测后约 7.1 秒确认双方释放。正常手动登录时机制调用、现代签名验证成功，过期 claim 被拒绝，原系统 fallback 成功；自有 legacy 测试项验证与清理通过。这轮没有进入 active / native AX-SCK，不能证明 NSPanel 在自动解锁切换时的覆盖修复。下一步定位系统认证事务启动时机差异，不能靠延长许可或重复锁屏宣称修复；生产仍关闭，尚未合并。
+
+- 2026-10-05：复核新认证时序资料与本机 Guardian build 1001365，发现参考路径实际写空字符串、AXValue 是属性名，并调用 SynthesizedEvent.click / send；未确认 Return 或真实认证效果，未照搬到日常账户。历史 SetResult(Allow) 不排除人工认证重叠，不能算自动唤醒成功。新增锁屏前只读实时白名单采集、schema 2 许可 / 手动恢复分窗和不锁屏被动入口，缺失日志不证明缺失事务。遮罩使用 Quartz 全局坐标完整包含，仍拒绝任何未覆盖边缘和 90% 缩小。Swift 251 项（1 跳过、0 失败）、Python 报告 10 项 / rehearsal 5 项、签名组件 / ABI / 内核签名正反例、不锁屏 surface 自检通过；被动采集完成。本轮没有安装 / 真实解锁；空输入新认证路径因已有 Keychain 故障报告等待隔离环境。生产关闭，未合并。

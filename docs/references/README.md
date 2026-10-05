@@ -13,6 +13,9 @@
 
 ## 当前目录
 
+- `macos-locked-use-auth-transaction-timing-review.md`
+  - 认证时序、build 1001365 空字符串 / 合成点击证据、诊断采集边界和隔离测试要求。
+
 - `macos-locked-use-solution-review.md`
   - 用户提供锁屏自动化参考的逐项核对、固定 AXValue 探测边界和真实验证顺序。
 

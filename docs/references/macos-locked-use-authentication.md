@@ -14,4 +14,4 @@
 
 `LockedUseAuthorizationRules` 仅生成离线变更计划。忽略 authorizationdb 管理的 created / modified 时间戳，其他字段变化都会拒绝使用旧计划恢复。持久计划需存于 root 所有的安全目录；真正 installer 要在写入前后重新读取验证、互斥自身操作，不能声称 authorizationdb 提供原子 compare-and-swap，也不能在第三方配置变化后盲目覆盖。
 
-当前机器只读规则仍是 `use-login-window-ui`，没有执行 screensaver rule 写入。
+后续已通过管理员验证 profile 实际安装 / 卸载该分支；最新一次快速测试结束后已成功卸载并恢复原认证策略。分支在正常手动登录和独立探测中可达，但真实自动解锁仍未证明。
