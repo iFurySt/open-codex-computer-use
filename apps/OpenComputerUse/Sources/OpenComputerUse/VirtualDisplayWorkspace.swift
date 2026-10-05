@@ -198,18 +198,21 @@ struct VirtualDisplayWorkspaceView: View {
             }
             .listStyle(.sidebar)
             .safeAreaInset(edge: .top, spacing: 0) {
-                HStack(spacing: 12) {
+                HStack(spacing: 9) {
                     Image(nsImage: NSImage(named: NSImage.applicationIconName) ?? NSImage())
-                        .resizable().frame(width: 40, height: 40)
-                    Text("Open\nComputer Use").font(.system(size: 20, weight: .semibold))
+                        .resizable().frame(width: 30, height: 30)
+                    Text("OpenComputerUse").font(.system(size: 16, weight: .semibold))
+                        .lineLimit(1).minimumScaleFactor(0.9)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 24)
+                .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 20)
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                Button { model.sessionName = ""; model.showingCreate = true } label: {
-                    Label("New session", systemImage: "plus").frame(maxWidth: .infinity)
-                }.buttonStyle(.borderless).padding(18).disabled(model.busy)
+            .toolbar {
+                ToolbarItem(placement: .automatic) {
+                    Button(action: showCreateSession) { Image(systemName: "square.and.pencil") }
+                        .help("New Session").accessibilityLabel("New Session")
+                        .keyboardShortcut("n", modifiers: .command).disabled(model.busy)
+                }
             }
             .navigationSplitViewColumnWidth(min: 240, ideal: 260, max: 320)
         } detail: {
@@ -251,8 +254,14 @@ struct VirtualDisplayWorkspaceView: View {
                     } else {
                         ContentUnavailableView {
                             Label("Virtual sessions", systemImage: "display.2")
-                        } description: { Text("Create a virtual desktop, add applications, then run editable action cells.") }
-                        actions: { Button("Create session") { model.showingCreate = true } }
+                        } actions: {
+                            Button(action: showCreateSession) {
+                                Label("Create Session", systemImage: "plus")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .padding(.horizontal, 12).padding(.vertical, 5)
+                            }.buttonStyle(.borderedProminent).controlSize(.large)
+                                .buttonBorderShape(.capsule).disabled(model.busy)
+                        }
                     }
                     if let message = model.message ?? model.state?.reason {
                         Text(message).foregroundStyle(.secondary).padding(10).frame(maxWidth: .infinity, alignment: .leading).background(.bar)
@@ -273,6 +282,10 @@ struct VirtualDisplayWorkspaceView: View {
         .sheet(isPresented: $model.showingCreate) { createSheet }
         .sheet(isPresented: $model.showingAddApp) { addAppSheet }
         .frame(minWidth: 900, minHeight: 660)
+    }
+    private func showCreateSession() {
+        model.sessionName = ""
+        model.showingCreate = true
     }
     private var createSheet: some View {
         VStack(alignment: .leading, spacing: 18) {

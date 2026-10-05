@@ -11,7 +11,7 @@ open "dist/Open Computer Use (Dev).app"
 
 Release 使用原有 `Open Computer Use.app`、bundle ID、`OPEN_COMPUTER_USE_CODESIGN_*` 和公证入口。Debug 使用原有 `.dev` 身份，需要单独授权 Accessibility 和 Screen Recording；终端的授权不能代替签名 App 的授权。helper 先签名，外层 bundle 后签名。
 
-左侧展示会话。点击 New session，填写名称和显示倍率，再 Create 创建空虚拟桌面；选中会话后用 Add application 搜索应用，选择专用启动或接管已有 PID/window。同一显示器可重复加入多个应用，窗口采用错位布局。新建/移除显示器可能触发系统桌面或 Space 通知，其他会话会按安全策略暂停，需要显式 Resume。接管前将目标应用留在后台。专用实例模式请求后台启动，Chrome 使用临时独立 profile；若 LaunchServices 返回已有 PID，拒绝隐式接管。主区域观看选中会话的整个虚拟屏幕，支持适应窗口和原始像素尺寸；Target 选择具体应用窗口。Toolbar 提供添加应用、暂停/继续和结束选中会话，Quit 清理所有会话。预览不接收人工键鼠输入。
+左侧展示会话。点击顶部 New Session 图标（或 Command-N），填写名称和显示倍率，再 Create 创建空虚拟桌面；选中会话后用 Add application 搜索应用，选择专用启动或接管已有 PID/window。同一显示器可重复加入多个应用，窗口采用错位布局。新建/移除显示器可能触发系统桌面或 Space 通知，其他会话会按安全策略暂停，需要显式 Resume。接管前将目标应用留在后台。专用实例模式请求后台启动，Chrome 使用临时独立 profile；若 LaunchServices 返回已有 PID，拒绝隐式接管。主区域观看选中会话的整个虚拟屏幕，支持适应窗口和原始像素尺寸；Target 选择具体应用窗口。Toolbar 提供添加应用、暂停/继续和结束选中会话，Quit 清理所有会话。预览不接收人工键鼠输入。
 
 桌面下方的 Actions 是可编辑命令单元，可拖动分隔线调整高度。每个会话保留自己的内存 notebook，默认提供 Calculator → TextEdit 的可运行示例。单元支持编辑标题/JSON、单条播放、删除，Add cell 可添加模板并滚动到新单元，Run all 按当前顺序执行并在首个错误处停止。左侧编辑命令，右侧展示格式化 JSON；UI Tree 与截图左右排列。输出保留成功/错误状态和耗时；编辑后旧结果标为 Edited since last run。Stop and pause 阻止后续单元并关闭该会话输入门，当前操作在已有的安全边界退出；恢复后需要新的 snapshot。
 
@@ -162,4 +162,6 @@ node scripts/run-app-agent-lifecycle-smoke.mjs --with-session
 
 ## 侧栏与窗口布局
 
-参考 HeyYo Dictionary 的原生方案：sidebar 使用 List 作为根视图，在 top/bottom safeAreaInset 放品牌和 New session；AppKit 窗口启用 fullSizeContentView、透明标题栏与可见页面标题。侧栏背景覆盖窗口顶部，品牌图标及 Open Computer Use 文字独立留在侧栏，标题栏仅显示当前会话或 Virtual sessions。删除手动折叠按钮及 sidebarToggle 移除规则，只保留系统提供的一个按钮；展开/折叠都保持页面标题靠左、操作靠右。macOS 26.5.1 / arm64 Release bundle 的两种状态已通过真实 AX 与截图检查。
+参考 HeyYo Dictionary 的原生方案：sidebar 使用 List 作为根视图，在顶部 safeAreaInset 放较小的单行 OpenComputerUse 品牌；New Session compose 图标位于顶部 toolbar，支持 Command-N，侧栏折叠时仍保留入口；AppKit 窗口启用 fullSizeContentView、透明标题栏与可见页面标题。侧栏背景覆盖窗口顶部，品牌图标及 OpenComputerUse 文字独立留在侧栏，标题栏仅显示当前会话或 Virtual sessions。删除手动折叠按钮及 sidebarToggle 移除规则，只保留系统提供的一个按钮；展开/折叠都保持页面标题靠左、操作靠右。macOS 26.5.1 / arm64 Release bundle 的两种状态已通过真实 AX 与截图检查。
+
+空状态移除解释段落，仅保留显示器图标、Virtual sessions 标题和胶囊形 Create Session 主按钮。顶部与中央创建入口共用名称重置和 sheet 展示逻辑。
