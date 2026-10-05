@@ -40,7 +40,17 @@ Broker 基础组件补充 LOCAL_PEERTOKEN / Security 动态验证、固定路径
 - Developer ID / hardened runtime Guardian 的内核 socket 身份与角色批准自检通过；同签名、同 identifier 但带 get-task-allow 的独立测试副本被批准策略拒绝。未在系统安装批准文件。
 - Guardian runtime preflight：AX、Input Monitoring、Screen Recording 与重锁符号均可用。尚未执行真实遮罩、锁屏、loginwindow AX 或自动解锁测试；等待用户确认测试时间。
 
-### 合并状态
+### Guardian 实机调试补充
+
+- 用户配合进行了锁屏 rehearsal。会话观察确认真实系统锁定，随后用户正常认证解锁；带提示文字的黑屏是 Guardian 遮罩，系统认证页面是原生锁屏。
+- 部分测试因启动阶段 mouseMoved 接管而很快重锁。增加事件类型、source PID / state、capture 阶段、stop reason 和单调时间；不读取或保存按键内容，来源字段本身不足以区分真人与系统事件。
+- 同进程 fixture 的后台 AXPress 引发 AppKit / MainActor 断言退出；改为 MainActor AXPress，独立自检验证 counter 变化。开发 controller 不再在 guardian 异常退出时立即终止 watchdog，先请求 / 观察重锁再清理测试进程组。
+- 按用户要求先拆出纯遮罩 preview，复用同一覆盖实现，显示 15 秒倒计时，Esc 退出；不执行 AX / capture，不请求锁定或解锁。两块显示器持续约 15 秒 WindowServer 覆盖检查通过且无输入事件；用户确认两块物理屏幕完整覆盖、倒计时正常、结束正常恢复桌面。
+- 修改后完整 Swift 206 项、1 项 gated live test 跳过、0 失败。
+- 用户保持输入静止后的受控动作 rehearsal 验证通过：AXPress 使 counter 0→1，SCK 捕获被遮挡窗口的预期蓝色内容，动作后图像不同；guardian / watchdog 健康，约 15 秒 leaseExpired 后确认真实锁定再释放遮罩。用户确认两块物理屏幕持续遮住、未露出桌面 / fixture、手动解锁正常；没有执行真正自动解锁。
+- 新增 4 项离线 controller 回归通过，覆盖异常 / 超时先请求重锁再清理、preview 不请求锁屏、锁定会话不启动 GUI。与物理测试结合，仍不能宣称组件死亡时零泄漏或生产 backend 已完成。
+
+### 本地合并状态
 
 开发提交保留在隔离分支。目标工作区的另一个会话仍有与 app agent、入口、snapshot / service 重叠的未提交改动；不 stash / reset / 覆盖其工作。等待目标改动提交后执行本地合并和集成验证，不推远端。
 

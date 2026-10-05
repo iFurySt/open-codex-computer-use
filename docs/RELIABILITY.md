@@ -47,5 +47,5 @@ CI/CD 流程结构和 release 自动化的默认方案，统一写在 `docs/CICD
 - `ocu locked-use status --json`：只读检查当前会话 / runtime 权限 / 安装组件；本实验版本始终报告自动解锁不可用。
 - `swift test --filter LockedUseTests`：许可、租约、超时、显示器变化、本地接管和重锁确认策略回归。
 - `./scripts/build-locked-use-plugin.sh`：构建 deny-only ABI probe 并在普通进程内测试；通过不代表 SecurityAgent 加载成功。
-- `./scripts/build-locked-use-guardian.sh`：构建独立 Guardian / child watchdog；`--diagnose` 与签名构建后的 `--peer-self-test` 为非锁屏诊断。只有用户准备好后运行 `python3 scripts/run-locked-use-rehearsal.py --confirm-lock-test`，以物理观察配合窗口 AX / SCK 与重锁结果；不进入自动 CI。
+- `./scripts/build-locked-use-guardian.sh`：构建独立 Guardian / child watchdog；`--diagnose` 与签名构建后的 `--peer-self-test` 为非锁屏诊断。先运行 `python3 scripts/run-locked-use-rehearsal.py --shield-preview` 观察 15 秒倒计时与所有物理屏幕；用户准备好后才运行 `--confirm-lock-test`，验证窗口 AX / SCK 与重锁结果；人工 GUI 测试不进入自动 CI。`python3 scripts/tests/locked-use-rehearsal.test.py` 不启动 GUI / 锁屏，回归 controller 的恢复顺序和 preview 不锁屏边界。
 - 系统插件加载实验和后续真实锁屏测试是独立的人工门槛，不进入常规 CI / smoke，也不在日常账户自动运行。步骤和恢复路径见 [Locked Use](locked-use.md)。

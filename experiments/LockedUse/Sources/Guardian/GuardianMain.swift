@@ -8,6 +8,7 @@ import OpenComputerUseKit
 func emit(_ event: String, details: [String: Any] = [:]) {
     var value = details
     value["event"] = event
+    value["uptime"] = ProcessInfo.processInfo.systemUptime
     if let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]) {
         FileHandle.standardOutput.write(data)
         FileHandle.standardOutput.write(Data([10]))
@@ -20,6 +21,33 @@ struct GuardianMain {
         signal(SIGPIPE, SIG_IGN)
         do {
             switch Array(CommandLine.arguments.dropFirst()) {
+            case ["--shield-preview"]:
+                let app = NSApplication.shared
+                app.setActivationPolicy(.accessory)
+                let preview = ShieldPreview()
+                try preview.start()
+                withExtendedLifetime(preview) { app.run() }
+                guard preview.passed else { throw GuardianError.message("Shield preview ended before completing coverage") }
+            case ["--fixture-ax-self-test"]:
+                let app = NSApplication.shared
+                app.setActivationPolicy(.accessory)
+                let guardian = try DisplayGuardian(session: .current())
+                Task { @MainActor in
+                    do { try guardian.runFixtureAXSelfTest() }
+                    catch { emit("error", details: ["message": String(describing: error)]) }
+                    app.stop(nil)
+                    if let event = NSEvent.otherEvent(with: .applicationDefined, location: .zero,
+                        modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, subtype: 0, data1: 0, data2: 0) {
+                        app.postEvent(event, atStart: true)
+                    }
+                }
+                app.run()
+                guard guardian.fixtureAXSelfTestPassed else { throw GuardianError.message("Fixture AX self-test failed") }
+            case ["--request-lock"]:
+                let lock = ScreenLock()
+                guard lock.available else { throw GuardianError.message("Relock SPI unavailable") }
+                lock.request()
+                emit("lockRequested", details: ["confirmed": false, "unlockRequested": false])
             case ["--peer-self-test"]:
                 var descriptors: [Int32] = [-1, -1]
                 guard socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0 else {
@@ -73,7 +101,7 @@ struct GuardianMain {
                 withExtendedLifetime(guardian) { app.run() }
                 if LockedUseSession.current().state == .locked { try inspectLoginwindow() }
             default:
-                fputs("Usage: OpenComputerUseGuardian --diagnose | --request-permissions | --inspect-loginwindow | --rehearse --confirm-lock-test\nRehearsal covers displays, consumes local input, and locks the Mac after 15 seconds. No unlock is attempted.\n", stderr)
+                fputs("Usage: OpenComputerUseGuardian --diagnose | --request-permissions | --inspect-loginwindow | --shield-preview | --rehearse --confirm-lock-test\nPreview shows a 15-second countdown without locking. Rehearsal consumes local input and locks the Mac. No unlock is attempted.\n", stderr)
                 exit(64)
             }
         } catch {

@@ -6,11 +6,6 @@ import Foundation
 import OpenComputerUseKit
 @preconcurrency import ScreenCaptureKit
 
-private final class ShieldWindow: NSWindow {
-    override var canBecomeKey: Bool { false }
-    override var canBecomeMain: Bool { false }
-}
-
 private final class FixtureActionGate: @unchecked Sendable {
     private let lock = NSLock()
     private var closed = false
@@ -19,13 +14,13 @@ private final class FixtureActionGate: @unchecked Sendable {
 }
 
 /// Live rehearsal adapter. This does not grant production permits or unlock.
-/// The root Broker must eventually own action cancellation/quiescence; here no
-/// actions or unlock requests exist, so that barrier is trivially satisfied.
+/// The root Broker must eventually own action cancellation/quiescence. Here
+/// only the controlled fixture performs actions; no unlock requests exist.
 @MainActor
 final class DisplayGuardian: NSObject {
     private var policy: LockedUseGuardianPolicy
     private let lock = ScreenLock()
-    private var windows: [CGDirectDisplayID: ShieldWindow] = [:]
+    private let shields = DisplayShieldSurface()
     private var tap: CFMachPort?
     private var tapSource: CFRunLoopSource?
     private var timer: Timer?
@@ -43,6 +38,7 @@ final class DisplayGuardian: NSObject {
     private var fixtureCounter = 0
     private var fixtureLabel: NSTextField?
     private var fixtureVerificationStarted = false
+    private(set) var fixtureAXSelfTestPassed = false
     private let fixtureGate = FixtureActionGate()
 
     init(session: LockedUseSession) throws {
@@ -66,10 +62,12 @@ final class DisplayGuardian: NSObject {
             createCaptureFixture()
             try coverDisplays()
             try startWatchdog()
-            timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated { self?.poll() }
             }
-            emit("preparing", details: ["displayCount": windows.count, "seconds": 15,
+            self.timer = timer
+            RunLoop.main.add(timer, forMode: .common)
+            emit("preparing", details: ["displayCount": shields.count, "seconds": 15,
                 "unlockRequested": false, "productionReady": false])
         } catch {
             // Preparation can fail before a live test is armed. No unlocking is
@@ -103,6 +101,41 @@ final class DisplayGuardian: NSObject {
         fixtureLabel?.stringValue = "Counter: \(fixtureCounter)"
     }
 
+    func runFixtureAXSelfTest() throws {
+        createCaptureFixture()
+        defer { fixtureWindow?.close(); fixtureWindow = nil }
+        guard performFixtureAXPress(), fixtureCounter == 1 else {
+            throw GuardianError.message("MainActor same-process AX fixture did not change")
+        }
+        fixtureAXSelfTestPassed = true
+        emit("fixtureAXSelfTest", details: ["passed": true, "counter": fixtureCounter, "lockRequested": false])
+    }
+
+    private func performFixtureAXPress() -> Bool {
+        let root = AXUIElementCreateApplication(getpid())
+        AXUIElementSetMessagingTimeout(root, 0.2)
+        var remaining = 100
+        func find(_ element: AXUIElement, depth: Int) -> AXUIElement? {
+            guard depth < 12, remaining > 0 else { return nil }
+            remaining -= 1
+            var identifier: CFTypeRef?
+            _ = AXUIElementCopyAttributeValue(element, kAXIdentifierAttribute as CFString, &identifier)
+            if identifier as? String == "ocu.locked-use.rehearsal.increment" { return element }
+            for attribute in [kAXWindowsAttribute, kAXChildrenAttribute] {
+                var children: CFTypeRef?
+                if AXUIElementCopyAttributeValue(element, attribute as CFString, &children) == .success {
+                    for child in children as? [AXUIElement] ?? [] {
+                        if let match = find(child, depth: depth + 1) { return match }
+                    }
+                }
+            }
+            return nil
+        }
+        return find(root, depth: 0).map {
+            fixtureGate.allowsAction() && AXUIElementPerformAction($0, kAXPressAction as CFString) == .success
+        } ?? false
+    }
+
     private func verifyCaptureFixture() async {
         guard policy.phase == .shielding else { return }
         policy.requireQuiescence()
@@ -112,6 +145,7 @@ final class DisplayGuardian: NSObject {
             return
         }
         do {
+            emit("captureStage", details: ["stage": "shareableContent"])
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
             guard let window = content.windows.first(where: { $0.windowID == CGWindowID(fixtureWindow.windowNumber) }),
                   window.owningApplication?.processID == getpid() else {
@@ -123,6 +157,7 @@ final class DisplayGuardian: NSObject {
             configuration.height = 262
             configuration.showsCursor = false
             configuration.ignoreShadowsSingleWindow = true
+            emit("captureStage", details: ["stage": "beforeImage"])
             let before = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
             let pixels = NSBitmapImageRep(cgImage: before)
             guard let sample = pixels.colorAt(x: pixels.pixelsWide / 2, y: pixels.pixelsHigh / 2)?.usingColorSpace(.sRGB),
@@ -130,35 +165,11 @@ final class DisplayGuardian: NSObject {
                 throw GuardianError.message("Covered fixture capture did not contain the expected blue background")
             }
             guard policy.phase == .shielding else { throw GuardianError.message("Rehearsal stopped before action") }
-            let pid = getpid()
-            let gate = fixtureGate
-            let pressed = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                DispatchQueue.global(qos: .userInitiated).async {
-                    let root = AXUIElementCreateApplication(pid)
-                    AXUIElementSetMessagingTimeout(root, 0.2)
-                    var remaining = 100
-                    func find(_ element: AXUIElement, depth: Int) -> AXUIElement? {
-                        guard depth < 12, remaining > 0 else { return nil }
-                        remaining -= 1
-                        var identifier: CFTypeRef?
-                        _ = AXUIElementCopyAttributeValue(element, kAXIdentifierAttribute as CFString, &identifier)
-                        if identifier as? String == "ocu.locked-use.rehearsal.increment" { return element }
-                        for attribute in [kAXWindowsAttribute, kAXChildrenAttribute] {
-                            var children: CFTypeRef?
-                            if AXUIElementCopyAttributeValue(element, attribute as CFString, &children) == .success {
-                                for child in children as? [AXUIElement] ?? [] {
-                                    if let match = find(child, depth: depth + 1) { return match }
-                                }
-                            }
-                        }
-                        return nil
-                    }
-                    let result = find(root, depth: 0).map {
-                        gate.allowsAction() && AXUIElementPerformAction($0, kAXPressAction as CFString) == .success
-                    } ?? false
-                    continuation.resume(returning: result)
-                }
-            }
+            emit("captureStage", details: ["stage": "axPress"])
+            // Same-process AX invokes AppKit directly on the caller's thread.
+            // This fixture therefore performs AXPress on MainActor. Dispatching
+            // to a background queue violates its AppKit/Swift actor isolation.
+            let pressed = performFixtureAXPress()
             guard policy.phase == .shielding, pressed, fixtureCounter == 1 else {
                 throw GuardianError.message("AXPress did not change the controlled fixture counter")
             }
@@ -193,6 +204,10 @@ final class DisplayGuardian: NSObject {
                     // No synthetic events are exempted on the global stream.
                     // Default OCU postToPid does not traverse this tap. Global
                     // input during Locked Use must remain disallowed.
+                    emit("inputTakeover", details: ["type": type.rawValue,
+                        "sourcePID": event.getIntegerValueField(.eventSourceUnixProcessID),
+                        "sourceState": event.getIntegerValueField(.eventSourceStateID),
+                        "phase": guardian.policy.phase.rawValue])
                     guardian.stop(.localInput)
                 }
                 return nil
@@ -205,76 +220,12 @@ final class DisplayGuardian: NSObject {
         CGEvent.tapEnable(tap: tap, enable: true)
     }
 
-    private func screenIDs() -> [(CGDirectDisplayID, NSScreen)] {
-        NSScreen.screens.compactMap { screen in
-            guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return nil }
-            return (number.uint32Value, screen)
-        }
-    }
-
-    private func displayTopology() -> String {
-        screenIDs().sorted { $0.0 < $1.0 }.map { id, screen in
-            "\(id):\(NSStringFromRect(screen.frame)):\(screen.backingScaleFactor)"
-        }.joined(separator: "|")
-    }
-
+    private func displayTopology() -> String { shields.displayTopology() }
     private func coverDisplays() throws {
-        let screens = screenIDs()
-        guard !screens.isEmpty else { throw GuardianError.message("No display available") }
+        try shields.coverDisplays(message: "Open Computer Use · 测试中\n移动鼠标或按键将重新锁屏")
         topology = displayTopology()
-        for (id, screen) in screens {
-            let window = ShieldWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false, screen: screen)
-            window.setFrame(screen.frame, display: true)
-            window.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
-            window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-            window.backgroundColor = .black
-            window.isOpaque = true
-            window.alphaValue = 1
-            window.hasShadow = false
-            window.ignoresMouseEvents = false
-            window.sharingType = .none
-            window.isReleasedWhenClosed = false
-            let label = NSTextField(labelWithString: "Open Computer Use · 测试中\n移动鼠标或按键将重新锁屏")
-            label.alignment = .center
-            label.textColor = .white
-            label.font = .systemFont(ofSize: 22)
-            label.translatesAutoresizingMaskIntoConstraints = false
-            if let view = window.contentView {
-                view.addSubview(label)
-                NSLayoutConstraint.activate([label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-                    label.centerYAnchor.constraint(equalTo: view.centerYAnchor)])
-            }
-            window.orderFrontRegardless()
-            window.displayIfNeeded()
-            windows[id] = window
-        }
     }
-
-    /// WindowServer evidence, not just `isVisible`. Other secure/system overlays
-    /// and hotplug races still require live validation; this is not a proof that
-    /// ordinary windows provide an OS-enforced privacy barrier.
-    private func coverageHealthy() -> Bool {
-        guard displayTopology() == topology else { return false }
-        var count: UInt32 = 0
-        guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0, count <= 64 else { return false }
-        var active = [CGDirectDisplayID](repeating: 0, count: Int(count))
-        guard CGGetActiveDisplayList(count, &active, &count) == .success else { return false }
-        for id in active.prefix(Int(count)) {
-            let mirrored = CGDisplayMirrorsDisplay(id)
-            guard windows[id] != nil || (mirrored != kCGNullDirectDisplay && windows[mirrored] != nil) else { return false }
-        }
-        guard let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return false }
-        for (id, window) in windows {
-            guard window.isVisible,
-                  let info = infos.first(where: { ($0[kCGWindowNumber as String] as? NSNumber)?.intValue == window.windowNumber }),
-                  (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == getpid(),
-                  (info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue == 1,
-                  (info[kCGWindowLayer as String] as? NSNumber)?.intValue == window.level.rawValue,
-                  let bounds = info[kCGWindowBounds as String] as? [String: Any],
-                  let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary), rect == CGDisplayBounds(id) else { return false }
-        }
-        return true
-    }
+    private func coverageHealthy() -> Bool { shields.coverageHealthy() }
 
     private func startWatchdog() throws {
         let process = Process()
@@ -306,7 +257,7 @@ final class DisplayGuardian: NSObject {
                 if now - started >= 1.5 { stop(.guardianFailure) }
                 else if watchdogHealthy, coverageHealthy(), let tap, CGEvent.tapIsEnabled(tap: tap) {
                     try policy.prepared(topology: topology, now: now)
-                    emit("shieldReady", details: ["displayCount": windows.count, "guardianPID": getpid(),
+                    emit("shieldReady", details: ["displayCount": shields.count, "guardianPID": getpid(),
                         "watchdogPID": watchdog?.processIdentifier ?? 0, "backendValidated": false])
                     if !fixtureVerificationStarted {
                         fixtureVerificationStarted = true
@@ -325,9 +276,13 @@ final class DisplayGuardian: NSObject {
             }
             if now - lastReport >= 1 {
                 lastReport = now
+                if policy.phase == .shielding {
+                    let remaining = max(0, Int(ceil(15 - (now - started))))
+                    shields.updateMessage("Open Computer Use · 遮罩期间操作测试\n剩余 \(remaining) 秒\n结束后将锁屏 · 请保持鼠标键盘不动")
+                }
                 emit("guardianState", details: ["phase": policy.phase.rawValue, "session": current.state.rawValue,
                     "reason": policy.reason?.rawValue ?? "", "inputTapEnabled": tapHealthy,
-                    "watchdogHealthy": watchdogHealthy])
+                    "watchdogHealthy": watchdogHealthy, "elapsed": now - started])
             }
         } catch { stop(.guardianFailure) }
     }
@@ -341,7 +296,13 @@ final class DisplayGuardian: NSObject {
     private func execute(_ effects: [LockedUseGuardianPolicy.Effect]) {
         for effect in effects {
             switch effect {
-            case .requestRelock: lock.request()
+            case .requestRelock:
+                fixtureGate.close()
+                if !stopping {
+                    stopping = true
+                    emit("stopping", details: ["reason": policy.reason?.rawValue ?? "", "elapsed": ProcessInfo.processInfo.systemUptime - started])
+                }
+                lock.request()
             case .releaseShield:
                 if let watchdogInput { _ = HeartbeatPipe.send(76, to: watchdogInput.fileDescriptor) }
                 emit("lockConfirmed", details: ["shieldReleased": true, "unlockRequested": false])
@@ -363,8 +324,7 @@ final class DisplayGuardian: NSObject {
         if let tap { CFMachPortInvalidate(tap) }
         tapSource = nil
         tap = nil
-        for window in windows.values { window.close() }
-        windows.removeAll()
+        shields.close()
         fixtureWindow?.close()
         fixtureWindow = nil
         watchdogInput?.closeFile()

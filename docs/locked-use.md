@@ -49,6 +49,14 @@ OPEN_COMPUTER_USE_DISABLE_APP_AGENT_PROXY=1 .build/debug/OpenComputerUse locked-
 
 缺少权限时显式执行同一 binary 的 `--request-permissions`，由用户在系统设置授予 Accessibility 与 Input Monitoring。`--diagnose` 本身不请求权限、不锁屏。
 
+先单独确认所有物理显示器遮蔽与倒计时，再验证遮罩期间的动作：
+
+```sh
+python3 scripts/run-locked-use-rehearsal.py --shield-preview
+```
+
+该独立 preview 复用 rehearsal 的显示器覆盖与 WindowServer 检查，覆盖确认后显示 15 秒倒计时。输入事件仅按类型 / source PID / source state 汇总，不保存按键或文本；鼠标移动不会提前结束，Esc 立即退出。它不创建 AX fixture、不截图、不执行应用动作、不启动重锁 watchdog、不请求锁定或解锁。结束或 controller 的开发应急超时只撤掉预览；不能复用该输入策略或超时退出作为生产保护。物理屏幕需人工观察，枚举的 NSScreen 数量也可能包含虚拟显示器。
+
 **只有用户准备好锁屏、并有人观察物理屏幕时运行：**
 
 ```sh
@@ -61,7 +69,9 @@ python3 scripts/run-locked-use-rehearsal.py --confirm-lock-test
 
 child watchdog 与 UI event loop 分离，监测 inherited pipe 心跳；1.5 秒超时、EOF 或非法输入会独立请求重锁。该测试 watchdog 从未接收解锁许可。测试完成后，Guardian 只读取 loginwindow 的 AX role / subrole / action names，最多 300 节点、12 层、3 秒；不读取值、用户名、输入框、选中文本或密码，也不执行 loginwindow 动作。单次 AX RPC 额外有 0.5 秒 timeout，因此整个 traversal 可能比预算略长。
 
-开发 controller 在 35 秒无结果时结束自身测试进程组，释放测试遮罩和 tap，方便用户恢复操作。这是只供人工实验的应急路径，**不能在生产 Locked Use 中用超时移除遮罩**。本次 rehearsal 没有改变认证规则，也不自动解锁；用户随后按普通方式解锁。
+开发 controller 默认提前 5 秒提示用户放开输入。rehearsal 的非正常退出 / 35 秒超时会先保留 child watchdog，同时请求重锁并观察会话状态，再清理自身测试进程组；preview 的恢复不请求锁屏。这是只供人工实验的应急路径，**不能在生产 Locked Use 中用超时移除遮罩**。rehearsal 没有改变认证规则，也不自动解锁；用户随后按普通方式解锁。
+
+事件输出包含单调时间与 capture 阶段 / stop reason，便于区分覆盖失败、输入接管、动作失败及租约到期。同进程受控 fixture 的 AXPress 在 MainActor 上执行；AppKit 会直接在调用线程派发按钮动作，不能从后台队列调用带 MainActor 隔离的 target。`--fixture-ax-self-test` 可独立验证此路径，不遮蔽、不锁屏。
 
 ### Broker 认证组件
 

@@ -19,7 +19,11 @@
 - [x] 默认 GUI 边界对锁定 / 未知控制台状态明确拒绝，避免旧 snapshot 继续输入。
 - [x] Swift / JS / GUI smoke / 插件构建验证与文档同步。
 - [x] 独立 deny-only right 的管理员实机加载 / 调用 / 卸载探针。
-- [x] 独立 Shield Guardian / watchdog rehearsal、受控 AX / SCK capture fixture、只读 loginwindow 结构探针和交互式恢复 controller（已构建，等待用户配合实测）。
+- [x] 独立 Shield Guardian / watchdog rehearsal、受控 AX / SCK capture fixture、只读 loginwindow 结构探针和交互式恢复 controller。
+- [x] 独立 15 秒遮罩倒计时 preview；两块物理显示器覆盖、倒计时和退出由用户确认，WindowServer 检查持续通过。
+- [x] 遮罩期间受控 fixture 的 AX / SCK 实机闭环与 15 秒租约重锁日志验证。
+- [x] 动作测试的两块物理屏幕持续遮蔽及正常手动解锁确认。
+- [ ] 本地输入 / watchdog 故障恢复专项验证。
 - [x] 内核 audit-token / 动态签名认证、root 批准记录读取与短期一次性 permit registry；签名 / 角色实机自检与离线策略回归。
 - [ ] 真正 loginwindow 解锁、独立保护与 Keychain 保持实验（阻塞生产 backend 开放）。
 - [ ] Broker、独立 Shield / watchdog、管理员安装与客户端授权 UI、真实自动解锁。
@@ -53,6 +57,10 @@ Apple DTS 确认过 screensaver authorization plugin 的 Data Protection Keychai
 基于本地 awesome-extension 的已提交状态。另一个会话有未提交的虚拟显示器工作；不 stash / reset 该会话。合并前再次检查目标工作区，只有不覆盖其改动时才在本地合并；不推远端。
 
 ## 进度记录
+
+- 2026-10-05：多次人工 rehearsal 观测到真实系统锁屏并由用户正常解锁；其中一次同进程后台 AX 调用触发 MainActor 断言退出，已改为 MainActor AXPress 并通过独立自检。controller 异常路径先保留 watchdog / 请求确认重锁，再清理测试进程组。其他短暂遮罩测试有 mouseMoved 接管事件，不能直接归因于真实鼠标移动或宣称持续遮蔽通过。
+- 2026-10-05：按用户要求拆出不锁屏、不执行动作的独立 preview，复用相同遮罩实现，增加倒计时、单调时间、每秒 coverage / 输入类型汇总。两块显示器持续约 15 秒软件覆盖检查通过，无输入事件；用户确认两块物理屏幕完整遮住、倒计时正常、结束恢复桌面。此结果仅覆盖遮罩预览，不证明锁屏解锁或动作闭环。修改后完整 Swift 206 项、1 项跳过、0 失败。
+- 2026-10-05：用户保持输入静止后的受控动作 rehearsal 日志通过：同进程 AXPress counter 0→1，SCK 捕获被遮挡窗口预期蓝色内容并验证动作前后图像不同；guardian / watchdog 心跳持续健康，约 15 秒 leaseExpired 后观测同会话锁定再释放遮罩。用户确认两块物理屏幕始终遮蔽、未露出桌面或 fixture、手动解锁正常。没有执行自动解锁。新增 4 项离线 controller 回归验证异常 / 超时恢复顺序、preview 不请求锁屏与锁定会话不启动。
 
 - 2026-10-05：创建隔离 worktree，基于本地 awesome-extension 已提交状态；未复制另一个会话的未提交代码。
 - 2026-10-05：用户已在应用关闭 Codex Locked Use；只读检查证实其 bundle 和 screensaver remote rule 已清理，screensaver 保留 use-login-window-ui。
