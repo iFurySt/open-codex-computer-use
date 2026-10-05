@@ -48,4 +48,4 @@ Actions Command/Result 共用原生 NSTextView JSON 代码块：语言栏、圆�
 
 会话标题采用独立文本组（状态点/名称、ID、复制），名称与 ID、ID 与复制均间隔 12 points，点与名称 8 points，外侧左右各 4 points；名称优先保留宽度，ID 可居中截断。macOS 26 标题 toolbar item 设置 sharedBackgroundVisibility(.hidden)，移除包含复制按钮触发的系统整组 glass 背景；旧系统保留普通 toolbar 文本。仅复制图标是按钮，标题整组不可点击。
 
-虚拟屏预览只显示 SCStream 帧（包括虚拟屏软件光标窗口），不叠加第二个 Agent cursor。触控板 pinch 与滚轮在指针处缩放，按住拖动平移，双击/Original size 切换重置视角；图像不足视口时居中，放大后限制拖动防止画面丢失。手势不发送到目标应用，不改变截图/工具坐标。
+虚拟屏预览只显示 SCStream 帧（包括虚拟屏软件光标窗口），不叠加第二个 Agent cursor。触控板 pinch 与普通鼠标滚轮在指针处缩放，触控板两指滑动或按住拖动平移，双击/Original size 切换重置视角；图像不足视口时居中，放大后限制拖动防止画面丢失。手势不发送到目标应用，不改变截图/工具坐标。

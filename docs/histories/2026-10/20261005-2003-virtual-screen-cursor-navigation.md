@@ -26,3 +26,8 @@ Reuse the existing curved cursor motion; support preview pinch/wheel zoom and dr
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/VirtualDisplayPreviewGeometry.swift`
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/VirtualDisplaySession.swift`
 - `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/VirtualDisplayPreviewTests.swift`
+
+### Follow-up: trackpad two-finger pan
+- User clarified two-finger scrolling should behave like pointer dragging. Precise scroll events and gesture/momentum phases now share the drag pan path, including horizontal/vertical movement and existing bounds. Pinch and conventional mouse wheel continue zooming.
+- AppKit already applies natural-scrolling preferences; only the vertical axis is converted into the unflipped preview's coordinate space. No preference changes or input forwarding.
+- Swift regression and signed release build passed; App safely restarted. Physical trackpad gesture validation remains pending.

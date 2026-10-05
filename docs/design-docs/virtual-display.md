@@ -11,7 +11,7 @@ open "dist/Open Computer Use (Dev).app"
 
 Release 使用原有 `Open Computer Use.app`、bundle ID、`OPEN_COMPUTER_USE_CODESIGN_*` 和公证入口。Debug 使用原有 `.dev` 身份，需要单独授权 Accessibility 和 Screen Recording；终端的授权不能代替签名 App 的授权。helper 先签名，外层 bundle 后签名。
 
-左侧展示会话。点击顶部 New Session 图标（或 Command-N），填写名称和显示倍率，再 Create 创建空虚拟桌面；选中会话后用 Add application 搜索应用，选择专用启动或接管已有 PID/window。同一显示器可重复加入多个应用，窗口采用错位布局。新建/移除显示器可能触发系统桌面或 Space 通知，其他会话会按安全策略暂停，需要显式 Resume。接管前将目标应用留在后台。专用实例模式请求后台启动，Chrome 使用临时独立 profile；若 LaunchServices 返回已有 PID，拒绝隐式接管。主区域观看选中会话的整个虚拟屏幕，支持适应窗口和原始像素尺寸；Target 选择具体应用窗口。Toolbar 提供添加应用、暂停/继续和结束选中会话，Quit 清理所有会话。预览支持触控板捏合/滚轮缩放、按住拖动查看、双击复位；只改变观看视角，不向目标应用转发输入。
+左侧展示会话。点击顶部 New Session 图标（或 Command-N），填写名称和显示倍率，再 Create 创建空虚拟桌面；选中会话后用 Add application 搜索应用，选择专用启动或接管已有 PID/window。同一显示器可重复加入多个应用，窗口采用错位布局。新建/移除显示器可能触发系统桌面或 Space 通知，其他会话会按安全策略暂停，需要显式 Resume。接管前将目标应用留在后台。专用实例模式请求后台启动，Chrome 使用临时独立 profile；若 LaunchServices 返回已有 PID，拒绝隐式接管。主区域观看选中会话的整个虚拟屏幕，支持适应窗口和原始像素尺寸；Target 选择具体应用窗口。Toolbar 提供添加应用、暂停/继续和结束选中会话，Quit 清理所有会话。预览支持触控板捏合/普通鼠标滚轮缩放、两指滑动/按住拖动查看、双击复位；只改变观看视角，不向目标应用转发输入。
 
 桌面下方的 Actions 是可编辑命令单元，可拖动分隔线调整高度。每个会话保留自己的内存 notebook，默认提供 Calculator → TextEdit 的可运行示例。单元支持编辑标题/JSON、单条播放、删除，Add cell 可添加模板并滚动到新单元，Run all 按当前顺序执行并在首个错误处停止。左侧编辑命令，右侧展示格式化 JSON；UI Tree 与截图左右排列。输出保留成功/错误状态和耗时；编辑后旧结果标为 Edited since last run。Stop and pause 阻止后续单元并关闭该会话输入门，当前操作在已有的安全边界退出；恢复后需要新的 snapshot。
 
@@ -239,4 +239,4 @@ JS：cua.getAppCandidates(app?, {pid?})；display.attachApp(app?, {mode, pid?, w
 
 ScreenCaptureKit 使用 [宿主排除 + 指定窗口例外](https://developer.apple.com/documentation/screencapturekit/sccontentfilter/init(display:excludingapplications:exceptingwindows:))，仅包含该面板，宿主其他窗口继续排除。因此显示器帧订阅也包含光标，预览不需要额外光标层；窗口级工具截图仍按原来的目标窗口过滤。找不到软件光标捕获窗口时明确报错，不能退化成宿主全量捕获。
 
-`VirtualDisplayViewport` 独立于 snapshot/工具坐标：缩放保持指针下的图像位置、范围 0.25–8 倍，拖动受图像边缘限制，Original size 切换或双击重置。Retina 原始尺寸使用实际 backing scale。观看手势不调用任何远程输入工具。
+`VirtualDisplayViewport` 独立于 snapshot/工具坐标：缩放保持指针下的图像位置、范围 0.25–8 倍，两指滑动（含系统惯性）与按住拖动共用平移路径，受图像边缘限制；精确滚动或带 phase/momentum 的手势归入平移，普通滚轮用于缩放。Original size 切换或双击重置。Retina 原始尺寸使用实际 backing scale。观看手势不调用任何远程输入工具。

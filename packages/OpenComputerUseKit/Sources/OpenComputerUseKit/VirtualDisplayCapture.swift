@@ -158,12 +158,23 @@ public final class VirtualDisplayMetalView: MTKView, MTKViewDelegate {
         zoom(by: max(1 + event.magnification, 0.05), at: convert(event.locationInWindow, from: nil))
     }
     public override func scrollWheel(with event: NSEvent) {
+        if event.hasPreciseScrollingDeltas || !event.phase.isEmpty || !event.momentumPhase.isEmpty {
+            // Gesture deltas already respect the user's natural-scrolling setting.
+            // Convert the vertical scroll axis to this unflipped AppKit view.
+            pan(by: CGPoint(x: event.scrollingDeltaX, y: -event.scrollingDeltaY))
+            return
+        }
         let delta = min(max(event.scrollingDeltaY, -50), 50)
-        zoom(by: exp(delta * (event.hasPreciseScrollingDeltas ? 0.012 : 0.10)), at: convert(event.locationInWindow, from: nil))
+        zoom(by: exp(delta * 0.10), at: convert(event.locationInWindow, from: nil))
     }
     private func zoom(by factor: CGFloat, at point: CGPoint) {
         guard let size = frameSize else { return }
         viewport.magnify(by: factor, at: point, image: size, view: bounds.size, originalSize: originalSize, backingScale: backingScale)
+        needsDisplay = true
+    }
+    private func pan(by delta: CGPoint) {
+        guard let size = frameSize else { return }
+        viewport.drag(by: delta, image: size, view: bounds.size, originalSize: originalSize, backingScale: backingScale)
         needsDisplay = true
     }
     public override func mouseDown(with event: NSEvent) {
@@ -173,9 +184,8 @@ public final class VirtualDisplayMetalView: MTKView, MTKViewDelegate {
     }
     public override func mouseDragged(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if let old = dragPoint, let size = frameSize {
-            viewport.drag(by: CGPoint(x: point.x - old.x, y: point.y - old.y), image: size,
-                view: bounds.size, originalSize: originalSize, backingScale: backingScale)
+        if let old = dragPoint {
+            pan(by: CGPoint(x: point.x - old.x, y: point.y - old.y))
         }
         dragPoint = point; needsDisplay = true
     }
