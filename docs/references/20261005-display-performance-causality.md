@@ -119,3 +119,13 @@ ColorSyncProfileCreateWithDisplayID
 预防方向仍是保持显示器在线复用、固定且有界身份池、故障时停止继续热插拔并记录健康指标。它们减少触发次数与残留增长，不能承诺修复已有系统循环。外部 [ColorSync 调查](https://github.com/dripster82/ar_workspace_manager_for_xreal/blob/main/Docs/ColorSync-AirII-investigation.md) 也报告 registry 增长很小仍可能循环、恢复可能复发；它是机制线索，不是本机根因证明。
 
 本轮累计数据及混杂标记见 [results-subjective-20261005.json](../../experiments/DisplayPerformance/results-subjective-20261005.json)。有界采集完成，历史根因与恢复验收仍开放。
+
+## 经授权的服务恢复尝试：未消除循环
+
+用户随后明确要求先恢复、次日再测试。恢复前 10 秒基线两项 ColorSync 合计 96.1% 单核、显示信息请求 14.35/s；仅两块物理屏，146 份 OCU ICC。
+
+管理员认证后，`launchctl kickstart -k` 被 SIP 拒绝，没有禁用系统保护。对核实身份的两项 ColorSync 服务发送 TERM 后 PID 未变化；随后一次 KILL 终止这两个服务，系统自动重新拉起，新 PID 确认发生变化。WindowServer PID 保持不变，没有关闭用户应用、重启主 runtime 或删除/修改色彩配置。这个流程只构成一次实际服务重启，没有反复 bounce。
+
+新 PID 下连续 30 秒窗口仍约 14 次显示信息请求/s、两项服务合计约 90% 单核；循环迅速复发。在线屏仍为两块物理屏、ICC 数量仍 146；再次验证 profile 有效且物理屏匹配 factory。恢复前后原始窗口仅保留本地，包含 PID 转换的窗口不用于稳态 CPU 比较。**单独重启 ColorSync 未达到恢复目的，也未验证打字体感改善。**
+
+这削弱了“仅两个 daemon 的进程内状态积累，重启即可恢复”的解释，仍需区分上游重复请求、持久 registry/cache 状态及其他系统因素。不能由重启后复发认定 WindowServer 已是根因。后续建议保存工作后由用户选择正常注销/重启，记录重启后的健康基线再测；本轮没有自动执行注销/重启，也没有删除 ICC。

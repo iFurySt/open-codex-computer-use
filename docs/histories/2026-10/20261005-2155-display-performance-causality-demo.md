@@ -38,3 +38,9 @@
 - 自有查询客户端样本包含 WindowServer Mach 同步、ColorSync registry 解析/XPC 等待；没有健康对照，不能把 API 耗时等同于打字延迟或确认洪泛发起者。
 - 报告新增最大嫌疑、历史计数口径、其他负载限制和保留配置的单次服务恢复对照方案；本轮没有恢复系统服务、删除配置或重启主 App。
 - 新增/更新：`ColorProfiles.m`、`cycles.py`、`results-subjective-20261005.json`、README/指标测试与 completed 累积采集计划。历史根因与恢复验收保持开放。
+
+### 经授权的恢复尝试
+
+- 用户要求先恢复、次日再测。经系统管理员认证，launchctl 重启受 SIP 阻止；TERM 未令两项 ColorSync 服务退出，随后核实身份后一次 KILL，系统重新拉起，新 PID 已确认。
+- WindowServer/用户应用保持运行，色彩文件、物理布局和主 runtime 未改动；没有禁用 SIP、删除 ICC 或注销/重启 macOS。
+- 新服务下请求频率仍约 14/s，CPU 合计约 90% 单核，循环迅速复发，不能宣称恢复成功。报告已同步恢复失败和后续健康基线要求。
