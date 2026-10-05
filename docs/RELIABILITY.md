@@ -57,3 +57,9 @@ CI/CD 流程结构和 release 自动化的默认方案，统一写在 `docs/CICD
 `node scripts/run-app-agent-lifecycle-smoke.mjs --with-session` 验证签名 bundle 私有退出协议及活动 helper 清理（需要已有 AX/捕获权限）；不加参数验证空 runtime。独立 namespace 不接管已有会话。不要从 Swift Task 或正在执行的主 dispatch block 同步调用 terminate 并等待同一 executor 回复 terminateLater；使用 RunLoop 调度和后台清理。失败不强杀目标应用。
 
 显示器复用回归：`node scripts/run-virtual-display-reuse-smoke.mjs --cycles=20 --scale=1` / `--scale=2`，使用独立签名 runtime namespace 和真实 SCStream，不用 FixtureBridge。循环基线取自预热后的桌面；验证显示器/helper 不变、新会话/捕获帧、旧会话失效、活动屏释放拒绝、不同配置、强制新建、helper 退出后重新创建、释放和 Quit。默认会话结束保留空屏，只有显式 retain_display=false / release / Quit 才检查移除；旧 hotplug runner 显式使用 retainDisplay:false 保持测试含义。第一次接入、最终移除仍可能移动 Dock，不能把复用循环通过表述为所有生命周期零副作用。签名实测可用 `OPEN_COMPUTER_USE_APP_OUTPUT_DIR` 构建到独立目录，避免替换正在使用的 bundle。
+
+## 独立电源保活恢复
+
+IOKit assertions 随协调器进程退出释放。合盖 helper 在修改 pmset 前持久化恢复记录，验证偏好和运行内核一致；协调器失联、租约过期或正常关闭均恢复。helper 启动先恢复 journal，不重建旧许可；失败保留记录并拒绝 acquire。status 的 requested/confirmed 和 lid_state_known 区分许可、最近确认及未知状态。
+
+独立 package 20 项测试、普通断言跨进程 smoke、签名负例和开盖真实 AX/SCK 已通过；已批准 helper 的真实 pmset 定时与协调器 SIGKILL 后恢复也已通过。首轮物理合盖未在等待期限内发生，不能算验收；helper 自身崩溃/launchd、插拔电源、功耗及物理合盖仍待验证。入口与限制见 [电源保活](power-hold.md)。

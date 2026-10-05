@@ -60,3 +60,7 @@
 虚拟 session 的 sky_click 禁止 synthetic focus records，定向事件使用 private source、屏内 primer，保留显式方法且不切换 fallback。隐藏仅用于核对过返回 PID 的全新专属实例；不隐藏用户既有或当前前台应用。首窗口在隐藏状态下移动/读回，但第三方文档启动仍可能短暂可见，不能宣称完全独立桌面。Dock 回归只观察几何和屏归属，不修改偏好、不重启 Dock或劫持光标。
 
 空屏复用只保留本 runtime 私有管道持有的 helper/display，不保留输入会话、视频帧或光标；没有 session ID 的空屏不能操作。正常归还必须先完成借用窗口恢复、专属应用礼貌退出与恢复标记清理；失败保留暂停会话。release 仅能选择自有空屏，拒绝活动/未知 ID；Quit 及父进程 EOF 释放全部，不枚举或终止其他用户显示器。桌面仍属于当前登录用户，用户自行移入空屏的其他窗口不会被自动接管。
+
+## 独立电源保活
+
+合盖 helper 仅接受同 Team、固定 host identifier、Developer ID 且无 get-task-allow 的签名 XPC 调用；固定操作不执行调用方 shell。Unix coordinator 以 peer UID 为信任域，socket/目录为 0600/0700。root 恢复目录与 journal 验证所有者、权限、symlink、硬链接及 extended ACL，并持有 dev/release 共用 flock；已有外部 SleepDisabled 时拒绝接管。App 固定安装到标准 Applications 位置，已登记 bundle 更新前先卸载。它不改变锁屏/认证策略；物理合盖与企业电源动作的兼容性需独立验收。详见 [电源保活](power-hold.md)。

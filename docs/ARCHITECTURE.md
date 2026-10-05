@@ -183,3 +183,7 @@ GUI 侧栏以会话为单位创建和切换，应用通过添加对话框加入�
 App-agent Quit 使用 RunLoop 调度 terminate/reply 与 worker 清理：terminateLater 会进入嵌套 AppKit loop，不能从占用 MainActor 或主 dispatch queue 的回调启动退出并依赖同一 executor 回复。Quit 期间禁用 GUI 新操作，notebook 在当前单元结束后停止；清理拒绝时恢复界面并保留会话。
 
 显示器生命周期默认复用：`create(reuseDisplay: true)` 创建全新 session/capture/cache 身份，只复用匹配 width/height/scale 且 helper/CG 在线的空屏；`destroy(retainDisplay: true)` 完成应用/窗口恢复和 journal 清理后停止捕获、清除帧/光标并归还 holder。`prewarm` 按空闲配置幂等且先验证权限/三层 ready，`releaseIdleDisplays` 只释放本 runtime 的空屏并确认 CG 移除；`destroyAll` 串行清理全部活动和空闲屏。GUI 使用相同默认；MCP/CLI 和 JS 暴露显式控制。客户端断开不释放空屏，不自动过期或驱逐。agentInfo 的 ownedDisplayCount 防止切换构建时隐式移除保留屏。首次接入、配置不匹配、显式禁用复用、释放及 Quit 仍会热插拔，不宣称 Dock 原位置无条件保持。
+
+## 独立 macOS 电源模块
+
+`packages/OpenComputerUsePower` 为独立 SwiftPM package，不改变根构建或虚拟/锁屏模块。`PowerCore` SDK 和 `OCUPowerHost` 提供 manual（无限持续）、timed、connection 请求；用户态 coordinator 聚合 IOKit 闲置/显示器断言，签名 root `OCUPowerHelper` 管理 pmset 合盖开关、30 秒内部租约和恢复 journal。用户态请求不自动关联外部 Agent 任务，电量/温度截止默认关闭。独立 App 通过 SMAppService 安装，需系统后台项批准。真实 AX/SCK 探针和验证脚本见 [电源保活](power-hold.md)；保活本身不解锁会话，也不保证合盖后图形会话可用。
