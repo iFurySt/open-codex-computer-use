@@ -27,3 +27,8 @@
 - apps/OpenComputerUse/Sources/OpenComputerUse/VirtualDisplayWorkspace.swift
 - apps/OpenComputerUse/Sources/OpenComputerUse/WorkspaceCodeBlock.swift
 - docs/FRONTEND.md
+
+### 后续：普通文本标题与间距
+- 用户反馈 Session 标题像一个胶囊按钮且名称/ID 间隔不清楚。实际是 macOS 26 的自动 toolbar glass 分组；对标题 item 使用 sharedBackgroundVisibility(.hidden)，旧版本走普通 toolbar fallback。
+- 标题保留状态点与名称，名称/ID/copy 间隔 12 points，点与名称 8 points，左右各 4 points。名称组优先保留固有宽度，ID 可截断；仅 copy 是按钮，整体不增加点击行为。
+- 同步 FRONTEND，release 主 App/helper 构建及 Developer ID/deep/strict 签名校验通过；正常清理旧 runtime 后重启并确认新 PID。本轮未追加显示器热插拔验证或实现镜像测试。

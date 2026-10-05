@@ -14,15 +14,18 @@ struct WorkspaceSessionHeader: View {
         }
     }
     var body: some View {
-        HStack(spacing: 8) {
-            Circle().fill(color).frame(width: 7, height: 7)
-                .help(phase.capitalized).accessibilityLabel("Session status: \(phase)")
-            Text(name).font(.headline).lineLimit(1)
+        HStack(spacing: 12) {
+            HStack(spacing: 8) {
+                Circle().fill(color).frame(width: 7, height: 7)
+                    .help(phase.capitalized).accessibilityLabel("Session status: \(phase)")
+                Text(name).font(.headline).lineLimit(1)
+            }.fixedSize(horizontal: true, vertical: false).layoutPriority(1)
             Text(sessionID).font(.caption.monospaced()).foregroundStyle(.secondary)
                 .lineLimit(1).truncationMode(.middle).frame(maxWidth: 220)
                 .help("Session ID: \(sessionID)")
             WorkspaceCopyButton(value: sessionID, label: "Copy session ID", visible: hovering)
         }
+        .padding(.horizontal, 4)
         .contentShape(Rectangle()).onHover { hovering = $0 }
         .id(sessionID)
     }

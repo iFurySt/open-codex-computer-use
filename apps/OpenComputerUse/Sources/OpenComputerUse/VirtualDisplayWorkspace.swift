@@ -410,11 +410,7 @@ struct VirtualDisplayWorkspaceView: View {
                 }
                 .navigationTitle(model.creating?.title ?? (model.state == nil ? model.selectedDisplay.map { "Display \($0)" } ?? "Virtual sessions" : ""))
                 .toolbar {
-                    ToolbarItem(placement: .navigation) {
-                        if model.creating == nil, let state = model.state {
-                            WorkspaceSessionHeader(name: model.name(state), sessionID: state.sessionID, phase: state.phase)
-                        }
-                    }
+                    sessionTitleToolbarItem
                     ToolbarItemGroup(placement: .primaryAction) {
                         if model.selectedDisplay == nil, model.creating == nil, model.state != nil {
                             if let state = model.state, !state.windows.isEmpty {
@@ -440,6 +436,19 @@ struct VirtualDisplayWorkspaceView: View {
         .sheet(isPresented: $model.showingCreateDisplay) { createDisplaySheet }
         .sheet(isPresented: $model.showingAddApp) { addAppSheet }
         .frame(minWidth: 900, minHeight: 660)
+    }
+    @ToolbarContentBuilder private var sessionTitleToolbarItem: some ToolbarContent {
+        if #available(macOS 26.0, *) {
+            ToolbarItem(placement: .navigation) { sessionHeader }
+                .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .navigation) { sessionHeader }
+        }
+    }
+    @ViewBuilder private var sessionHeader: some View {
+        if model.creating == nil, let state = model.state {
+            WorkspaceSessionHeader(name: model.name(state), sessionID: state.sessionID, phase: state.phase)
+        }
     }
     private func showCreateDisplay() {
         model.displayName = ""; model.message = nil; model.showingCreateDisplay = true

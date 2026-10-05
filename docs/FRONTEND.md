@@ -45,3 +45,5 @@ Sessions/Displays 标题的上下 8 points 为按钮内部 padding，外层 HSta
 Actions Command/Result 共用原生 NSTextView JSON 代码块：语言栏、圆角边框、等宽字体、双向滚动、轻量 token 高亮与 hover 复制。Command 可编辑、支持 undo，Result 只读可选择；关闭系统智能引号/替换，保留原始 JSON。轮询未改变文本时不重写文本存储，超过 200k UTF-16 字符只用等宽文本避免高亮过载。评估 https://github.com/mchakravarty/CodeEditorView 后，本轮采用小型原生封装，不新增完整编辑器依赖。
 
 侧栏 + / trash、顶部和代码块 copy、action cell play/trash 共用图标 ButtonStyle：默认 secondary 灰，单独 hover 或按下时仅将符号颜色加深为 primary，不增加底色或边框；分组标题保持 plain 样式；disabled 无 hover 高亮，复制成功仍保持绿色勾。不改变尺寸、预留位置、父行 hover 热区及侧栏间距。系统 toolbar 保留原生反馈。右上角 Target/Add/Pause/End/Original size 仅当选择 Sessions 项且没有创建流程时显示；选 Display（即使关联活动会话）、空工作区和骨架屏均隐藏整组。
+
+会话标题采用独立文本组（状态点/名称、ID、复制），名称与 ID、ID 与复制均间隔 12 points，点与名称 8 points，外侧左右各 4 points；名称优先保留宽度，ID 可居中截断。macOS 26 标题 toolbar item 设置 sharedBackgroundVisibility(.hidden)，移除包含复制按钮触发的系统整组 glass 背景；旧系统保留普通 toolbar 文本。仅复制图标是按钮，标题整组不可点击。
