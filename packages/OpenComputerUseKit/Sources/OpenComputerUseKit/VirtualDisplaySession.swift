@@ -38,6 +38,7 @@ public struct VirtualDisplayApplicationInfo: Identifiable, Sendable {
     public let app: String
     public let name: String
     public let owned: Bool
+    public let documentURL: URL?
     public let selectedWindowID: UInt32?
     public var id: Int32 { pid }
 }
@@ -73,6 +74,7 @@ public struct VirtualDisplayState: Sendable {
         captureState["error"] = captureError
         value["applications"] = applications.map { application in
             var entry: [String: Any] = ["pid": application.pid, "app": application.app, "name": application.name, "owned": application.owned]
+            entry["document_path"] = application.documentURL?.path
             entry["selected_window_id"] = application.selectedWindowID
             return entry
         }
@@ -253,6 +255,7 @@ private struct OwnedApplicationRecovery: Codable {
     let startDate: Date
     let bundleIdentifier: String?
     let profile: URL?
+    let documentDirectory: URL?
 }
 
 private struct WindowRecovery: Codable {
@@ -270,10 +273,11 @@ private final class VirtualDisplayApplication {
     let processBirthDate: Date
     let owned: Bool
     let temporaryProfile: URL?
+    let documentURL: URL?
     var selected: UInt32?
-    init(application: NSRunningApplication, processBirthDate: Date, owned: Bool, temporaryProfile: URL?) {
+    init(application: NSRunningApplication, processBirthDate: Date, owned: Bool, temporaryProfile: URL?, documentURL: URL?) {
         self.application = application; self.processBirthDate = processBirthDate
-        self.owned = owned; self.temporaryProfile = temporaryProfile
+        self.owned = owned; self.temporaryProfile = temporaryProfile; self.documentURL = documentURL
     }
 }
 
@@ -384,7 +388,7 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
                      phase: s.reason != nil ? "paused" : apps.isEmpty ? "ready" : "attached", reason: s.reason,
                      pid: selectedApp?.processIdentifier, app: selectedApp?.bundleIdentifier ?? selectedApp?.localizedName,
                      selectedWindowID: s.selected, windows: windows,
-                     applications: apps.map { .init(pid: $0.application.processIdentifier, app: $0.application.bundleIdentifier ?? $0.application.localizedName ?? "Unknown", name: $0.application.localizedName ?? "Application", owned: $0.owned, selectedWindowID: $0.selected) },
+                     applications: apps.map { .init(pid: $0.application.processIdentifier, app: $0.application.bundleIdentifier ?? $0.application.localizedName ?? "Unknown", name: $0.application.localizedName ?? "Application", owned: $0.owned, documentURL: $0.documentURL, selectedWindowID: $0.selected) },
                      layoutVersion: s.version, foregroundBeforeCreation: s.foregroundBefore, foregroundAfterCreation: s.foregroundAfter,
                      physicalLayoutPreserved: s.layoutPreserved, captureIsRunning: s.capture.isRunning, lastFrameDate: s.capture.latestFrameDate, captureError: s.capture.error)
     }
@@ -471,7 +475,7 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
     public func availableWindows(pid: Int32) -> [VirtualDisplayWindowInfo] {
         VirtualDisplayWindowAccess.windows(pid: pid).map(\.info)
     }
-    public func attach(sessionID: String, app query: String, pid: Int32? = nil, windowID: UInt32? = nil, launch: Bool = false) throws -> VirtualDisplayState {
+    public func attach(sessionID: String, app query: String, pid: Int32? = nil, windowID: UInt32? = nil, launch: Bool = false, newDocument: Bool = false) throws -> VirtualDisplayState {
         lock.lock(); defer { lock.unlock() }
         let s = try requireSession(sessionID)
         guard s.reason == nil else { throw ComputerUseError.message("Session is paused") }
@@ -480,6 +484,17 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
         let application: NSRunningApplication
         var owned = false
         var temporaryProfile: URL?
+        var documentURL: URL?
+        if newDocument {
+            guard launch, pid == nil, windowID == nil, query.caseInsensitiveCompare("com.apple.TextEdit") == .orderedSame else {
+                throw ComputerUseError.invalidArguments("new_document requires a dedicated TextEdit launch")
+            }
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ocu-document-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            documentURL = directory.appendingPathComponent("Result.txt")
+            try Data().write(to: documentURL!, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: documentURL!.path)
+        }
         if launch {
             guard pid == nil, windowID == nil else { throw ComputerUseError.invalidArguments("Launch does not accept pid/window_id") }
             let before = Set(NSWorkspace.shared.runningApplications.map(\.processIdentifier))
@@ -492,12 +507,18 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
             let launchBox = LaunchResult()
             let semaphore = DispatchSemaphore(value: 0)
             let launchProfile = temporaryProfile
+            let launchDocument = documentURL
             DispatchQueue.main.async {
                 let config = NSWorkspace.OpenConfiguration()
                 config.activates = false; config.createsNewApplicationInstance = true; config.addsToRecentItems = false
                 if let profile = launchProfile { config.arguments = ["--user-data-dir=\(profile.path)", "--no-first-run", "--no-default-browser-check"] }
-                NSWorkspace.shared.openApplication(at: url, configuration: config) { app, error in
+                let completion: @Sendable (NSRunningApplication?, Error?) -> Void = { app, error in
                     launchBox.app = app; launchBox.error = error; semaphore.signal()
+                }
+                if let document = launchDocument {
+                    NSWorkspace.shared.open([document], withApplicationAt: url, configuration: config, completionHandler: completion)
+                } else {
+                    NSWorkspace.shared.openApplication(at: url, configuration: config, completionHandler: completion)
                 }
             }
             guard semaphore.wait(timeout: .now() + 15) == .success else { throw ComputerUseError.message("Application launch timed out; inspect running applications before retrying") }
@@ -532,7 +553,7 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
             existing.selected = windowID; s.selectedPID = pid; s.version += 1
             return state(s)
         }
-        let attached = VirtualDisplayApplication(application: application, processBirthDate: birth, owned: owned, temporaryProfile: temporaryProfile)
+        let attached = VirtualDisplayApplication(application: application, processBirthDate: birth, owned: owned, temporaryProfile: temporaryProfile, documentURL: documentURL)
         s.applications[pid] = attached
         s.setPIDs(Set(s.applications.keys))
         do {
@@ -743,6 +764,9 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
                     }
                 }
                 if let profile = attached.temporaryProfile, FileManager.default.fileExists(atPath: profile.path) { try FileManager.default.removeItem(at: profile) }
+                if let document = attached.documentURL {
+                    try removeOwnedTemporaryDirectory(document.deletingLastPathComponent(), prefix: "ocu-document-")
+                }
                 let record = ownedRecoveryFile(s.id, pid: app.processIdentifier)
                 if FileManager.default.fileExists(atPath: record.path) { try FileManager.default.removeItem(at: record) }
             }
@@ -761,7 +785,7 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
     private func persistOwnedApplication(_ attached: VirtualDisplayApplication, sessionID: String) throws {
         let app = attached.application
         try FileManager.default.createDirectory(at: ownedRecoveryDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        let record = OwnedApplicationRecovery(pid: app.processIdentifier, startDate: attached.processBirthDate, bundleIdentifier: app.bundleIdentifier, profile: attached.temporaryProfile)
+        let record = OwnedApplicationRecovery(pid: app.processIdentifier, startDate: attached.processBirthDate, bundleIdentifier: app.bundleIdentifier, profile: attached.temporaryProfile, documentDirectory: attached.documentURL?.deletingLastPathComponent())
         let url = ownedRecoveryFile(sessionID, pid: app.processIdentifier)
         try JSONEncoder().encode(record).write(to: url, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
@@ -773,17 +797,29 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
             if let current = processStartDate(record.pid) {
                 if current == record.startDate { continue } // Keep live apps and their profiles; never force quit after a crash.
             } else if kill(record.pid, 0) == 0 || errno != ESRCH { continue }
-            if let profile = record.profile {
-                let temporary = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
-                let name = profile.lastPathComponent
-                guard profile.isFileURL, name.hasPrefix("ocu-chrome-"), UUID(uuidString: String(name.dropFirst("ocu-chrome-".count))) != nil,
-                      profile.resolvingSymlinksInPath().deletingLastPathComponent() == temporary else {
-                    throw ComputerUseError.message("Recovery profile path cannot be verified; record retained")
-                }
-                if FileManager.default.fileExists(atPath: profile.path) { try FileManager.default.removeItem(at: profile) }
-            }
+            if let profile = record.profile { try removeOwnedTemporaryDirectory(profile, prefix: "ocu-chrome-") }
+            if let directory = record.documentDirectory { try removeOwnedTemporaryDirectory(directory, prefix: "ocu-document-") }
             try FileManager.default.removeItem(at: file)
         }
+    }
+    private func removeOwnedTemporaryDirectory(_ directory: URL, prefix: String) throws {
+        let temporary = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
+        let name = directory.lastPathComponent
+        guard directory.isFileURL, name.hasPrefix(prefix), UUID(uuidString: String(name.dropFirst(prefix.count))) != nil,
+              directory.resolvingSymlinksInPath().deletingLastPathComponent() == temporary else {
+            throw ComputerUseError.message("Recovery directory path cannot be verified; record retained")
+        }
+        if FileManager.default.fileExists(atPath: directory.path) { try FileManager.default.removeItem(at: directory) }
+    }
+    public func ownedDocument(sessionID: String, app: String) throws -> URL {
+        lock.lock(); defer { lock.unlock() }
+        let session = try requireSession(sessionID)
+        let matches = session.applications.values.filter { $0.owned && $0.application.bundleIdentifier?.caseInsensitiveCompare(app) == .orderedSame }
+        guard matches.count == 1, let attached = matches.first, let document = attached.documentURL,
+              !attached.application.isTerminated, processStartDate(attached.application.processIdentifier) == attached.processBirthDate else {
+            throw ComputerUseError.message("No verified session-owned document for this app")
+        }
+        return document
     }
     private func persistRecovery(excluding id: String? = nil) throws {
         try FileManager.default.createDirectory(at: recoveryURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])

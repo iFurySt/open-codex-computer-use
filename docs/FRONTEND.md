@@ -10,7 +10,7 @@ open "dist/Open Computer Use (Dev).app"
 ./scripts/run-virtual-display-tests.sh --lab
 ```
 
-使用原生 NavigationSplitView 会话 sidebar、创建/添加应用 sheet、系统 toolbar、权限引导与错误说明。桌面和 action notebook 使用 VSplitView；单元提供可编辑 JSON、播放、Run all、Stop and pause 和文本/截图输出。最低 macOS 14，新增系统效果须有 availability fallback。预览通过共享 `VirtualDisplayPreview` / Metal 渲染最新 CVPixelBuffer，正式 GUI 与 lab 不维护独立显示器实现。预览第一版只观看，不转发用户键鼠。
+使用原生 NavigationSplitView 会话 sidebar、创建/添加应用 sheet、detail NavigationStack 内的系统 toolbar（参考 HeyYo Dictionary，保留左侧原生 sidebar toggle）、权限引导与错误说明。桌面和 action notebook 使用 VSplitView；单元提供可编辑 JSON、播放、Run all、Stop and pause 和格式化 JSON 输出。新建 notebook 默认提供 Calculator → TextEdit 真实 case；命令/结果横向配对，UI Tree/截图横向配对。最低 macOS 14，新增系统效果须有 availability fallback。预览通过共享 `VirtualDisplayPreview` / Metal 渲染最新 CVPixelBuffer，正式 GUI 与 lab 不维护独立显示器实现。预览第一版只观看，不转发用户键鼠。
 
 UI 状态在 MainActor 更新，显示器/AX/捕获生命周期在 worker 执行；不可在主线程等待会调用 AppKit 主线程的同步操作。暂停必须先关闭输入门。主窗口关闭不结束会话，Quit 只有安全清理完成才退出。权限未完成时禁用创建；签名 dev/release bundle 的权限分别确认。
 

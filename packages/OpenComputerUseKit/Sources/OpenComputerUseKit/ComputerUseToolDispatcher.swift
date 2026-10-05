@@ -42,6 +42,17 @@ public final class ComputerUseToolDispatcher {
 
     public func clearSnapshotCache() { service.clearSnapshotCache() }
 
+    func notebookElement(sessionID: String, app: String, identifiers: [String] = [], role: String? = nil) throws -> String {
+        try VirtualDisplaySessionRegistry.shared.withOperation(sessionID: sessionID, app: app, windowID: nil, isAction: false) { context in
+            try service.withVirtualContext(context) { try service.notebookElement(app: app, identifiers: identifiers, role: role) }
+        }
+    }
+    func notebookValue(sessionID: String, app: String, index: String) throws -> String {
+        try VirtualDisplaySessionRegistry.shared.withOperation(sessionID: sessionID, app: app, windowID: nil, isAction: false) { context in
+            try service.withVirtualContext(context) { try service.notebookValue(app: app, index: index) }
+        }
+    }
+
     public func callTool(name: String, arguments: [String: Any]) throws -> ToolCallResult {
         let registry = VirtualDisplaySessionRegistry.shared
         func result(_ state: VirtualDisplayState) throws -> ToolCallResult {
@@ -61,8 +72,9 @@ public final class ComputerUseToolDispatcher {
             }
             let mode = optionalString("mode", in: arguments) ?? "adopt"
             guard ["adopt", "launch"].contains(mode) else { throw ComputerUseError.invalidArguments("mode must be adopt or launch") }
+            guard arguments["new_document"] == nil || arguments["new_document"] is Bool else { throw ComputerUseError.invalidArguments("new_document must be a boolean") }
             return try result(registry.attach(sessionID: requireString("session_id", in: arguments),
-                app: requireString("app", in: arguments), pid: rawPID.map(Int32.init), windowID: rawWindow.map(UInt32.init), launch: mode == "launch"))
+                app: requireString("app", in: arguments), pid: rawPID.map(Int32.init), windowID: rawWindow.map(UInt32.init), launch: mode == "launch", newDocument: arguments["new_document"] as? Bool ?? false))
         case "get_virtual_display_state":
             if arguments["session_id"] == nil {
                 let value: [String: Any] = ["sessions": registry.states().map(\.dictionary)]

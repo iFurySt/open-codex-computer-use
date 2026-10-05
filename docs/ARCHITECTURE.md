@@ -178,4 +178,4 @@ macOS tool registry 增加六个虚拟会话 tools（共 15），原有 app tool
 
 完整生命周期、权限、GUI 操作及实测边界见 [虚拟工作区设计](design-docs/virtual-display.md)。
 
-GUI 侧栏以会话为单位创建和切换，应用通过添加对话框加入。桌面下方提供编辑式 action notebook；`VirtualDisplayNotebookKernel` 为每会话保留 dispatcher/cache，强制 session 绑定，逐条或顺序调用生产 tools，输出文本和截图。无外部 Jupyter/Node/shell 依赖，输出不自动持久化。
+GUI 侧栏以会话为单位创建和切换，应用通过添加对话框加入。桌面下方提供编辑式 action notebook；`VirtualDisplayNotebookKernel` 为每会话保留 dispatcher/cache，强制 session 绑定，逐条或顺序调用生产 tools，输出格式化 JSON、横向配对的 AX tree / 截图。新会话默认提供 `VirtualDisplayExample` 的 Calculator → 专属 TextEdit 临时文档编排，结果通过 AX 实际读回，示例不承诺保存；`VirtualDisplayNotebookOutput` 分离文本与图像载荷。无外部 Jupyter/Node/shell 依赖，输出不自动持久化。

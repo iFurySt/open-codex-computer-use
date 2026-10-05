@@ -3,6 +3,28 @@ import XCTest
 @testable import OpenComputerUseKit
 
 final class VirtualDisplayTests: XCTestCase {
+    func testExampleCommandsBindToSessionAndRejectMalformedOperands() throws {
+        for cell in VirtualDisplayExample.cells {
+            let spec = try VirtualDisplayNotebookKernel.boundCommand(source: cell.source, sessionID: "example")
+            XCTAssertEqual(spec.arguments["session_id"] as? String, "example")
+        }
+        XCTAssertEqual(try VirtualDisplayExample.validatedNumber("-42.25"), "-42.25")
+        for invalid: Any in ["1e4", "nan", "12; command", "123456789", true, 42] {
+            XCTAssertThrowsError(try VirtualDisplayExample.validatedNumber(invalid))
+        }
+    }
+    func testNotebookOutputSeparatesTreeAndImagesFromFormattedJSON() throws {
+        let result = ToolCallResult(content: [.text(#"{"result":"714"}"#), .text("App=Calculator\n0 standard window"), .pngImage(Data([1, 2, 3]))])
+        let output = VirtualDisplayNotebookOutput(result)
+        XCTAssertEqual(output.uiTree, "App=Calculator\n0 standard window")
+        XCTAssertEqual(output.images, [Data([1, 2, 3])])
+        let json = try JSONSerialization.jsonObject(with: Data(output.json.utf8)) as? [String: Any]
+        XCTAssertEqual((json?["result"] as? [String: String])?["result"], "714")
+        XCTAssertFalse(output.json.contains("AQID"))
+        let failure = VirtualDisplayNotebookOutput(.text("Delivery unverified", isError: true))
+        XCTAssertTrue(failure.json.contains("Delivery unverified"))
+        XCTAssertTrue(failure.json.contains("true"))
+    }
     func testNotebookBindsSessionAndSelectedAppWithoutAllowingEscape() throws {
         let spec = try VirtualDisplayNotebookKernel.boundCommand(source: #"{"tool":"get_app_state","args":{"app":"$app","session_id":"$session","window_id":42}}"#, sessionID: "s1", app: "com.apple.calculator")
         XCTAssertEqual(spec.tool, "get_app_state")

@@ -7,6 +7,7 @@ struct WorkspaceCommandCell: Identifiable {
     var title: String
     var source: String
     var output = ""
+    var uiTree: String?
     var images: [Data] = []
     var isError = false
     var running = false
@@ -29,7 +30,7 @@ struct WorkspaceCommandCell: Identifiable {
 
 @MainActor
 final class WorkspaceNotebook: ObservableObject {
-    @Published var cells: [WorkspaceCommandCell] = [.template("get_virtual_display_state"), .template("get_app_state")]
+    @Published var cells: [WorkspaceCommandCell] = VirtualDisplayExample.cells.map { .init(title: $0.title, source: $0.source) }
     @Published var running = false
     var stopRequested = false
     let kernel: VirtualDisplayNotebookKernel
@@ -165,12 +166,10 @@ final class VirtualDisplayWorkspaceModel: ObservableObject {
                 do { result = try await Task.detached { try notebook.kernel.run(source: source, app: app) }.value }
                 catch { result = .text(error.localizedDescription, isError: true) }
                 if let index = notebook.cells.firstIndex(where: { $0.id == id }) {
-                    let content = result.asDictionary["content"] as? [[String: Any]] ?? []
-                    notebook.cells[index].output = content.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined(separator: "\n\n")
-                    notebook.cells[index].images = content.compactMap { item in
-                        guard item["type"] as? String == "image", let base64 = item["data"] as? String else { return nil }
-                        return Data(base64Encoded: base64)
-                    }
+                    let presentation = VirtualDisplayNotebookOutput(result)
+                    notebook.cells[index].output = presentation.json
+                    notebook.cells[index].uiTree = presentation.uiTree
+                    notebook.cells[index].images = presentation.images
                     notebook.cells[index].isError = result.isError
                     notebook.cells[index].executedSource = source
                     notebook.cells[index].duration = Date().timeIntervalSince(started)
@@ -188,8 +187,9 @@ final class VirtualDisplayWorkspaceModel: ObservableObject {
 struct VirtualDisplayWorkspaceView: View {
     @ObservedObject var model: VirtualDisplayWorkspaceModel
     var requestPermissions: () -> Void
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             VStack(spacing: 0) {
                 List(model.sessions, id: \.sessionID, selection: $model.selectedSession) { state in
                     VStack(alignment: .leading, spacing: 4) {
@@ -203,61 +203,75 @@ struct VirtualDisplayWorkspaceView: View {
             }.navigationTitle("Sessions")
             .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
         } detail: {
-            VStack(spacing: 0) {
-                if let state = model.state, let capture = try? VirtualDisplaySessionRegistry.shared.capture(sessionID: state.sessionID) {
-                    VSplitView {
-                        VStack(spacing: 0) {
-                            VirtualDisplayPreview(capture: capture, originalSize: model.originalSize).id(state.sessionID)
-                                .overlay(alignment: .topLeading) {
-                                    if state.phase == "paused" { Label("Paused", systemImage: "pause.fill").padding(8).background(.regularMaterial).padding() }
-                                }.frame(minHeight: 180)
-                            Divider()
-                            HStack {
-                                Text(state.phase.capitalized)
-                                if !state.windows.isEmpty {
-                                    Picker("Target", selection: Binding(get: { state.selectedWindowID ?? 0 }, set: { model.selectManagedWindow($0) })) {
-                                        ForEach(state.windows) { window in
-                                            let owner = state.applications.first { $0.pid == window.pid }?.name ?? "Application"
-                                            Text("\(owner) — \(window.title)").tag(window.id)
-                                        }
-                                    }.frame(maxWidth: 380).disabled(model.busy)
-                                }
-                                Spacer()
-                                Text(state.sessionID).font(.caption.monospaced()).textSelection(.enabled)
-                            }.padding(10)
-                        }.frame(minHeight: 240)
-                        if let notebook = model.notebooks[state.sessionID] {
-                            WorkspaceNotebookView(notebook: notebook, busy: model.busy, selectedApp: state.app, run: { model.runNotebook(sessionID: state.sessionID, cellID: $0) }, stop: { model.stopNotebook(sessionID: state.sessionID) })
-                                .frame(minHeight: 180, idealHeight: 300)
+            NavigationStack {
+                VStack(spacing: 0) {
+                    if let state = model.state, let capture = try? VirtualDisplaySessionRegistry.shared.capture(sessionID: state.sessionID) {
+                        VSplitView {
+                            VStack(spacing: 0) {
+                                VirtualDisplayPreview(capture: capture, originalSize: model.originalSize).id(state.sessionID)
+                                    .overlay(alignment: .topLeading) {
+                                        if state.phase == "paused" { Label("Paused", systemImage: "pause.fill").padding(8).background(.regularMaterial).padding() }
+                                    }.frame(minHeight: 180)
+                                Divider()
+                                HStack {
+                                    Text(state.phase.capitalized)
+                                    if !state.windows.isEmpty {
+                                        Picker("Target", selection: Binding(get: { state.selectedWindowID ?? 0 }, set: { model.selectManagedWindow($0) })) {
+                                            ForEach(state.windows) { window in
+                                                let owner = state.applications.first { $0.pid == window.pid }?.name ?? "Application"
+                                                Text("\(owner) — \(window.title)").tag(window.id)
+                                            }
+                                        }.frame(maxWidth: 380).disabled(model.busy)
+                                    }
+                                    Spacer()
+                                    Text(state.sessionID).font(.caption.monospaced()).textSelection(.enabled)
+                                }.padding(10)
+                            }.frame(minHeight: 240)
+                            if let notebook = model.notebooks[state.sessionID] {
+                                WorkspaceNotebookView(notebook: notebook, busy: model.busy, selectedApp: state.app, run: { model.runNotebook(sessionID: state.sessionID, cellID: $0) }, stop: { model.stopNotebook(sessionID: state.sessionID) })
+                                    .frame(minHeight: 180, idealHeight: 300)
+                            }
+                        }
+                    } else if !model.permissionsGranted {
+                        ContentUnavailableView {
+                            Label("Permissions needed", systemImage: "lock.shield")
+                        } description: {
+                            Text("Allow Accessibility and Screen Recording to create and operate virtual desktops.")
+                        } actions: { Button("Set up permissions") { requestPermissions() } }
+                    } else {
+                        ContentUnavailableView {
+                            Label("Virtual sessions", systemImage: "display.2")
+                        } description: { Text("Create a virtual desktop, add applications, then run editable action cells.") }
+                        actions: { Button("Create session") { model.showingCreate = true } }
+                    }
+                    if let message = model.message ?? model.state?.reason {
+                        Text(message).foregroundStyle(.secondary).padding(10).frame(maxWidth: .infinity, alignment: .leading).background(.bar)
+                    }
+                }.navigationTitle(model.state.map(model.name) ?? "Open Computer Use")
+                .toolbar {
+                    ToolbarItem(placement: .navigation) {
+                        HStack(spacing: 16) {
+                            Button {
+                                withAnimation { columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly }
+                            } label: { Image(systemName: "sidebar.left") }
+                            .help(columnVisibility == .detailOnly ? "Show Sidebar" : "Hide Sidebar")
+                            .accessibilityLabel(columnVisibility == .detailOnly ? "Show Sidebar" : "Hide Sidebar")
+                            Text(model.state.map(model.name) ?? "Open Computer Use").font(.headline)
                         }
                     }
-                } else if !model.permissionsGranted {
-                    ContentUnavailableView {
-                        Label("Permissions needed", systemImage: "lock.shield")
-                    } description: {
-                        Text("Allow Accessibility and Screen Recording to create and operate virtual desktops.")
-                    } actions: { Button("Set up permissions") { requestPermissions() } }
-                } else {
-                    ContentUnavailableView {
-                        Label("Virtual sessions", systemImage: "display.2")
-                    } description: { Text("Create a virtual desktop, add applications, then run editable action cells.") }
-                    actions: { Button("Create session") { model.showingCreate = true } }
+                    ToolbarItemGroup(placement: .primaryAction) {
+                        Button { model.showingAddApp = true } label: { Label("Add application", systemImage: "plus.app") }
+                            .disabled(model.busy || model.state == nil || model.state?.phase == "paused")
+                        Button { model.pauseOrResume() } label: { Label(model.state?.phase == "paused" ? "Resume" : "Pause", systemImage: model.state?.phase == "paused" ? "play" : "pause") }
+                            .disabled(model.state == nil || (model.busy && model.state?.phase == "paused"))
+                        Button { model.end() } label: { Label("End session", systemImage: "stop") }.disabled(model.busy || model.state == nil)
+                        Toggle("Original size", isOn: $model.originalSize).help("Display capture pixels at their original size")
+                    }
                 }
-                if let message = model.message ?? model.state?.reason {
-                    Text(message).foregroundStyle(.secondary).padding(10).frame(maxWidth: .infinity, alignment: .leading).background(.bar)
-                }
-            }.navigationTitle(model.state.map(model.name) ?? "Open Computer Use")
-        }
-        .toolbar {
-            ToolbarItemGroup {
-                Button { model.showingAddApp = true } label: { Label("Add application", systemImage: "plus.app") }
-                    .disabled(model.busy || model.state == nil || model.state?.phase == "paused")
-                Button { model.pauseOrResume() } label: { Label(model.state?.phase == "paused" ? "Resume" : "Pause", systemImage: model.state?.phase == "paused" ? "play" : "pause") }
-                    .disabled(model.state == nil || (model.busy && model.state?.phase == "paused"))
-                Button { model.end() } label: { Label("End session", systemImage: "stop") }.disabled(model.busy || model.state == nil)
-                Toggle("Original size", isOn: $model.originalSize).help("Display capture pixels at their original size")
             }
         }
+        .toolbar(removing: .sidebarToggle)
+
         .sheet(isPresented: $model.showingCreate) { createSheet }
         .sheet(isPresented: $model.showingAddApp) { addAppSheet }
         .frame(minWidth: 900, minHeight: 660)
@@ -314,7 +328,7 @@ struct WorkspaceNotebookView: View {
         VStack(spacing: 0) {
             HStack {
                 Text("Actions").font(.headline)
-                Text(selectedApp ?? "No application selected").font(.caption).foregroundStyle(.secondary)
+                Text(selectedApp ?? "Calculator → TextEdit").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button { run(nil) } label: { Label("Run all", systemImage: "play.fill") }.disabled(busy || notebook.cells.isEmpty)
                 Button { stop() } label: { Label("Stop and pause", systemImage: "pause.fill") }.disabled(!notebook.running)
@@ -346,9 +360,8 @@ struct WorkspaceCommandCellView: View {
     var busy: Bool
     var run: () -> Void
     var remove: () -> Void
-    @State private var expanded = true
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Button(action: run) { Image(systemName: "play.fill") }.help("Run cell").accessibilityLabel("Run \(cell.title)").disabled(busy)
                 TextField("Cell title", text: $cell.title).textFieldStyle(.plain).font(.headline)
@@ -360,24 +373,55 @@ struct WorkspaceCommandCellView: View {
                 }
                 Button(action: remove) { Image(systemName: "trash") }.help("Remove cell").disabled(busy)
             }
-            TextEditor(text: $cell.source).font(.system(size: 12, design: .monospaced))
-                .scrollContentBackground(.hidden).padding(4).background(.quaternary.opacity(0.3))
-                .frame(height: 116).accessibilityLabel("Command \(cell.title)").disabled(cell.running)
-            if cell.executedSource != nil {
-                if cell.executedSource != cell.source { Text("Edited since last run").font(.caption).foregroundStyle(.orange) }
-                DisclosureGroup("Output", isExpanded: $expanded) {
-                    VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Command").font(.caption).foregroundStyle(.secondary)
+                    TextEditor(text: $cell.source).font(.system(size: 12, design: .monospaced))
+                        .scrollContentBackground(.hidden).padding(4).background(.quaternary.opacity(0.3))
+                        .frame(height: 164).accessibilityLabel("Command \(cell.title)").disabled(cell.running)
+                    if cell.executedSource != nil && cell.executedSource != cell.source {
+                        Text("Edited since last run").font(.caption).foregroundStyle(.orange)
+                    }
+                }.frame(minWidth: 200, maxWidth: 320)
+                Divider()
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Result · JSON").font(.caption).foregroundStyle(.secondary)
+                    if cell.executedSource != nil {
                         ScrollView([.horizontal, .vertical]) {
-                            Text(cell.output).font(.system(size: 11, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                        }.frame(height: min(180, max(42, CGFloat(cell.output.split(separator: "\n").count) * 15)))
-                        ForEach(Array(cell.images.enumerated()), id: \.offset) { _, data in
-                            if let image = NSImage(data: data) { Image(nsImage: image).resizable().scaledToFit().frame(maxHeight: 260) }
+                            Text(cell.output).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }.frame(height: cell.uiTree == nil ? 164 : 100)
+                        if cell.uiTree != nil || !cell.images.isEmpty {
+                            HStack(alignment: .top, spacing: 12) {
+                                if let tree = cell.uiTree {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text("UI Tree").font(.caption).foregroundStyle(.secondary)
+                                        ScrollView([.horizontal, .vertical]) {
+                                            Text(tree).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                        }
+                                    }.frame(maxWidth: .infinity)
+                                }
+                                if !cell.images.isEmpty {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text("Screenshot").font(.caption).foregroundStyle(.secondary)
+                                        ForEach(Array(cell.images.enumerated()), id: \.offset) { _, data in
+                                            if let image = NSImage(data: data) {
+                                                Image(nsImage: image).resizable().scaledToFit().frame(maxHeight: 220)
+                                            }
+                                        }
+                                    }.frame(width: 160)
+                                }
+                            }.frame(height: 240)
                         }
-                    }.padding(.top, 6)
-                }
-            }
-        }.padding(12).background(.background, in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(cell.isError ? Color.red.opacity(0.4) : Color.secondary.opacity(0.2)))
+                    } else {
+                        Text("Run this cell to inspect its result.").font(.callout).foregroundStyle(.tertiary)
+                            .frame(maxWidth: .infinity, minHeight: 164, alignment: .topLeading)
+                    }
+                }.frame(minWidth: 230, maxWidth: .infinity, alignment: .leading)
+            }.fixedSize(horizontal: false, vertical: true)
+        }.padding(12).background(.background, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(cell.isError ? Color.red.opacity(0.4) : Color.secondary.opacity(0.15)))
     }
 }
 
@@ -394,7 +438,11 @@ final class VirtualDisplayWorkspaceController: NSObject, NSWindowDelegate {
             let view = VirtualDisplayWorkspaceView(model: model) { PermissionOnboardingApp.present() }
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1240, height: 880), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             window.title = "Open Computer Use"; window.isReleasedWhenClosed = false; window.delegate = self
+            window.titleVisibility = .hidden
+            window.toolbarStyle = .unified
+            window.titlebarSeparatorStyle = .none
             window.contentView = NSHostingView(rootView: view)
+            DispatchQueue.main.async { window.toolbar?.showsBaselineSeparator = false }
             window.center(); self.window = window
             installMenu()
         }

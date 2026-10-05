@@ -897,6 +897,30 @@ public final class ComputerUseService {
         return try actionResult(for: query)
     }
 
+    func notebookElement(app query: String, identifiers: [String], role: String?) throws -> String {
+        let snapshot = try currentSnapshot(for: query)
+        let matches = snapshot.elements.values.filter { record in
+            !record.isSyntheticText && record.element != nil &&
+            (identifiers.isEmpty || record.identifier.map { identifiers.contains($0) } == true) &&
+            (role == nil || record.role == role)
+        }
+        guard matches.count == 1, let record = matches.first else {
+            throw ComputerUseError.message("Expected one AX element for \(identifiers.isEmpty ? role ?? "selector" : identifiers.joined(separator: ", ")); found \(matches.count)")
+        }
+        return String(record.index)
+    }
+    func notebookValue(app query: String, index: String) throws -> String {
+        let snapshot = try currentSnapshot(for: query)
+        let record = try lookupElement(snapshot: snapshot, index: index)
+        guard let root = record.element else { throw ComputerUseError.message("AX value has no live element") }
+        func value(_ element: AXUIElement, depth: Int) -> String? {
+            if let text = VirtualDisplayWindowAccess.attribute(element, kAXValueAttribute) as? String { return text }
+            guard depth < 8, let children = VirtualDisplayWindowAccess.attribute(element, kAXChildrenAttribute) as? [AXUIElement] else { return nil }
+            return children.prefix(100).compactMap { value($0, depth: depth + 1) }.first
+        }
+        guard let text = value(root, depth: 0) else { throw ComputerUseError.message("AX element has no readable text value") }
+        return text
+    }
     private func currentSnapshot(for query: String) throws -> AppSnapshot {
         if let snapshot = snapshotsByApp[virtualContext?.cacheKey ?? query.lowercased()] {
             try verifyVirtualInput()

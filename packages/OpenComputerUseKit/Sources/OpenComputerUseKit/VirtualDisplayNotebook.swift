@@ -4,7 +4,8 @@ import Foundation
 /// executes a shell or permits a cell to escape its owning virtual session.
 public final class VirtualDisplayNotebookKernel: @unchecked Sendable {
     private let lock = NSLock()
-    private let dispatcher = ComputerUseToolDispatcher()
+    let dispatcher = ComputerUseToolDispatcher()
+    var values: [String: String] = [:]
     public let sessionID: String
     public init(sessionID: String) { self.sessionID = sessionID }
 
@@ -14,7 +15,7 @@ public final class VirtualDisplayNotebookKernel: @unchecked Sendable {
               let tool = command["tool"] as? String else {
             throw ComputerUseError.invalidArguments("Cell must contain an object with tool and args, for example {\"tool\":\"get_app_state\",\"args\":{}}")
         }
-        let allowed = ["get_virtual_display_state", "pause_virtual_display", "resume_virtual_display", "attach_app_to_virtual_display",
+        let allowed = ["prepare_example", "calculate", "write_result", "get_virtual_display_state", "pause_virtual_display", "resume_virtual_display", "attach_app_to_virtual_display",
                        "get_app_state", "click", "scroll", "drag", "type_text", "press_key", "set_value", "perform_secondary_action"]
         guard allowed.contains(tool) else { throw ComputerUseError.invalidArguments("This cell kernel supports session-bound OCU tools only; create/end sessions through the workspace") }
         guard command["args"] == nil || command["args"] is [String: Any] else { throw ComputerUseError.invalidArguments("Cell args must be an object") }
@@ -34,6 +35,9 @@ public final class VirtualDisplayNotebookKernel: @unchecked Sendable {
     public func run(source: String, app: String? = nil) throws -> ToolCallResult {
         lock.lock(); defer { lock.unlock() }
         let command = try Self.boundCommand(source: source, sessionID: sessionID, app: app)
+        if ["prepare_example", "calculate", "write_result"].contains(command.tool) {
+            return try runExample(tool: command.tool, arguments: command.arguments)
+        }
         return dispatcher.callToolAsResult(name: command.tool, arguments: command.arguments)
     }
 }

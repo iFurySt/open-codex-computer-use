@@ -13,7 +13,7 @@ Release 使用原有 `Open Computer Use.app`、bundle ID、`OPEN_COMPUTER_USE_CO
 
 左侧展示会话。点击 New session，填写名称和显示倍率，再 Create 创建空虚拟桌面；选中会话后用 Add application 搜索应用，选择专用启动或接管已有 PID/window。同一显示器可重复加入多个应用，窗口采用错位布局。新建/移除显示器可能触发系统桌面或 Space 通知，其他会话会按安全策略暂停，需要显式 Resume。接管前将目标应用留在后台。专用实例模式请求后台启动，Chrome 使用临时独立 profile；若 LaunchServices 返回已有 PID，拒绝隐式接管。主区域观看选中会话的整个虚拟屏幕，支持适应窗口和原始像素尺寸；Target 选择具体应用窗口。Toolbar 提供添加应用、暂停/继续和结束选中会话，Quit 清理所有会话。预览不接收人工键鼠输入。
 
-桌面下方的 Actions 是可编辑命令单元，可拖动分隔线调整高度。每个会话保留自己的内存 notebook，默认包含会话状态和应用 snapshot。单元支持编辑标题/JSON、单条播放、删除，Add cell 可添加模板并滚动到新单元，Run all 按当前顺序执行并在首个错误处停止。输出展示文本、截图、成功/错误状态和耗时；编辑后旧结果标为 Edited since last run。Stop and pause 阻止后续单元并关闭该会话输入门，当前操作在已有的安全边界退出；恢复后需要新的 snapshot。
+桌面下方的 Actions 是可编辑命令单元，可拖动分隔线调整高度。每个会话保留自己的内存 notebook，默认提供 Calculator → TextEdit 的可运行示例。单元支持编辑标题/JSON、单条播放、删除，Add cell 可添加模板并滚动到新单元，Run all 按当前顺序执行并在首个错误处停止。左侧编辑命令，右侧展示格式化 JSON；UI Tree 与截图左右排列。输出保留成功/错误状态和耗时；编辑后旧结果标为 Edited since last run。Stop and pause 阻止后续单元并关闭该会话输入门，当前操作在已有的安全边界退出；恢复后需要新的 snapshot。
 
 采用直接调用生产 dispatcher 的原生 kernel，保留跨单元 snapshot 缓存，无需 Jupyter/Node/shell 进程。示例单元：
 
@@ -25,7 +25,11 @@ Release 使用原有 `Open Computer Use.app`、bundle ID、`OPEN_COMPUTER_USE_CO
 {"tool":"click","args":{"app":"$app","element_index":"21","click_method":"accessibility"}}
 ```
 
-`$app`（或省略 app）使用开始运行时选中的应用；多应用编排可明确填写各自 bundle ID。索引必须从最新 snapshot 取得，模板的 REPLACE_FROM_SNAPSHOT 是待填写占位符，不能直接运行。`session_id` 自动绑定当前 notebook，显式跨会话 ID 被拒绝。Run all 冻结本次运行的单元顺序、命令和默认目标；修改留待下次执行。仅运行 session 内的 OCU tools，创建/结束通过工作区进行，不执行任意 shell 或 JS。输出仅在内存，不生成 .ipynb 文件，也不持久化截图或输入内容。
+`$app`（或省略 app）使用开始运行时选中的应用；多应用编排可明确填写各自 bundle ID。索引必须从最新 snapshot 取得，模板的 REPLACE_FROM_SNAPSHOT 是待填写占位符，不能直接运行。`session_id` 自动绑定当前 notebook，显式跨会话 ID 被拒绝。Run all 冻结本次运行的单元顺序、命令和默认目标；修改留待下次执行。仅运行 session 内的 OCU tools 和内置示例编排，创建/结束通过工作区进行，不执行任意 shell 或 JS。输出仅在内存，不生成 .ipynb 文件，也不持久化截图或输入内容。
+
+新会话直接点击 Run all：`prepare_example` 启动专属 Calculator 与 TextEdit，`calculate` 使用 AX identifier 选择实际按钮计算 `42 × 17`，从 Calculator AX display 读取结果，`write_result` 把 `${expression} = ${result}` 写入 TextEdit 并读回核对。前后 inspection 单元返回真实 AX tree / ScreenCaptureKit 截图。可编辑 calculate 的 `left` / `operation` / `right`，或修改 write_result 的模板；运算支持 +、-、*、/，数字采用有限长度的十进制字符串。示例命令是 notebook 内置编排，不新增 MCP tools；其他单元仍可逐条调用常规工具。
+
+TextEdit 通过 `attach_app_to_virtual_display` 的可选 `new_document: true` 启动会话专属临时 `Result.txt`（仅限专用 TextEdit 启动），避免空启动只有文件选择面板。不会隐式接管用户应用/文档。示例只验证 UI 中的内容，不承诺落盘：当前 AX set_value 的文本能读回，但 TextEdit Save 仍禁用，后台 ⌘S 也未保存。临时文件目录 0700、初始文件 0600；正常退出后移除，崩溃恢复只清理已确认退出的专属进程留下的可验证目录。未经保存的其他真实编辑仍可能阻止安全退出。
 
 会话 ID 可复制到工具调用。关闭主窗口保留后台会话，再次打开 App 显示同一窗口。Quit 恢复借用窗口，专用实例留在虚拟屏上礼貌退出，再停止捕获并移除显示器；专用实例拒绝退出时把窗口移回物理屏供用户处理，保留会话并显示原因。恢复失败也保留会话。借用应用不会被退出。切换 OCU 构建时，有活动会话的旧 runtime 不会被替换；需要先结束会话，或明确使用独立 socket namespace。
 
@@ -102,6 +106,7 @@ var existing = await cua.getApp("APP_BUNDLE_ID", { sessionId: "SESSION_ID" });
 swift test
 node --test scripts/node-repl/*.test.mjs
 ./scripts/run-tool-smoke-tests.sh
+./scripts/run-virtual-display-tests.sh --example
 ./scripts/run-virtual-display-tests.sh --multi-session
 ./scripts/run-virtual-display-tests.sh --cycles 20 --scale 1
 ./scripts/run-virtual-display-tests.sh --cycles 20 --scale 2
@@ -129,7 +134,7 @@ Runner 默认保持用户当前前台，真实 AppKit target 不自行激活；�
 | AppKit app_post / sky_click | 未改变真实按钮计数；返回新状态说明未验证变化，不切换输入方法 |
 | press_key | 受窗口焦点校验约束，当前只有投递/读回证据，不声明具体快捷键效果 |
 | 前台 AppKit probe | 测试期间发生前台切换，未形成有效 active/key/first responder 保持证据 |
-| TextEdit 默认专用启动 | 没有可关联的普通窗口，失败并安全清理 |
+| TextEdit 空启动 / 专属文档 | 空启动仍没有可关联的普通窗口；new_document 已验证后台打开专属文档、AX 写入/读回。默认示例不保存文件 |
 | Chrome 临时 profile 专用启动 | 应用自行进入前台，失败并安全清理 |
 | Calculator + 正式 GUI | Release 复用已有权限；专用启动、放置窗口、实时预览、CLI 共用会话、AX 修改并还原数值、暂停/继续、关窗保活、重开、结束和带活动会话 Quit 清理通过 |
 | Dev GUI 权限缺失 | 展示权限入口并禁用创建，通过实机检查 |

@@ -47,6 +47,7 @@ public enum ToolDefinitions {
         ToolDefinition(name: "attach_app_to_virtual_display", description: "Launch a dedicated app instance or adopt an exact existing pid/window into a virtual display. app must be a bundle identifier for launch. Multiple applications can share a display; each process belongs to only one session. Target must not be frontmost.", annotations: defaultAnnotations(), inputSchema: objectSchema(properties: [
             "session_id": stringProperty(description: "Virtual session identifier"), "app": stringProperty(description: "App name or bundle identifier"),
             "mode": stringProperty(description: "adopt (default) or launch", enumValues: ["adopt", "launch"]),
+            "new_document": ["type": "boolean", "description": "For dedicated TextEdit launch: create a session-owned temporary text document"],
             "pid": positiveIntegerProperty(description: "Required for adopt"), "window_id": positiveIntegerProperty(description: "Required for adopt")], required: ["session_id", "app"])),
         ToolDefinition(name: "get_virtual_display_state", description: "Inspect one virtual session, including managed applications/windows. Omit session_id to list all sessions.", annotations: readOnlyAnnotations(), inputSchema: objectSchema(properties: ["session_id": stringProperty(description: "Optional virtual session identifier; omit to list")], required: [])),
         sessionTool("pause_virtual_display", "Pause virtual-session input."),
