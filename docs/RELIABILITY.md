@@ -47,3 +47,5 @@ CI/CD 流程结构和 release 自动化的默认方案，统一写在 `docs/CICD
 虚拟会话采用 helper、CG 在线列表确认移除和 capture generation 防止残留显示器/旧帧。暂停时禁止继续输入，重连重新发现 ScreenCaptureKit 对象。无新帧只记录 frame age，不把静止画面误判失败。未保存内容、恢复失败保留会话供用户处理；旧 runtime 有会话时不自动替换 socket。
 
 当前 macOS 26.5.1/arm64 AppKit 真交互、1×/2× 与 20 次循环有实机证据；TextEdit 默认启动无普通窗口、Chrome 专用启动自行激活属于兼容性失败。Calculator 正式签名 GUI / CLI 共享会话、预览、暂停/继续、关窗保活和清理已实测；前台 AppKit 焦点保持、锁屏/睡眠、Space/Stage Manager、主进程崩溃等还需实测，不能以单元测试宣称支持。详见 [兼容性矩阵](design-docs/virtual-display.md)。
+
+多会话使用独立 holder/capture；registry 仍串行调度输入，暂停门按会话隔离，Quit 遍历所有会话并在清理失败时保留 runtime。`--multi-session` runner 验证两个显示器、同显示器两个真实 AppKit 进程、跨会话归属拒绝、notebook 实际 AX 变化以及暂停/销毁隔离。Notebook Run all 首个失败即停止，Stop and pause 不取消已投递事件，要求当前操作按既有检查安全退出。

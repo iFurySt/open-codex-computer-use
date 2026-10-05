@@ -40,15 +40,15 @@ public enum ToolDefinitions {
     } + virtualDisplayTools
 
     private static let virtualDisplayTools: [ToolDefinition] = [
-        ToolDefinition(name: "create_virtual_display", description: "Create a macOS extended virtual display session. Requires Accessibility and Screen Recording. Only one session is allowed.", annotations: defaultAnnotations(), inputSchema: objectSchema(properties: [
+        ToolDefinition(name: "create_virtual_display", description: "Create a macOS extended virtual display session. Requires Accessibility and Screen Recording. Each session owns an independent display; multiple sessions can coexist.", annotations: defaultAnnotations(), inputSchema: objectSchema(properties: [
             "width": positiveIntegerProperty(description: "Logical width in points; default 1920"),
             "height": positiveIntegerProperty(description: "Logical height in points; default 1080"),
             "scale": integerProperty(description: "Backing scale: 1 (default) or 2")], required: [])),
-        ToolDefinition(name: "attach_app_to_virtual_display", description: "Launch a dedicated app instance or adopt an exact existing pid/window into a virtual display. app must be a bundle identifier for launch. Target must not be frontmost.", annotations: defaultAnnotations(), inputSchema: objectSchema(properties: [
+        ToolDefinition(name: "attach_app_to_virtual_display", description: "Launch a dedicated app instance or adopt an exact existing pid/window into a virtual display. app must be a bundle identifier for launch. Multiple applications can share a display; each process belongs to only one session. Target must not be frontmost.", annotations: defaultAnnotations(), inputSchema: objectSchema(properties: [
             "session_id": stringProperty(description: "Virtual session identifier"), "app": stringProperty(description: "App name or bundle identifier"),
             "mode": stringProperty(description: "adopt (default) or launch", enumValues: ["adopt", "launch"]),
             "pid": positiveIntegerProperty(description: "Required for adopt"), "window_id": positiveIntegerProperty(description: "Required for adopt")], required: ["session_id", "app"])),
-        sessionTool("get_virtual_display_state", "Inspect virtual display lifecycle, managed windows, selection and errors.", readOnly: true),
+        ToolDefinition(name: "get_virtual_display_state", description: "Inspect one virtual session, including managed applications/windows. Omit session_id to list all sessions.", annotations: readOnlyAnnotations(), inputSchema: objectSchema(properties: ["session_id": stringProperty(description: "Optional virtual session identifier; omit to list")], required: [])),
         sessionTool("pause_virtual_display", "Pause virtual-session input."),
         sessionTool("resume_virtual_display", "Validate identity and geometry, then resume a paused session."),
         sessionTool("destroy_virtual_display", "Restore borrowed windows and request dedicated app termination, then remove the display. Unsaved content may block cleanup.")

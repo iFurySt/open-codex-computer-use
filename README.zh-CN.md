@@ -19,7 +19,7 @@
 
 ## macOS 虚拟工作区
 
-无参数启动现在显示独立原生 GUI：选择应用/窗口，创建虚拟外接显示器、实时观看、暂停/继续和结束会话。CLI、MCP 与 JS 共用 runtime。预览第一版仅观看；虚拟会话始终禁止全局输入与激活应用，当前不支持拖拽。
+无参数启动现在显示独立原生 GUI：在侧栏创建/切换虚拟显示器会话，每个会话加入多个应用/窗口，并在桌面下方编辑、逐条运行 action 单元、观看输出。支持实时预览、暂停/继续和结束会话。CLI、MCP 与 JS 共用 runtime。预览第一版仅观看；虚拟会话始终禁止全局输入与激活应用，当前不支持拖拽。
 
 本地运行 `./scripts/build-open-computer-use-app.sh debug`，打开 `dist/Open Computer Use (Dev).app` 并为 dev bundle 授权 Accessibility 与 Screen Recording。macOS 增加六个 session tools，Windows/Linux 保留原有九个工具。当前 macOS 26.5.1 / arm64 已验证真实 AppKit 操作和 20 次显示器启停，TextEdit/Chrome 默认专用启动仍有兼容性失败。
 

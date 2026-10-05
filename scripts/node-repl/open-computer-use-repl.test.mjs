@@ -241,3 +241,30 @@ test("unsupported native runtimes cannot silently ignore a virtual session bindi
   assert.match(result.content.at(-1).text, /unavailable/);
   assert.deepEqual(calls, ["tools/list"]);
 });
+
+test("virtual session discovery and multi-app bindings retain independent identities", async () => {
+  const calls = [];
+  const native = { async request(method, params) {
+    if (method === "tools/list") return { tools: [{ name: "create_virtual_display" }] };
+    calls.push(params);
+    if (params.name === "get_virtual_display_state") {
+      return textResult(JSON.stringify(params.arguments.session_id ? {session_id: params.arguments.session_id} : {sessions: [{session_id: "one"}, {session_id: "two"}]}));
+    }
+    if (params.name === "attach_app_to_virtual_display") return textResult(JSON.stringify({session_id: params.arguments.session_id}));
+    return textResult("state");
+  } };
+  const session = new PersistentJavaScriptSession({native});
+  const result = await session.run(`
+    var displays = await cua.listVirtualDisplays();
+    var display = await cua.getVirtualDisplay(displays[0].session_id);
+    await display.attachApp("First", {pid: 10, windowId: 11});
+    await display.attachApp("Second", {pid: 20, windowId: 21});
+    var firstApp = await display.getApp("First"); var secondApp = await display.getApp("Second");
+    await firstApp.click(1); await secondApp.click(2);
+    var other = await cua.getApp("Third", {sessionId: displays[1].session_id}); await other.click(3);
+  `);
+  assert.equal(result.isError, false);
+  assert.deepEqual(calls[0].arguments, {});
+  const clicks = calls.filter(c => c.name === "click");
+  assert.deepEqual(clicks.map(c => [c.arguments.app, c.arguments.session_id]), [["First", "one"], ["Second", "one"], ["Third", "two"]]);
+});

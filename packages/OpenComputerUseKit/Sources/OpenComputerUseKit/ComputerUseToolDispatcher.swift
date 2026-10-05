@@ -64,6 +64,10 @@ public final class ComputerUseToolDispatcher {
             return try result(registry.attach(sessionID: requireString("session_id", in: arguments),
                 app: requireString("app", in: arguments), pid: rawPID.map(Int32.init), windowID: rawWindow.map(UInt32.init), launch: mode == "launch"))
         case "get_virtual_display_state":
+            if arguments["session_id"] == nil {
+                let value: [String: Any] = ["sessions": registry.states().map(\.dictionary)]
+                return .text(String(decoding: try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]), as: UTF8.self))
+            }
             return try result(registry.state(sessionID: requireString("session_id", in: arguments)))
         case "pause_virtual_display":
             return try result(registry.pause(sessionID: requireString("session_id", in: arguments)))

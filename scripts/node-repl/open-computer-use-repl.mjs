@@ -38,7 +38,7 @@ The runtime exposes an asynchronous app-bound API:
 - \`await cua.listApps({ emit? })\`: list current apps.
 - \`await cua.getApp(nameOrBundleID)\`: bind an app and emit its initial accessibility state.
 - \`await cua.createVirtualDisplay({ width?, height?, scale? })\` (macOS): returns a session with \`id\`, \`attachApp(app, { mode: "adopt"|"launch", pid?, windowId? })\`, \`getState()\`, \`pause()\`, \`resume()\`, \`destroy()\` and \`getApp(app, { windowId? })\`.
-- \`await cua.getVirtualDisplay(sessionId)\`: join an existing macOS session and get its lifecycle controller.
+- \`await cua.getVirtualDisplay(sessionId)\`: join an existing macOS session and get its lifecycle controller. Use \`await cua.listVirtualDisplays()\` to discover sessions; each can contain multiple applications.
 - \`await cua.getApp(app, { sessionId, windowId? })\`: join an existing virtual session shown in the OCU GUI. Virtual sessions never activate apps, post global input or use the clipboard; drag is unsupported. Sessions survive client disconnect and turn-ended, but each new turn/resume needs a fresh state.
 - \`await app.getAXState({ emit?, textLimit?, maxTreeNodes?, maxTreeDepth? })\`
 - \`await app.getScreenshot({ emit? })\`
@@ -360,6 +360,10 @@ export function createCuaApi(native, activeOutput) {
       for (const key of ["width", "height", "scale"]) if (options[key] !== undefined) args[key] = options[key];
       const state = JSON.parse(toolResultText(await call("create_virtual_display", args)));
       return virtualDisplayBinding(state.session_id);
+    },
+    async listVirtualDisplays() {
+      await requireVirtualSupport();
+      return JSON.parse(toolResultText(await call("get_virtual_display_state", {}))).sessions;
     },
     async getVirtualDisplay(id) {
       await requireVirtualSupport();

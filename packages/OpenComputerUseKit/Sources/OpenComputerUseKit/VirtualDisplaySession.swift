@@ -33,6 +33,15 @@ public struct VirtualDisplayWindowInfo: Identifiable, Sendable {
     public var frame: CGRect
 }
 
+public struct VirtualDisplayApplicationInfo: Identifiable, Sendable {
+    public let pid: Int32
+    public let app: String
+    public let name: String
+    public let owned: Bool
+    public let selectedWindowID: UInt32?
+    public var id: Int32 { pid }
+}
+
 public struct VirtualDisplayState: Sendable {
     public let sessionID: String
     public let displayID: UInt32
@@ -45,6 +54,7 @@ public struct VirtualDisplayState: Sendable {
     public let app: String?
     public let selectedWindowID: UInt32?
     public let windows: [VirtualDisplayWindowInfo]
+    public let applications: [VirtualDisplayApplicationInfo]
     public let layoutVersion: Int
     public let foregroundBeforeCreation: Int32?
     public let foregroundAfterCreation: Int32?
@@ -61,6 +71,11 @@ public struct VirtualDisplayState: Sendable {
         var captureState: [String: Any] = ["running": captureIsRunning]
         captureState["frame_age_seconds"] = lastFrameDate.map { max(0, Date().timeIntervalSince($0)) }
         captureState["error"] = captureError
+        value["applications"] = applications.map { application in
+            var entry: [String: Any] = ["pid": application.pid, "app": application.app, "name": application.name, "owned": application.owned]
+            entry["selected_window_id"] = application.selectedWindowID
+            return entry
+        }
         value["capture"] = captureState
         var observation: [String: Any] = ["physical_layout_preserved": physicalLayoutPreserved]
         observation["foreground_before_pid"] = foregroundBeforeCreation
@@ -250,28 +265,39 @@ private struct WindowRecovery: Codable {
     let displayFrame: CGRect?
 }
 
+private final class VirtualDisplayApplication {
+    let application: NSRunningApplication
+    let processBirthDate: Date
+    let owned: Bool
+    let temporaryProfile: URL?
+    var selected: UInt32?
+    init(application: NSRunningApplication, processBirthDate: Date, owned: Bool, temporaryProfile: URL?) {
+        self.application = application; self.processBirthDate = processBirthDate
+        self.owned = owned; self.temporaryProfile = temporaryProfile
+    }
+}
+
 private final class VirtualDisplaySession {
     let id = UUID().uuidString
     let holder: VirtualDisplayHolder
     let configuration: VirtualDisplayConfiguration
+    let capture = VirtualDisplayCapture()
     var bounds: CGRect
     var version = 1
     var physicalLayout: [UInt32: CGRect] = [:]
     var foregroundBefore: Int32?
     var foregroundAfter: Int32?
     var layoutPreserved = true
-    var application: NSRunningApplication?
-    var processBirthDate: Date?
-    var owned = false
-    var temporaryProfile: URL?
+    var applications: [Int32: VirtualDisplayApplication] = [:]
+    var selectedPID: Int32?
+    var selected: UInt32? { selectedPID.flatMap { applications[$0]?.selected } }
     var originals: [UInt32: WindowRecovery] = [:]
     var frames: [UInt32: CGRect] = [:]
-    var selected: UInt32?
     let pauseLock = NSLock()
     private var pauseReason: String?
-    private var targetPID: Int32?
-    func setPID(_ pid: Int32) { pauseLock.lock(); targetPID = pid; pauseLock.unlock() }
-    func pauseIfActivated(_ pid: Int32) { pauseLock.lock(); if targetPID == pid { pauseReason = "Target application became frontmost" }; pauseLock.unlock() }
+    private var targetPIDs: Set<Int32> = []
+    func setPIDs(_ pids: Set<Int32>) { pauseLock.lock(); targetPIDs = pids; pauseLock.unlock() }
+    func pauseIfActivated(_ pid: Int32) { pauseLock.lock(); if targetPIDs.contains(pid) { pauseReason = "Managed application became frontmost" }; pauseLock.unlock() }
     init(holder: VirtualDisplayHolder, configuration: VirtualDisplayConfiguration) {
         self.holder = holder; self.configuration = configuration; bounds = CGDisplayBounds(holder.displayID)
     }
@@ -285,26 +311,46 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
     public static let shared = VirtualDisplaySessionRegistry()
     private let lock = NSRecursiveLock()
     private let controlLock = NSLock()
-    private var session: VirtualDisplaySession?
-    private var controlledSession: VirtualDisplaySession?
+    private var sessions: [String: VirtualDisplaySession] = [:]
+    private var sessionOrder: [String] = []
+    private var controlledSessions: [String: VirtualDisplaySession] = [:]
+    private var controlledOrder: [String] = []
     private var inputEpoch = 0
     private var observers: [NSObjectProtocol] = []
     private let monitorQueue = DispatchQueue(label: "com.ifuryst.ocu.virtual-display.monitor")
     private var monitor: DispatchSourceTimer?
     private let recoveryURL: URL
-    public let capture = VirtualDisplayCapture()
+    private let emptyCapture = VirtualDisplayCapture()
+    /// Legacy single-session access. Multi-session callers use capture(sessionID:).
+    public var capture: VirtualDisplayCapture {
+        controlLock.lock(); defer { controlLock.unlock() }
+        return controlledOrder.last.flatMap { controlledSessions[$0]?.capture } ?? emptyCapture
+    }
+    public func capture(sessionID: String) throws -> VirtualDisplayCapture {
+        controlLock.lock(); defer { controlLock.unlock() }
+        guard let session = controlledSessions[sessionID] else { throw ComputerUseError.message("Unknown virtual display session") }
+        return session.capture
+    }
+    public func states() -> [VirtualDisplayState] {
+        lock.lock(); defer { lock.unlock() }; return sessionOrder.compactMap { sessions[$0].map(state) }
+    }
 
     private init() {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        recoveryURL = base.appendingPathComponent(Bundle.main.bundleIdentifier ?? "com.ifuryst.opencomputeruse.cli").appendingPathComponent("virtual-display-recovery.json")
+        var directory = base.appendingPathComponent(Bundle.main.bundleIdentifier ?? "com.ifuryst.opencomputeruse.cli")
+        let namespace = ProcessInfo.processInfo.environment[openComputerUseAppAgentSocketNamespaceEnvironmentKey]
+        if let namespace, !namespace.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            directory.appendPathComponent(openComputerUseAppAgentSocketFileName(namespace: namespace))
+        }
+        recoveryURL = directory.appendingPathComponent("virtual-display-recovery.json")
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification, NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.activeSpaceDidChangeNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in self?.pauseForDesktopChange() })
         }
         observers.append(center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: nil) { [weak self] notification in
             guard let self, let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-            self.controlLock.lock(); let current = self.controlledSession; self.controlLock.unlock()
-            current?.pauseIfActivated(app.processIdentifier)
+            self.controlLock.lock(); let current = Array(self.controlledSessions.values); self.controlLock.unlock()
+            current.forEach { $0.pauseIfActivated(app.processIdentifier) }
         })
         observers.append(DistributedNotificationCenter.default().addObserver(forName: .init("com.apple.screenIsLocked"), object: nil, queue: nil) { [weak self] _ in self?.pauseForDesktopChange() })
         let timer = DispatchSource.makeTimerSource(queue: monitorQueue)
@@ -313,16 +359,16 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
         timer.resume(); monitor = timer
     }
     public func pauseForDesktopChange() {
-        controlLock.lock(); let current = controlledSession; controlLock.unlock()
-        current?.pause("Desktop changed or locked; inspect and resume explicitly")
+        controlLock.lock(); let current = Array(controlledSessions.values); controlLock.unlock()
+        current.forEach { $0.pause("Desktop changed or locked; inspect and resume explicitly") }
     }
     private func requireSession(_ id: String) throws -> VirtualDisplaySession {
-        guard let session, session.id == id else { throw ComputerUseError.message("Unknown virtual display session") }
+        guard let session = sessions[id] else { throw ComputerUseError.message("Unknown virtual display session") }
         return session
     }
     public func currentState() -> VirtualDisplayState? {
         lock.lock(); defer { lock.unlock() }
-        return session.map(state)
+        return sessionOrder.last.flatMap { sessions[$0].map(state) }
     }
     public func state(sessionID: String) throws -> VirtualDisplayState {
         lock.lock(); defer { lock.unlock() }
@@ -331,22 +377,24 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
         return state(s)
     }
     private func state(_ s: VirtualDisplaySession) -> VirtualDisplayState {
-        let windows = s.application.map { VirtualDisplayWindowAccess.windows(pid: $0.processIdentifier).filter { s.frames[$0.info.id] != nil }.map(\.info) } ?? []
+        let apps = s.applications.values.sorted { $0.application.processIdentifier < $1.application.processIdentifier }
+        let selectedApp = s.selectedPID.flatMap { s.applications[$0]?.application }
+        let windows = apps.flatMap { VirtualDisplayWindowAccess.windows(pid: $0.application.processIdentifier).filter { s.frames[$0.info.id] != nil }.map(\.info) }
         return .init(sessionID: s.id, displayID: s.holder.displayID, helperPID: s.holder.process.processIdentifier, frame: s.bounds, configuration: s.configuration,
-                     phase: s.reason != nil ? "paused" : s.application == nil ? "ready" : "attached", reason: s.reason,
-                     pid: s.application?.processIdentifier, app: s.application?.bundleIdentifier ?? s.application?.localizedName,
-                     selectedWindowID: s.selected, windows: windows, layoutVersion: s.version,
-                     foregroundBeforeCreation: s.foregroundBefore, foregroundAfterCreation: s.foregroundAfter,
-                     physicalLayoutPreserved: s.layoutPreserved, captureIsRunning: capture.isRunning, lastFrameDate: capture.latestFrameDate, captureError: capture.error)
+                     phase: s.reason != nil ? "paused" : apps.isEmpty ? "ready" : "attached", reason: s.reason,
+                     pid: selectedApp?.processIdentifier, app: selectedApp?.bundleIdentifier ?? selectedApp?.localizedName,
+                     selectedWindowID: s.selected, windows: windows,
+                     applications: apps.map { .init(pid: $0.application.processIdentifier, app: $0.application.bundleIdentifier ?? $0.application.localizedName ?? "Unknown", name: $0.application.localizedName ?? "Application", owned: $0.owned, selectedWindowID: $0.selected) },
+                     layoutVersion: s.version, foregroundBeforeCreation: s.foregroundBefore, foregroundAfterCreation: s.foregroundAfter,
+                     physicalLayoutPreserved: s.layoutPreserved, captureIsRunning: s.capture.isRunning, lastFrameDate: s.capture.latestFrameDate, captureError: s.capture.error)
     }
     public func create(configuration: VirtualDisplayConfiguration = .init()) throws -> VirtualDisplayState {
         lock.lock(); defer { lock.unlock() }
         guard !Thread.isMainThread else { throw ComputerUseError.message("Create virtual displays on a worker thread") }
         try configuration.validate()
-        guard session == nil else { throw ComputerUseError.message("A virtual session already exists; end it before creating another") }
         guard AXIsProcessTrusted(), CGPreflightScreenCaptureAccess() else { throw ComputerUseError.permissionDenied("Accessibility and Screen Recording permissions are required") }
-        try recoverWindows()
-        let originalPhysical = Self.physicalLayout(excluding: 0)
+        if sessions.isEmpty { try recoverWindows() }
+        let originalPhysical = physicalLayout()
         let originalForeground = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let holder = try VirtualDisplayHolder(configuration: configuration)
         let s = VirtualDisplaySession(holder: holder, configuration: configuration)
@@ -356,21 +404,21 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
             while Date() < deadline {
                 let id = holder.displayID
                 let screenReady = DispatchQueue.main.sync { NSScreen.screens.contains { ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == id } }
-                if CGDisplayIsActive(id) != 0, screenReady, try capture.start(displayID: id, configuration: configuration) {
+                if CGDisplayIsActive(id) != 0, screenReady, try s.capture.start(displayID: id, configuration: configuration) {
                     ready = true; break
                 }
                 Thread.sleep(forTimeInterval: 0.1)
             }
             guard ready else { throw ComputerUseError.message("Virtual display did not become capturable") }
             s.bounds = CGDisplayBounds(holder.displayID)
-            s.physicalLayout = Self.physicalLayout(excluding: holder.displayID)
+            s.physicalLayout = physicalLayout(excluding: holder.displayID)
             s.foregroundBefore = originalForeground; s.foregroundAfter = NSWorkspace.shared.frontmostApplication?.processIdentifier
             s.layoutPreserved = s.physicalLayout == originalPhysical
             if !s.layoutPreserved { s.pause("Physical display layout changed during setup; inspect before resuming") }
-            session = s
-            controlLock.lock(); controlledSession = s; controlLock.unlock()
+            sessions[s.id] = s; sessionOrder.append(s.id)
+            controlLock.lock(); controlledSessions[s.id] = s; controlledOrder.append(s.id); controlLock.unlock()
             return state(s)
-        } catch { capture.stop(); holder.stop(); throw error }
+        } catch { s.capture.stop(); holder.stop(); throw error }
     }
     public static func onlineDisplayIDs() -> [UInt32] {
         var ids = [CGDirectDisplayID](repeating: 0, count: 64); var count: UInt32 = 0
@@ -408,12 +456,17 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
         }
         return choices.values.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
+    public var activeDisplayIDs: Set<UInt32> {
+        controlLock.lock(); defer { controlLock.unlock() }
+        return Set(controlledSessions.values.map { $0.holder.displayID })
+    }
     public var activeDisplayID: UInt32? {
-        controlLock.lock(); defer { controlLock.unlock() }; return controlledSession?.holder.displayID
+        controlLock.lock(); defer { controlLock.unlock() }
+        return controlledOrder.last.flatMap { controlledSessions[$0]?.holder.displayID }
     }
     public var activeSessionID: String? {
         controlLock.lock(); defer { controlLock.unlock() }
-        return controlledSession?.id
+        return controlledOrder.last
     }
     public func availableWindows(pid: Int32) -> [VirtualDisplayWindowInfo] {
         VirtualDisplayWindowAccess.windows(pid: pid).map(\.info)
@@ -421,10 +474,12 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
     public func attach(sessionID: String, app query: String, pid: Int32? = nil, windowID: UInt32? = nil, launch: Bool = false) throws -> VirtualDisplayState {
         lock.lock(); defer { lock.unlock() }
         let s = try requireSession(sessionID)
-        guard s.application == nil else { throw ComputerUseError.message("Session already has a target application") }
         guard s.reason == nil else { throw ComputerUseError.message("Session is paused") }
+        try validate(s, requireApp: false)
         if AppSafetyPolicy.isBlocked(bundleIdentifier: query.lowercased()) { throw AppSafetyPolicy.permissionDenied(bundleIdentifier: query) }
         let application: NSRunningApplication
+        var owned = false
+        var temporaryProfile: URL?
         if launch {
             guard pid == nil, windowID == nil else { throw ComputerUseError.invalidArguments("Launch does not accept pid/window_id") }
             let before = Set(NSWorkspace.shared.runningApplications.map(\.processIdentifier))
@@ -432,11 +487,11 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
             if query.caseInsensitiveCompare("com.google.Chrome") == .orderedSame {
                 let profile = FileManager.default.temporaryDirectory.appendingPathComponent("ocu-chrome-\(UUID().uuidString)")
                 try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-                s.temporaryProfile = profile
+                temporaryProfile = profile
             }
             let launchBox = LaunchResult()
             let semaphore = DispatchSemaphore(value: 0)
-            let launchProfile = s.temporaryProfile
+            let launchProfile = temporaryProfile
             DispatchQueue.main.async {
                 let config = NSWorkspace.OpenConfiguration()
                 config.activates = false; config.createsNewApplicationInstance = true; config.addsToRecentItems = false
@@ -448,7 +503,7 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
             guard semaphore.wait(timeout: .now() + 15) == .success else { throw ComputerUseError.message("Application launch timed out; inspect running applications before retrying") }
             if let error = launchBox.error { throw error }
             guard let app = launchBox.app, !before.contains(app.processIdentifier) else { throw ComputerUseError.message("Launch reused an existing application; explicit adoption is required") }
-            application = app; s.owned = true
+            application = app; owned = true
         } else {
             guard let pid, let windowID, windowID != 0,
                   let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated else {
@@ -460,12 +515,28 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
             throw ComputerUseError.invalidArguments("app does not match the selected process")
         }
         if let bundle = application.bundleIdentifier, AppSafetyPolicy.isBlocked(bundleIdentifier: bundle.lowercased()) { throw AppSafetyPolicy.permissionDenied(bundleIdentifier: bundle) }
-        s.application = application
-        s.setPID(application.processIdentifier)
-        s.processBirthDate = processStartDate(application.processIdentifier)
+        let pid = application.processIdentifier
+        guard !sessions.values.contains(where: { $0.id != s.id && $0.applications[pid] != nil }) else {
+            throw ComputerUseError.message("Application already belongs to another virtual session")
+        }
+        guard let birth = processStartDate(pid) else { throw ComputerUseError.message("Cannot verify application startup identity") }
+        if let existing = s.applications[pid] {
+            guard NSWorkspace.shared.frontmostApplication?.processIdentifier != pid else {
+                throw ComputerUseError.message("Target application is frontmost; switch to another app before attaching")
+            }
+            guard !launch, existing.processBirthDate == birth, let windowID,
+                  let window = VirtualDisplayWindowAccess.windows(pid: pid).first(where: { $0.info.id == windowID }) else {
+                throw ComputerUseError.message("Application is already attached; select or add an explicit window")
+            }
+            if s.frames[windowID] == nil { try manage(window, session: s) }
+            existing.selected = windowID; s.selectedPID = pid; s.version += 1
+            return state(s)
+        }
+        let attached = VirtualDisplayApplication(application: application, processBirthDate: birth, owned: owned, temporaryProfile: temporaryProfile)
+        s.applications[pid] = attached
+        s.setPIDs(Set(s.applications.keys))
         do {
-            guard s.processBirthDate != nil else { throw ComputerUseError.message("Cannot verify application startup identity") }
-            if s.owned { try persistOwnedApplication(s) }
+            if owned { try persistOwnedApplication(attached, sessionID: s.id) }
             let deadline = Date(timeIntervalSinceNow: 8)
             var candidates: [VirtualDisplayWindow] = []
             repeat {
@@ -480,7 +551,7 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
                 throw ComputerUseError.message("Target application is frontmost; switch to another app before attaching")
             }
             try manage(chosen, session: s)
-            s.selected = chosen.info.id
+            attached.selected = chosen.info.id; s.selectedPID = pid; s.version += 1
             if launch {
                 for candidate in candidates where candidate.info.id != chosen.info.id { try manage(candidate, session: s) }
             }
@@ -488,7 +559,7 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
         } catch { s.pause("Attach failed: \(error.localizedDescription). End the session to restore any moved windows."); throw error }
     }
     private func manage(_ window: VirtualDisplayWindow, session s: VirtualDisplaySession) throws {
-        let originalDisplay = Self.onlineDisplayIDs().filter { $0 != s.holder.displayID }.max {
+        let originalDisplay = Self.onlineDisplayIDs().filter { !activeDisplayIDs.contains($0) }.max {
             let left = CGDisplayBounds($0).intersection(window.info.frame)
             let right = CGDisplayBounds($1).intersection(window.info.frame)
             return (left.isNull ? 0 : left.width * left.height) < (right.isNull ? 0 : right.width * right.height)
@@ -497,30 +568,33 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
             throw ComputerUseError.message("Cannot verify the target application's launch identity before moving its window")
         }
         s.originals[window.info.id] = WindowRecovery(pid: window.info.pid, launchDate: launchDate,
-            bundleIdentifier: s.application?.bundleIdentifier, windowID: window.info.id, frame: window.info.frame,
+            bundleIdentifier: s.applications[window.info.pid]?.application.bundleIdentifier, windowID: window.info.id, frame: window.info.frame,
             displayID: originalDisplay, displayFrame: originalDisplay.map { CGDisplayBounds($0) })
-        try persistRecovery(s)
+        try persistRecovery()
         let inset = s.bounds.insetBy(dx: 40, dy: 60)
-        let target = CGRect(x: inset.minX, y: inset.minY, width: min(window.info.frame.width, inset.width), height: min(window.info.frame.height, inset.height))
+        let width = min(window.info.frame.width, inset.width), height = min(window.info.frame.height, inset.height)
+        let offset = CGFloat(s.frames.count % 8) * 36
+        let target = CGRect(x: inset.minX + min(offset, max(0, inset.width - width)), y: inset.minY + min(offset, max(0, inset.height - height)), width: width, height: height)
         try VirtualDisplayWindowAccess.place(window, frame: target)
         s.frames[window.info.id] = target
     }
     public func selectWindow(sessionID: String, windowID: UInt32) throws -> VirtualDisplayState {
         lock.lock(); defer { lock.unlock() }
         let s = try requireSession(sessionID)
-        guard let app = s.application, !app.isTerminated, processStartDate(app.processIdentifier) == s.processBirthDate,
+        guard let owner = s.originals[windowID]?.pid, let attached = s.applications[owner],
+              !attached.application.isTerminated, processStartDate(owner) == attached.processBirthDate,
               let expected = s.frames[windowID],
-              let window = VirtualDisplayWindowAccess.windows(pid: app.processIdentifier).first(where: { $0.info.id == windowID }),
+              let window = VirtualDisplayWindowAccess.windows(pid: owner).first(where: { $0.info.id == windowID }),
               s.bounds.contains(window.info.frame), VirtualDisplayWindowAccess.close(expected, window.info.frame) else {
             throw ComputerUseError.message("Select an existing window managed by this session in its verified virtual frame")
         }
-        if s.selected != windowID { s.selected = windowID; s.version += 1 }
+        if attached.selected != windowID || s.selectedPID != owner { attached.selected = windowID; s.selectedPID = owner; s.version += 1 }
         try? validate(s, requireApp: true)
         return state(s)
     }
     public func pause(sessionID: String) throws -> VirtualDisplayState {
-        controlLock.lock(); let s = controlledSession; controlLock.unlock()
-        guard let s, s.id == sessionID else { throw ComputerUseError.message("Unknown virtual display session") }
+        controlLock.lock(); let s = controlledSessions[sessionID]; controlLock.unlock()
+        guard let s else { throw ComputerUseError.message("Unknown virtual display session") }
         s.pause("Paused by caller")
         return try state(sessionID: sessionID)
     }
@@ -529,9 +603,9 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
         let s = try requireSession(sessionID)
         // Layout/identity checks run even while paused. Never automatically reclaim moved windows.
         try validate(s, requireApp: false, recoveringCapture: true)
-        if !capture.isRunning || capture.error != nil {
-            capture.stop()
-            guard try capture.start(displayID: s.holder.displayID, configuration: s.configuration) else {
+        if !s.capture.isRunning || s.capture.error != nil {
+            s.capture.stop()
+            guard try s.capture.start(displayID: s.holder.displayID, configuration: s.configuration) else {
                 throw ComputerUseError.message("Display is not yet capturable; session remains paused")
             }
         }
@@ -542,15 +616,24 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         let s = try requireSession(sessionID)
         if isAction, let reason = s.reason { throw ComputerUseError.message("Session paused: \(reason)") }
-        guard let running = s.application, running.bundleIdentifier?.caseInsensitiveCompare(app) == .orderedSame || running.localizedName?.caseInsensitiveCompare(app) == .orderedSame else {
-            throw ComputerUseError.invalidArguments("app does not match the virtual session target")
+        let matches = s.applications.values.filter {
+            $0.application.bundleIdentifier?.caseInsensitiveCompare(app) == .orderedSame || $0.application.localizedName?.caseInsensitiveCompare(app) == .orderedSame
         }
+        let candidates: [VirtualDisplayApplication]
+        if let windowID { candidates = matches.filter { s.originals[windowID]?.pid == $0.application.processIdentifier } }
+        else if isAction, matches.count > 1 { candidates = matches.filter { $0.application.processIdentifier == s.selectedPID } }
+        else { candidates = matches }
+        guard candidates.count == 1, let attached = candidates.first else {
+            throw ComputerUseError.invalidArguments("app must identify exactly one managed application; use window_id through get_app_state to disambiguate instances")
+        }
+        let running = attached.application
         if let windowID {
             guard !isAction, s.frames[windowID] != nil else { throw ComputerUseError.invalidArguments("window_id must select a managed window through get_app_state") }
-            if s.selected != windowID { s.selected = windowID; s.version += 1 }
+            if attached.selected != windowID { attached.selected = windowID; s.version += 1 }
         }
+        s.selectedPID = running.processIdentifier
         if isAction { try validate(s, requireApp: true) } else { try? validate(s, requireApp: true) }
-        guard let id = s.selected, let window = VirtualDisplayWindowAccess.windows(pid: running.processIdentifier).first(where: { $0.info.id == id }) else {
+        guard let id = attached.selected, let window = VirtualDisplayWindowAccess.windows(pid: running.processIdentifier).first(where: { $0.info.id == id }) else {
             throw ComputerUseError.message("Selected window disappeared; choose another managed window")
         }
         guard let expected = s.frames[id], s.bounds.contains(window.info.frame), VirtualDisplayWindowAccess.close(expected, window.info.frame) else {
@@ -565,32 +648,35 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
         return result
     }
     func setCursor(sessionID: String, global: CGPoint) {
-        guard let s = session, s.id == sessionID else { return }
-        capture.setCursor(CGPoint(x: (global.x - s.bounds.minX) / s.bounds.width, y: (global.y - s.bounds.minY) / s.bounds.height))
+        guard let s = sessions[sessionID] else { return }
+        s.capture.setCursor(CGPoint(x: (global.x - s.bounds.minX) / s.bounds.width, y: (global.y - s.bounds.minY) / s.bounds.height))
     }
     public func clearCursor() {
-        controlLock.lock(); inputEpoch += 1; controlLock.unlock()
-        capture.setCursor(nil)
+        controlLock.lock(); inputEpoch += 1
+        let captures = controlledSessions.values.map(\.capture)
+        controlLock.unlock()
+        captures.forEach { $0.setCursor(nil) }
     }
     func checkInput(sessionID: String) throws {
         let s = try requireSession(sessionID) // called inside withOperation's recursive lock
         if let reason = s.reason { throw ComputerUseError.message("Session paused: \(reason)") }
         try validate(s, requireApp: true)
     }
-    private static func physicalLayout(excluding id: UInt32) -> [UInt32: CGRect] {
-        Dictionary(uniqueKeysWithValues: onlineDisplayIDs().filter { $0 != id }.map { ($0, CGDisplayBounds($0)) })
+    private func physicalLayout(excluding id: UInt32 = 0) -> [UInt32: CGRect] {
+        let virtual = Set(sessions.values.map { $0.holder.displayID }).union([id])
+        return Dictionary(uniqueKeysWithValues: Self.onlineDisplayIDs().filter { !virtual.contains($0) }.map { ($0, CGDisplayBounds($0)) })
     }
     private func validate(_ s: VirtualDisplaySession, requireApp: Bool, recoveringCapture: Bool = false) throws {
         func fail(_ reason: String) throws -> Never { s.pause(reason); throw ComputerUseError.message(reason) }
         guard s.holder.process.isRunning, CGDisplayIsActive(s.holder.displayID) != 0 else { try fail("Virtual display disconnected") }
         let current = CGDisplayBounds(s.holder.displayID)
         if !VirtualDisplayWindowAccess.close(current, s.bounds) {
-            s.bounds = current; s.version += 1; capture.stop()
+            s.bounds = current; s.version += 1; s.capture.stop()
             try fail("Display layout changed; inspect and resume")
         }
-        let physical = Self.physicalLayout(excluding: s.holder.displayID)
+        let physical = physicalLayout(excluding: s.holder.displayID)
         if physical != s.physicalLayout {
-            s.physicalLayout = physical; s.version += 1; capture.stop()
+            s.physicalLayout = physical; s.version += 1; s.capture.stop()
             try fail("Physical display layout changed; inspect and resume")
         }
         if let desktop = CGSessionCopyCurrentDictionary() as? [String: Any],
@@ -599,78 +685,84 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
         }
         guard AXIsProcessTrusted(), CGPreflightScreenCaptureAccess() else { try fail("System permissions were revoked") }
         if !recoveringCapture {
-            if let captureError = capture.error { try fail(captureError) }
-            guard capture.isRunning else { try fail("Capture is not running; inspect and resume") }
+            if let captureError = s.capture.error { try fail(captureError) }
+            guard s.capture.isRunning else { try fail("Capture is not running; inspect and resume") }
         }
-        guard let app = s.application else {
-            if requireApp { try fail("Session has no target application") }
+        if s.applications.isEmpty {
+            if requireApp { try fail("Session has no managed application") }
             return
         }
-        guard !app.isTerminated, let birth = s.processBirthDate, processStartDate(app.processIdentifier) == birth else { try fail("Target application exited or its process identity changed") }
-        guard NSWorkspace.shared.frontmostApplication?.processIdentifier != app.processIdentifier else { try fail("Target application became frontmost") }
-        let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? ""
-        if ["com.apple.SecurityAgent", "com.apple.CoreServicesUIAgent", "com.apple.loginwindow"].contains(frontmost) { try fail("System dialog or login screen requires user attention") }
-        let windows = VirtualDisplayWindowAccess.windows(pid: app.processIdentifier)
-        for window in windows {
-            if let expected = s.frames[window.info.id] {
-                guard s.bounds.contains(window.info.frame), VirtualDisplayWindowAccess.close(expected, window.info.frame) else { try fail("Managed window moved or resized; end and reattach") }
-            } else if s.owned {
-                try manage(window, session: s)
-            } else {
-                // Borrowed applications may have unrelated windows. Do not move or drive them.
-                if (VirtualDisplayWindowAccess.attribute(window.element, "AXModal") as? Bool) == true {
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        if ["com.apple.SecurityAgent", "com.apple.CoreServicesUIAgent", "com.apple.loginwindow"].contains(frontmost?.bundleIdentifier ?? "") { try fail("System dialog or login screen requires user attention") }
+        for attached in s.applications.values {
+            let app = attached.application
+            guard !app.isTerminated, processStartDate(app.processIdentifier) == attached.processBirthDate else { try fail("Managed application exited or its process identity changed") }
+            guard frontmost?.processIdentifier != app.processIdentifier else { try fail("Managed application became frontmost") }
+            let windows = VirtualDisplayWindowAccess.windows(pid: app.processIdentifier)
+            for window in windows {
+                if let expected = s.frames[window.info.id] {
+                    guard s.bounds.contains(window.info.frame), VirtualDisplayWindowAccess.close(expected, window.info.frame) else { try fail("Managed window moved or resized; end and reattach") }
+                } else if attached.owned {
+                    try manage(window, session: s)
+                } else if (VirtualDisplayWindowAccess.attribute(window.element, "AXModal") as? Bool) == true {
                     try fail("Unmanaged modal window requires explicit handling")
                 }
             }
+            if let selected = attached.selected, !windows.contains(where: { $0.info.id == selected }) { try fail("Managed window is no longer on-screen") }
         }
-        if let selected = s.selected, !windows.contains(where: { $0.info.id == selected }) { try fail("Selected window is no longer on-screen") }
     }
     private func monitorSession() {
         guard lock.try() else { return }; defer { lock.unlock() }
-        guard let s = session, s.reason == nil else { return }
-        try? validate(s, requireApp: false)
+        for s in sessions.values where s.reason == nil { try? validate(s, requireApp: false) }
+    }
+    public func destroyAll() throws {
+        for state in states() { try destroy(sessionID: state.sessionID) }
     }
     public func destroy(sessionID: String) throws {
         lock.lock(); defer { lock.unlock() }
-        guard let s = session else { return }
-        guard s.id == sessionID else { throw ComputerUseError.message("Unknown virtual display session") }
+        guard let s = sessions[sessionID] else { throw ComputerUseError.message("Unknown virtual display session") }
         s.pause("Ending session")
         do {
-            func restoreWindows() throws { for record in s.originals.values { try restore(record) } }
-            if !s.owned { try restoreWindows() }
-            if s.owned, let app = s.application, !app.isTerminated {
-                // Quit dedicated apps on the virtual screen. Only bring their
-                // windows back when the user needs to resolve a refusal/prompt.
-                guard app.terminate() else {
-                    try restoreWindows()
-                    throw ComputerUseError.message("Application declined to quit; windows restored for attention, session retained")
+            for attached in s.applications.values {
+                let app = attached.application
+                func restoreWindows() throws {
+                    for record in s.originals.values where record.pid == app.processIdentifier { try restore(record) }
                 }
-                let deadline = Date(timeIntervalSinceNow: 5)
-                while !app.isTerminated, Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
-                if !app.isTerminated {
-                    try restoreWindows()
-                    throw ComputerUseError.message("Application is waiting to quit; windows restored for attention, session retained")
+                if !attached.owned { try restoreWindows() }
+                if attached.owned, !app.isTerminated {
+                    guard processStartDate(app.processIdentifier) == attached.processBirthDate else { throw ComputerUseError.message("Cannot verify owned process identity for cleanup") }
+                    guard app.terminate() else {
+                        try restoreWindows()
+                        throw ComputerUseError.message("Application declined to quit; windows restored for attention, session retained")
+                    }
+                    let deadline = Date(timeIntervalSinceNow: 5)
+                    while !app.isTerminated, Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
+                    if !app.isTerminated {
+                        try restoreWindows()
+                        throw ComputerUseError.message("Application is waiting to quit; windows restored for attention, session retained")
+                    }
                 }
+                if let profile = attached.temporaryProfile, FileManager.default.fileExists(atPath: profile.path) { try FileManager.default.removeItem(at: profile) }
+                let record = ownedRecoveryFile(s.id, pid: app.processIdentifier)
+                if FileManager.default.fileExists(atPath: record.path) { try FileManager.default.removeItem(at: record) }
             }
-            capture.stop(); s.holder.stop()
+            s.capture.stop(); s.holder.stop()
             let deadline = Date(timeIntervalSinceNow: 5)
             while Self.onlineDisplayIDs().contains(s.holder.displayID), Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
             guard !Self.onlineDisplayIDs().contains(s.holder.displayID) else { throw ComputerUseError.message("Display removal was not confirmed") }
-            if let profile = s.temporaryProfile, FileManager.default.fileExists(atPath: profile.path) { try FileManager.default.removeItem(at: profile) }
-            let ownedRecord = ownedRecoveryFile(s.id)
-            if FileManager.default.fileExists(atPath: ownedRecord.path) { try FileManager.default.removeItem(at: ownedRecord) }
-            try? FileManager.default.removeItem(at: recoveryURL)
-            session = nil
-            controlLock.lock(); controlledSession = nil; controlLock.unlock()
+            // Journal writes happen before removal from memory, so failed writes retain cleanup state.
+            try persistRecovery(excluding: s.id)
+            sessions.removeValue(forKey: s.id); sessionOrder.removeAll { $0 == s.id }
+            controlLock.lock(); controlledSessions.removeValue(forKey: s.id); controlledOrder.removeAll { $0 == s.id }; controlLock.unlock()
         } catch { s.pause("Cleanup incomplete: \(error.localizedDescription)"); throw error }
     }
     private var ownedRecoveryDirectory: URL { recoveryURL.deletingLastPathComponent().appendingPathComponent("virtual-display-owned") }
-    private func ownedRecoveryFile(_ id: String) -> URL { ownedRecoveryDirectory.appendingPathComponent(id + ".json") }
-    private func persistOwnedApplication(_ s: VirtualDisplaySession) throws {
-        guard let app = s.application, let birth = s.processBirthDate else { return }
+    private func ownedRecoveryFile(_ id: String, pid: Int32) -> URL { ownedRecoveryDirectory.appendingPathComponent("\(id)-\(pid).json") }
+    private func persistOwnedApplication(_ attached: VirtualDisplayApplication, sessionID: String) throws {
+        let app = attached.application
         try FileManager.default.createDirectory(at: ownedRecoveryDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        let record = OwnedApplicationRecovery(pid: app.processIdentifier, startDate: birth, bundleIdentifier: app.bundleIdentifier, profile: s.temporaryProfile)
-        let url = ownedRecoveryFile(s.id)
+        let record = OwnedApplicationRecovery(pid: app.processIdentifier, startDate: attached.processBirthDate, bundleIdentifier: app.bundleIdentifier, profile: attached.temporaryProfile)
+        let url = ownedRecoveryFile(sessionID, pid: app.processIdentifier)
         try JSONEncoder().encode(record).write(to: url, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
@@ -693,9 +785,10 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
             try FileManager.default.removeItem(at: file)
         }
     }
-    private func persistRecovery(_ s: VirtualDisplaySession) throws {
+    private func persistRecovery(excluding id: String? = nil) throws {
         try FileManager.default.createDirectory(at: recoveryURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        try JSONEncoder().encode(Array(s.originals.values)).write(to: recoveryURL, options: .atomic)
+        let records = sessions.values.filter { $0.id != id }.flatMap { Array($0.originals.values) }
+        try JSONEncoder().encode(records).write(to: recoveryURL, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: recoveryURL.path)
     }
     private func restore(_ record: WindowRecovery) throws {
@@ -708,8 +801,8 @@ public final class VirtualDisplaySessionRegistry: @unchecked Sendable {
         var target = record.frame
         var ids = [CGDirectDisplayID](repeating: 0, count: 64); var count: UInt32 = 0
         CGGetActiveDisplayList(64, &ids, &count)
-        let physical = ids.prefix(Int(count)).filter { $0 != session?.holder.displayID }.map { CGDisplayBounds($0) }
-        let preferred = record.displayID.flatMap { id in ids.prefix(Int(count)).contains(id) && id != session?.holder.displayID ? CGDisplayBounds(id) : nil }
+        let physical = ids.prefix(Int(count)).filter { !activeDisplayIDs.contains($0) }.map { CGDisplayBounds($0) }
+        let preferred = record.displayID.flatMap { id in ids.prefix(Int(count)).contains(id) && !activeDisplayIDs.contains(id) ? CGDisplayBounds(id) : nil }
         if let preferred, let oldDisplay = record.displayFrame, oldDisplay.intersects(record.frame) {
             target.origin.x += preferred.minX - oldDisplay.minX
             target.origin.y += preferred.minY - oldDisplay.minY

@@ -258,7 +258,7 @@ private final class MacOSAppAgentRuntime: NSObject, NSApplicationDelegate {
             do {
                 try await Task.detached {
                     let registry = VirtualDisplaySessionRegistry.shared
-                    if let state = registry.currentState() { try registry.destroy(sessionID: state.sessionID) }
+                    try registry.destroyAll()
                 }.value
                 sender.reply(toApplicationShouldTerminate: true)
             } catch {

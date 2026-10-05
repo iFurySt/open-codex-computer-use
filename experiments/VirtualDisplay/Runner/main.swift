@@ -75,6 +75,7 @@ func runChecks() throws {
     let cycles = Int(argument("--cycles") ?? "20") ?? 20
     guard (1...100).contains(cycles) else { throw NSError(domain: "VirtualDisplayRunner", code: 3) }
     if args.contains("--holder-only") { try holderCycles(cycles); return }
+    if args.contains("--multi-session") { try multiSessionChecks(); return }
     if let bundle = argument("--third-party") { try thirdPartyCheck(bundle); return }
     report("permissions", ["accessibility": AXIsProcessTrusted(), "screen_recording": CGPreflightScreenCaptureAccess()])
     let registry = VirtualDisplaySessionRegistry.shared

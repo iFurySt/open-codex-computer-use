@@ -19,7 +19,7 @@ I started this repo with my [harness template](https://github.com/iFurySt/harnes
 
 ## macOS virtual workspace
 
-No-argument launch now opens a standalone native workspace: choose an app/window, create an extended virtual monitor, watch its live preview, pause/resume or end the session. CLI, MCP and JS share that runtime. The preview is view-only. Virtual sessions always prohibit global input and activation; drag is currently unsupported.
+No-argument launch now opens a standalone native workspace: create and switch virtual-display sessions, add multiple apps/windows to each desktop, and edit/run action cells with text and screenshot outputs below its live preview. Pause/resume or end individual sessions. CLI, MCP and JS share that runtime. The preview is view-only. Virtual sessions always prohibit global input and activation; drag is currently unsupported.
 
 Build locally with `./scripts/build-open-computer-use-app.sh debug`, then open `dist/Open Computer Use (Dev).app`. Grant Accessibility and Screen Recording to that development bundle. macOS adds six session tools; Windows/Linux keep their existing nine tools. Current live evidence is macOS 26.5.1 / arm64, with AppKit interactions and 20 display lifecycle cycles. TextEdit/Chrome default dedicated launches still have compatibility failures.
 

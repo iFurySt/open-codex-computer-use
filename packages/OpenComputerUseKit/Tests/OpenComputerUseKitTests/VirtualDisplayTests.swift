@@ -3,6 +3,33 @@ import XCTest
 @testable import OpenComputerUseKit
 
 final class VirtualDisplayTests: XCTestCase {
+    func testNotebookBindsSessionAndSelectedAppWithoutAllowingEscape() throws {
+        let spec = try VirtualDisplayNotebookKernel.boundCommand(source: #"{"tool":"get_app_state","args":{"app":"$app","session_id":"$session","window_id":42}}"#, sessionID: "s1", app: "com.apple.calculator")
+        XCTAssertEqual(spec.tool, "get_app_state")
+        XCTAssertEqual(spec.arguments["session_id"] as? String, "s1")
+        XCTAssertEqual(spec.arguments["app"] as? String, "com.apple.calculator")
+        XCTAssertEqual(spec.arguments["window_id"] as? Int, 42)
+        for invalid in [#"{"tool":"click","args":{"session_id":"other"}}"#, #"{"tool":"create_virtual_display"}"#, #"{"tool":"shell","args":{"command":"echo hi"}}"#, #"{"tool":"get_app_state","args":[]}"#] {
+            XCTAssertThrowsError(try VirtualDisplayNotebookKernel.boundCommand(source: invalid, sessionID: "s1"))
+        }
+    }
+    func testNotebookPreservesExplicitAppAndEnforcesVirtualInputBoundary() throws {
+        let spec = try VirtualDisplayNotebookKernel.boundCommand(source: #"{"tool":"get_app_state","args":{"app":"TextEdit"}}"#, sessionID: "s1", app: "Calculator")
+        XCTAssertEqual(spec.arguments["app"] as? String, "TextEdit")
+        let kernel = VirtualDisplayNotebookKernel(sessionID: "not-present")
+        let result = try kernel.run(source: #"{"tool":"click","args":{"app":"TextEdit","click_method":"global","x":1,"y":1}}"#)
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.primaryText?.contains("Global input is forbidden") == true)
+    }
+    func testStateListingDoesNotRequireAParticularSession() throws {
+        let result = ComputerUseToolDispatcher().callToolAsResult(name: "get_virtual_display_state", arguments: [:])
+        XCTAssertFalse(result.isError)
+        let text = try XCTUnwrap(result.primaryText)
+        let object = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]
+        XCTAssertNotNil(object?["sessions"] as? [[String: Any]])
+        let definition = try XCTUnwrap(ToolDefinitions.all.first { $0.name == "get_virtual_display_state" })
+        XCTAssertFalse((definition.inputSchema["required"] as? [String] ?? []).contains("session_id"))
+    }
     func testConfigurationUsesLogicalDimensionsAndBoundsPixelAllocation() throws {
         try VirtualDisplayConfiguration().validate()
         try VirtualDisplayConfiguration(width: 1920, height: 1080, scale: 2).validate()

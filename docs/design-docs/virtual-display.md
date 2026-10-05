@@ -1,6 +1,6 @@
 # macOS 虚拟显示器工作区
 
-OCU 的原生 GUI、CLI、MCP 和 JS 共用进程级 `VirtualDisplaySessionRegistry`。一个 runtime 支持一个活动会话、一个目标应用和多个受管理窗口。最低构建目标仍为 macOS 14；当前实测环境为 macOS 26.5.1 / Apple Silicon。其他系统版本和架构尚未确认。
+OCU 的原生 GUI、CLI、MCP 和 JS 共用进程级 `VirtualDisplaySessionRegistry`。一个 runtime 支持多个独立会话；每个会话拥有一块虚拟显示器、独立视频流及多个应用/窗口。同一 PID 只能属于一个会话。最低构建目标仍为 macOS 14；当前实测环境为 macOS 26.5.1 / Apple Silicon。其他系统版本和架构尚未确认。
 
 ## 启动 GUI
 
@@ -11,7 +11,21 @@ open "dist/Open Computer Use (Dev).app"
 
 Release 使用原有 `Open Computer Use.app`、bundle ID、`OPEN_COMPUTER_USE_CODESIGN_*` 和公证入口。Debug 使用原有 `.dev` 身份，需要单独授权 Accessibility 和 Screen Recording；终端的授权不能代替签名 App 的授权。helper 先签名，外层 bundle 后签名。
 
-左侧搜索应用。接管模式选择正在运行的应用和明确窗口；开始前将目标应用留在后台。专用实例模式请求后台启动，Chrome 使用临时独立 profile；若 LaunchServices 返回已有 PID，拒绝隐式接管。主区域观看整个虚拟屏幕，支持适应窗口和原始像素尺寸。Toolbar 提供开始、暂停/继续和结束。预览不接收人工键鼠输入。
+左侧展示会话。点击 New session，填写名称和显示倍率，再 Create 创建空虚拟桌面；选中会话后用 Add application 搜索应用，选择专用启动或接管已有 PID/window。同一显示器可重复加入多个应用，窗口采用错位布局。新建/移除显示器可能触发系统桌面或 Space 通知，其他会话会按安全策略暂停，需要显式 Resume。接管前将目标应用留在后台。专用实例模式请求后台启动，Chrome 使用临时独立 profile；若 LaunchServices 返回已有 PID，拒绝隐式接管。主区域观看选中会话的整个虚拟屏幕，支持适应窗口和原始像素尺寸；Target 选择具体应用窗口。Toolbar 提供添加应用、暂停/继续和结束选中会话，Quit 清理所有会话。预览不接收人工键鼠输入。
+
+桌面下方的 Actions 是可编辑命令单元，可拖动分隔线调整高度。每个会话保留自己的内存 notebook，默认包含会话状态和应用 snapshot。单元支持编辑标题/JSON、单条播放、删除，Add cell 可添加模板并滚动到新单元，Run all 按当前顺序执行并在首个错误处停止。输出展示文本、截图、成功/错误状态和耗时；编辑后旧结果标为 Edited since last run。Stop and pause 阻止后续单元并关闭该会话输入门，当前操作在已有的安全边界退出；恢复后需要新的 snapshot。
+
+采用直接调用生产 dispatcher 的原生 kernel，保留跨单元 snapshot 缓存，无需 Jupyter/Node/shell 进程。示例单元：
+
+```json
+{"tool":"get_app_state","args":{"app":"$app"}}
+```
+
+```json
+{"tool":"click","args":{"app":"$app","element_index":"21","click_method":"accessibility"}}
+```
+
+`$app`（或省略 app）使用开始运行时选中的应用；多应用编排可明确填写各自 bundle ID。索引必须从最新 snapshot 取得，模板的 REPLACE_FROM_SNAPSHOT 是待填写占位符，不能直接运行。`session_id` 自动绑定当前 notebook，显式跨会话 ID 被拒绝。Run all 冻结本次运行的单元顺序、命令和默认目标；修改留待下次执行。仅运行 session 内的 OCU tools，创建/结束通过工作区进行，不执行任意 shell 或 JS。输出仅在内存，不生成 .ipynb 文件，也不持久化截图或输入内容。
 
 会话 ID 可复制到工具调用。关闭主窗口保留后台会话，再次打开 App 显示同一窗口。Quit 恢复借用窗口，专用实例留在虚拟屏上礼貌退出，再停止捕获并移除显示器；专用实例拒绝退出时把窗口移回物理屏供用户处理，保留会话并显示原因。恢复失败也保留会话。借用应用不会被退出。切换 OCU 构建时，有活动会话的旧 runtime 不会被替换；需要先结束会话，或明确使用独立 socket namespace。
 
@@ -29,7 +43,7 @@ Release 使用原有 `Open Computer Use.app`、bundle ID、`OPEN_COMPUTER_USE_CO
 
 ## API 与工具
 
-Swift：`VirtualDisplaySessionRegistry.shared` 提供 `create`、`currentState` / `state`、`attach`、`availableApplications` / `availableWindows`、`selectWindow`、`pause` / `resume` / `destroy`。阻塞生命周期 API 在 worker 调用。`capture.subscribeFrames` / `unsubscribeFrames` 在捕获队列提供原始帧；消费者必须及时返回，最多保留最新一帧。
+Swift：`VirtualDisplaySessionRegistry.shared` 提供 `create`、`states` / `currentState` / `state`、`attach`、`availableApplications` / `availableWindows`、`selectWindow`、`pause` / `resume` / `destroy` / `destroyAll`。阻塞生命周期 API 在 worker 调用。`capture(sessionID:).subscribeFrames` / `unsubscribeFrames` 在捕获队列提供原始帧；消费者必须及时返回，最多保留最新一帧。
 
 macOS 增加六个 MCP tools：
 
@@ -37,17 +51,18 @@ macOS 增加六个 MCP tools：
 | --- | --- |
 | `create_virtual_display` | 可选 `width`, `height`, `scale` |
 | `attach_app_to_virtual_display` | `session_id`, `app`, `mode=adopt/launch`；adopt 必须提供 `pid`, `window_id` |
-| `get_virtual_display_state` | `session_id` |
+| `get_virtual_display_state` | 可选 `session_id`；省略时返回所有 sessions |
 | `pause_virtual_display` / `resume_virtual_display` | `session_id` |
 | `destroy_virtual_display` | `session_id` |
 
-原有 app tools 增加可选 `session_id`；`get_app_state` 可用 `window_id` 选择受管理窗口。必须匹配绑定应用；未指定 session 的旧行为不变。Windows/Linux 仍只暴露原有 9 tools；JS 在绑定 session 前检查 native 工具能力，避免旧 runtime 静默忽略 session 参数。
+原有 app tools 增加可选 `session_id`；`get_app_state` 可用 `window_id` 选择受管理窗口。必须匹配会话中受管理应用；多个同 bundle 的实例用 window_id 消除歧义；未指定 session 的旧行为不变。Windows/Linux 仍只暴露原有 9 tools；JS 在绑定 session 前检查 native 工具能力，避免旧 runtime 静默忽略 session 参数。
 
 CLI 示例：
 
 ```bash
 open-computer-use call create_virtual_display --args '{"scale":1}'
 open-computer-use call attach_app_to_virtual_display --args '{"session_id":"SESSION_ID","app":"APP_BUNDLE_ID","mode":"adopt","pid":123,"window_id":456}'
+open-computer-use call get_virtual_display_state # 列出所有会话
 open-computer-use call get_virtual_display_state --args '{"session_id":"SESSION_ID"}'
 open-computer-use call destroy_virtual_display --args '{"session_id":"SESSION_ID"}'
 ```
@@ -57,6 +72,7 @@ open-computer-use call destroy_virtual_display --args '{"session_id":"SESSION_ID
 JS 示例：
 
 ```js
+var displays = await cua.listVirtualDisplays();
 var session = await cua.createVirtualDisplay({ scale: 1 });
 await session.attachApp("APP_BUNDLE_ID", { mode: "adopt", pid: 123, windowId: 456 });
 var target = await session.getApp("APP_BUNDLE_ID");
@@ -78,7 +94,7 @@ var existing = await cua.getApp("APP_BUNDLE_ID", { sessionId: "SESSION_ID" });
 
 拖拽明确拒绝：当前 process-targeted 事件未在真实测试中驱动内部拖拽，不能以投递成功声明支持。菜单、IME、特殊快捷键和系统拖放没有通用兼容承诺。未知系统对话框暂停，借用应用其他窗口不会自动被挪走；专用实例的新窗口验证身份后才纳入管理。
 
-恢复文件仅保存 PID、进程启动时间、bundle ID、window ID、原 frame 与显示器身份，启动时间优先通过内核查询，必要时回退 LaunchServices，不能验证时拒绝移动。目录 0700、文件 0600，不保存截图或输入内容。下次创建前核对进程身份再恢复；原显示器消失时回到可用物理屏。无法安全恢复或专用应用拒绝退出时保留会话，不强杀有未保存内容的应用。专用实例另存逐会话恢复标记；进程仍存活时保留其 profile，不因崩溃强制退出，下次创建时只在确认原进程已退出后清理可验证的 OCU 临时 profile。helper 通过管道 EOF 跟随父进程退出，不把“释放对象必然移除”作为通用规律。
+恢复文件仅保存 PID、进程启动时间、bundle ID、window ID、原 frame 与显示器身份，启动时间优先通过内核查询，必要时回退 LaunchServices，不能验证时拒绝移动。恢复路径按 bundle/socket namespace 隔离，日志合并本 runtime 的所有会话；目录 0700、文件 0600，不保存截图或输入内容。下次创建前核对进程身份再恢复；原显示器消失时回到可用物理屏。无法安全恢复或专用应用拒绝退出时保留会话，不强杀有未保存内容的应用。专用实例另存逐会话恢复标记；进程仍存活时保留其 profile，不因崩溃强制退出，下次创建时只在确认原进程已退出后清理可验证的 OCU 临时 profile。helper 通过管道 EOF 跟随父进程退出，不把“释放对象必然移除”作为通用规律。
 
 ## 可重复验证
 
@@ -86,6 +102,7 @@ var existing = await cua.getApp("APP_BUNDLE_ID", { sessionId: "SESSION_ID" });
 swift test
 node --test scripts/node-repl/*.test.mjs
 ./scripts/run-tool-smoke-tests.sh
+./scripts/run-virtual-display-tests.sh --multi-session
 ./scripts/run-virtual-display-tests.sh --cycles 20 --scale 1
 ./scripts/run-virtual-display-tests.sh --cycles 20 --scale 2
 ./scripts/run-virtual-display-tests.sh --cycles 1 --foreground-guard --strict-desktop
@@ -106,6 +123,7 @@ Runner 默认保持用户当前前台，真实 AppKit target 不自行激活；�
 | AppKit AX 点击、Unicode set_value、滚动、sheet | 真实 UI 和截图验证通过；受控 sheet 使用 nonactivating NSPanel，NSAlert 自行激活会触发暂停 |
 | 1× / 2× 捕获 | 可辨识红色图案验证来源 |
 | 重复启停 | 20 次捕获重建、销毁、在线列表移除、旧帧清除通过；自有 helper 异常退出暂停/清理通过 |
+| 多会话 / 多应用 / notebook | 两个独立 1×/2× 显示器、同屏两个真实 AppKit 进程、跨会话归属拒绝、三个目标逐条 AX 变化、暂停/捕获/销毁隔离通过；签名 GUI 的创建/切换、单元编辑/播放/输出和全部 Quit 清理通过 |
 | 暂停与缓存 | 暂停拒绝输入，继续后旧 snapshot 拒绝 |
 | 拖拽 | 未验证成功，接口拒绝 |
 | AppKit app_post / sky_click | 未改变真实按钮计数；返回新状态说明未验证变化，不切换输入方法 |
@@ -114,7 +132,7 @@ Runner 默认保持用户当前前台，真实 AppKit target 不自行激活；�
 | TextEdit 默认专用启动 | 没有可关联的普通窗口，失败并安全清理 |
 | Chrome 临时 profile 专用启动 | 应用自行进入前台，失败并安全清理 |
 | Calculator + 正式 GUI | Release 复用已有权限；专用启动、放置窗口、实时预览、CLI 共用会话、AX 修改并还原数值、暂停/继续、关窗保活、重开、结束和带活动会话 Quit 清理通过 |
-| Dev GUI 权限缺失 | 展示权限入口并禁用 Start，通过实机检查 |
+| Dev GUI 权限缺失 | 展示权限入口并禁用创建，通过实机检查 |
 
 多物理屏/负坐标在当前桌面观察；负坐标和 Retina 映射有单元测试。Spaces、Stage Manager、持续并行人工输入的 AppKit 焦点验收、锁屏/睡眠恢复、权限撤销、主进程崩溃恢复、跨架构与其他 macOS 版本尚未完整实机验收。当前能力不是独立登录桌面，应用兼容性由逐项测试确认。
 
