@@ -38,14 +38,19 @@ final class DisplayGuardian: NSObject {
     private var fixtureCounter = 0
     private var fixtureLabel: NSTextField?
     private var fixtureVerificationStarted = false
+    private let injectWatchdogStall: Bool
+    private var watchdogRelockSeen = false
+    private var stallResumedLocked = false
+    private(set) var watchdogTestPassed = false
     private(set) var fixtureAXSelfTestPassed = false
     private let fixtureGate = FixtureActionGate()
 
-    init(session: LockedUseSession) throws {
+    init(session: LockedUseSession, injectWatchdogStall: Bool = false) throws {
         guard session.state == .unlocked else { throw GuardianError.message("Rehearsal starts in a manually unlocked user session") }
         started = ProcessInfo.processInfo.systemUptime
         lastWatchdogHeartbeat = started
         policy = try .init(session: session, now: started, lifetime: 15)
+        self.injectWatchdogStall = injectWatchdogStall
         policy.confirmQuiescence()
         super.init()
     }
@@ -180,6 +185,16 @@ final class DisplayGuardian: NSObject {
                 != NSBitmapImageRep(cgImage: after).representation(using: .png, properties: [:])
             emit("captureVerification", details: ["passed": changed, "axCounterChanged": true,
                 "windowCaptureChanged": changed, "coveredFixtureVisible": true])
+            if changed, injectWatchdogStall, policy.phase == .shielding {
+                emit("faultInjected", details: ["kind": "guardianMainLoopStall", "seconds": 5,
+                    "lockRequestedByGuardian": false])
+                // Development-only fault injection: keep the existing windows
+                // alive while stopping the UI loop and its outgoing heartbeat.
+                stallMainLoopForWatchdogTest()
+                let resumedSession = LockedUseSession.current()
+                stallResumedLocked = resumedSession.state == .locked
+                emit("faultResumed", details: ["session": resumedSession.state.rawValue])
+            }
         } catch {
             emit("captureVerification", details: ["passed": false, "reason": String(describing: error)])
         }
@@ -198,17 +213,21 @@ final class DisplayGuardian: NSObject {
                 MainActor.assumeIsolated {
                     let guardian = Unmanaged<DisplayGuardian>.fromOpaque(pointer).takeUnretainedValue()
                     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                        emit("inputTapDisabled", details: ["kind": type == .tapDisabledByTimeout ? "timeout" : "userInput",
+                            "phase": guardian.policy.phase.rawValue])
                         guardian.stop(.guardianFailure)
                         return
                     }
                     // No synthetic events are exempted on the global stream.
                     // Default OCU postToPid does not traverse this tap. Global
                     // input during Locked Use must remain disallowed.
-                    emit("inputTakeover", details: ["type": type.rawValue,
-                        "sourcePID": event.getIntegerValueField(.eventSourceUnixProcessID),
-                        "sourceState": event.getIntegerValueField(.eventSourceStateID),
-                        "phase": guardian.policy.phase.rawValue])
-                    guardian.stop(.localInput)
+                    if guardian.policy.phase != .relocking {
+                        emit("inputTakeover", details: ["type": type.rawValue,
+                            "sourcePID": event.getIntegerValueField(.eventSourceUnixProcessID),
+                            "sourceState": event.getIntegerValueField(.eventSourceStateID),
+                            "phase": guardian.policy.phase.rawValue])
+                        guardian.stop(.localInput)
+                    }
                 }
                 return nil
             }, userInfo: context)
@@ -218,6 +237,12 @@ final class DisplayGuardian: NSObject {
         tapSource = source
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
+    }
+
+    // Intentionally synchronous: Task.sleep would keep servicing the run loop
+    // and heartbeats, so it would not simulate a stuck Guardian.
+    private func stallMainLoopForWatchdogTest() {
+        Thread.sleep(forTimeInterval: 5)
     }
 
     private func displayTopology() -> String { shields.displayTopology() }
@@ -246,7 +271,11 @@ final class DisplayGuardian: NSObject {
 
     private func poll() {
         let now = ProcessInfo.processInfo.systemUptime
-        let bytes = watchdogReader?.drain(allowed: [72, 82]) ?? []
+        let bytes = watchdogReader?.drain(allowed: [72, 82, 83]) ?? []
+        if bytes.contains(83) {
+            watchdogRelockSeen = true
+            emit("watchdogRelockReported", details: ["lockConfirmed": false])
+        }
         if bytes.contains(82) { watchdogReady = true }
         if !bytes.isEmpty { lastWatchdogHeartbeat = now }
         let watchdogHealthy = watchdogReady && watchdog?.isRunning == true && watchdogReader?.failed == false && now - lastWatchdogHeartbeat < 1.5
@@ -270,7 +299,19 @@ final class DisplayGuardian: NSObject {
             let tapHealthy = tap.map { CGEvent.tapIsEnabled(tap: $0) } ?? false
             // Secure input is expected at loginwindow after relock. Prior to
             // stopping it is a coverage gap and must stop the rehearsal.
-            let healthy = watchdogHealthy && tapHealthy && coverageHealthy() && !IsSecureEventInputEnabled()
+            let coverageFailure = shields.coverageFailure()
+            let coverage = coverageFailure == nil
+            let secureInput = IsSecureEventInputEnabled()
+            let healthy = watchdogHealthy && tapHealthy && coverage && !secureInput
+            if !healthy, policy.phase == .shielding {
+                emit("guardHealthFailure", details: ["watchdogHealthy": watchdogHealthy,
+                    "watchdogRunning": watchdog?.isRunning == true,
+                    "watchdogPipeFailed": watchdogReader?.failed ?? true,
+                    "watchdogHeartbeatAge": now - lastWatchdogHeartbeat,
+                    "inputTapEnabled": tapHealthy, "coverageHealthy": coverage,
+                    "coverageFailure": coverageFailure ?? "",
+                    "topologyUnchanged": displayTopology() == topology, "secureInput": secureInput])
+            }
             if policy.phase != .preparing {
                 execute(try policy.poll(session: current, topology: displayTopology(), guardsHealthy: healthy, now: now))
             }
@@ -304,6 +345,12 @@ final class DisplayGuardian: NSObject {
                 }
                 lock.request()
             case .releaseShield:
+                if injectWatchdogStall {
+                    watchdogTestPassed = stallResumedLocked && watchdogRelockSeen
+                    emit("watchdogTestResult", details: ["passed": watchdogTestPassed,
+                        "lockedBeforeGuardianResumed": stallResumedLocked,
+                        "independentRelockReported": watchdogRelockSeen])
+                }
                 if let watchdogInput { _ = HeartbeatPipe.send(76, to: watchdogInput.fileDescriptor) }
                 emit("lockConfirmed", details: ["shieldReleased": true, "unlockRequested": false])
                 cleanup()

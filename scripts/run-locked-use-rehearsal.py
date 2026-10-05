@@ -40,6 +40,8 @@ def main():
                         help="confirm that the user is ready for shields and a screen lock")
     modes.add_argument("--shield-preview", action="store_true",
                        help="show countdown shields only; no lock, unlock, AX action or capture")
+    modes.add_argument("--confirm-watchdog-test", action="store_true",
+                       help="confirm a 5-second Guardian stall and independent watchdog lock test")
     parser.add_argument("--delay", type=float, default=5,
                         help="seconds before preflight, to let the user release input (default: 5)")
     args = parser.parse_args()
@@ -62,9 +64,14 @@ def main():
         print("Rehearsal requires a manually unlocked GUI session with Secure Input off.", file=sys.stderr)
         return 1
     print(json.dumps({"event": "controllerStarting", "timeoutSeconds": 35,
-                      "mode": "shieldPreview" if args.shield_preview else "rehearsal",
+                      "mode": "shieldPreview" if args.shield_preview else "watchdogTest" if args.confirm_watchdog_test else "rehearsal",
                       "unlockRequested": False}), flush=True)
-    command = ["--shield-preview"] if args.shield_preview else ["--rehearse", "--confirm-lock-test"]
+    if args.shield_preview:
+        command = ["--shield-preview"]
+    elif args.confirm_watchdog_test:
+        command = ["--watchdog-test", "--confirm-lock-test"]
+    else:
+        command = ["--rehearse", "--confirm-lock-test"]
     process = subprocess.Popen([str(binary), *command], start_new_session=True)
     recovered = False
     try:

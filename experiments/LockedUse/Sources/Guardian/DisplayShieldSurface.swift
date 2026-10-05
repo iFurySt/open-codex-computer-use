@@ -76,27 +76,30 @@ final class DisplayShieldSurface {
     /// WindowServer evidence, not just `isVisible`. Other secure/system overlays
     /// and hotplug races still require live validation; this is not a proof that
     /// ordinary windows provide an OS-enforced privacy barrier.
-    func coverageHealthy() -> Bool {
-        guard displayTopology() == topology else { return false }
+    func coverageHealthy() -> Bool { coverageFailure() == nil }
+
+    func coverageFailure() -> String? {
+        guard displayTopology() == topology else { return "topologyChanged" }
         var count: UInt32 = 0
-        guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0, count <= 64 else { return false }
+        guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0, count <= 64 else { return "activeDisplayCountUnavailable" }
         var active = [CGDirectDisplayID](repeating: 0, count: Int(count))
-        guard CGGetActiveDisplayList(count, &active, &count) == .success else { return false }
+        guard CGGetActiveDisplayList(count, &active, &count) == .success else { return "activeDisplayListUnavailable" }
         for id in active.prefix(Int(count)) {
             let mirrored = CGDisplayMirrorsDisplay(id)
-            guard windows[id] != nil || (mirrored != kCGNullDirectDisplay && windows[mirrored] != nil) else { return false }
+            guard windows[id] != nil || (mirrored != kCGNullDirectDisplay && windows[mirrored] != nil) else { return "activeDisplayUncovered" }
         }
-        guard let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return false }
+        guard let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return "windowListUnavailable" }
         for (id, window) in windows {
-            guard window.isVisible,
-                  let info = infos.first(where: { ($0[kCGWindowNumber as String] as? NSNumber)?.intValue == window.windowNumber }),
-                  (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == getpid(),
-                  (info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue == 1,
-                  (info[kCGWindowLayer as String] as? NSNumber)?.intValue == window.level.rawValue,
-                  let bounds = info[kCGWindowBounds as String] as? [String: Any],
-                  let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary), rect == CGDisplayBounds(id) else { return false }
+            guard window.isVisible else { return "shieldNotVisible" }
+            guard let info = infos.first(where: { ($0[kCGWindowNumber as String] as? NSNumber)?.intValue == window.windowNumber }) else { return "shieldNotInWindowServer" }
+            guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == getpid() else { return "shieldOwnerMismatch" }
+            guard (info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue == 1 else { return "shieldAlphaMismatch" }
+            guard (info[kCGWindowLayer as String] as? NSNumber)?.intValue == window.level.rawValue else { return "shieldLayerMismatch" }
+            guard let bounds = info[kCGWindowBounds as String] as? [String: Any],
+                  let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary) else { return "shieldBoundsUnavailable" }
+            guard rect == CGDisplayBounds(id) else { return "shieldBoundsMismatch" }
         }
-        return true
+        return nil
     }
 
 }

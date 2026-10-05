@@ -62,6 +62,12 @@ class RecoveryTests(unittest.TestCase):
                 self.assertEqual(calls, [])
                 launch.assert_not_called()
 
+    def test_watchdog_test_crash_keeps_recovery_order(self):
+        result, calls, launch = self.run_controller("--confirm-watchdog-test", -5)
+        self.assertEqual(result, -5)
+        self.assertEqual(calls, ["relock", "cleanup"])
+        self.assertEqual(launch.call_args.args[0][1:], ["--watchdog-test", "--confirm-lock-test"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -69,6 +69,14 @@ python3 scripts/run-locked-use-rehearsal.py --confirm-lock-test
 
 child watchdog 与 UI event loop 分离，监测 inherited pipe 心跳；1.5 秒超时、EOF 或非法输入会独立请求重锁。该测试 watchdog 从未接收解锁许可。测试完成后，Guardian 只读取 loginwindow 的 AX role / subrole / action names，最多 300 节点、12 层、3 秒；不读取值、用户名、输入框、选中文本或密码，也不执行 loginwindow 动作。单次 AX RPC 额外有 0.5 秒 timeout，因此整个 traversal 可能比预算略长。
 
+独立 watchdog 的人工故障注入入口：
+
+```sh
+python3 scripts/run-locked-use-rehearsal.py --confirm-watchdog-test
+```
+
+受控 AX / SCK 闭环通过后，故意阻塞 Guardian 主线程 5 秒，停止该进程的 UI loop 和 heartbeat，已有遮罩窗口保留。watchdog 用 inherited pipe 的 `S` byte 回报实际重锁请求；Guardian 恢复时必须已经观测到锁定，之后策略再次确认原 session 锁定再释放窗口，才能报告测试通过。请求回报本身不算锁定证据。该实验只覆盖主线程卡死，不证明遮罩进程被杀死、热插拔或系统 overlay 时零泄漏；人工应保持输入静止并观察物理屏幕。
+
 开发 controller 默认提前 5 秒提示用户放开输入。rehearsal 的非正常退出 / 35 秒超时会先保留 child watchdog，同时请求重锁并观察会话状态，再清理自身测试进程组；preview 的恢复不请求锁屏。这是只供人工实验的应急路径，**不能在生产 Locked Use 中用超时移除遮罩**。rehearsal 没有改变认证规则，也不自动解锁；用户随后按普通方式解锁。
 
 事件输出包含单调时间与 capture 阶段 / stop reason，便于区分覆盖失败、输入接管、动作失败及租约到期。同进程受控 fixture 的 AXPress 在 MainActor 上执行；AppKit 会直接在调用线程派发按钮动作，不能从后台队列调用带 MainActor 隔离的 target。`--fixture-ax-self-test` 可独立验证此路径，不遮蔽、不锁屏。

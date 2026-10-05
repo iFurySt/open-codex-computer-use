@@ -23,7 +23,10 @@
 - [x] 独立 15 秒遮罩倒计时 preview；两块物理显示器覆盖、倒计时和退出由用户确认，WindowServer 检查持续通过。
 - [x] 遮罩期间受控 fixture 的 AX / SCK 实机闭环与 15 秒租约重锁日志验证。
 - [x] 动作测试的两块物理屏幕持续遮蔽及正常手动解锁确认。
-- [ ] 本地输入 / watchdog 故障恢复专项验证。
+- [x] 本地鼠标输入接管专项验证：立即停止、确认锁定后撤罩，用户正常解锁。
+- [x] 独立 watchdog 主线程卡死故障恢复软件专项验证。
+- [x] watchdog 测试的物理屏幕持续遮蔽 / 正常解锁确认。
+- [ ] 组件死亡与显示器变化故障验证。
 - [x] 内核 audit-token / 动态签名认证、root 批准记录读取与短期一次性 permit registry；签名 / 角色实机自检与离线策略回归。
 - [ ] 真正 loginwindow 解锁、独立保护与 Keychain 保持实验（阻塞生产 backend 开放）。
 - [ ] Broker、独立 Shield / watchdog、管理员安装与客户端授权 UI、真实自动解锁。
@@ -57,6 +60,12 @@ Apple DTS 确认过 screensaver authorization plugin 的 Data Protection Keychai
 基于本地 awesome-extension 的已提交状态。另一个会话有未提交的虚拟显示器工作；不 stash / reset 该会话。合并前再次检查目标工作区，只有不覆盖其改动时才在本地合并；不推远端。
 
 ## 进度记录
+
+- 2026-10-05：watchdog 第二次实机测试软件通过：受控 AX / SCK 成功后 Guardian 主线程实际卡死约 5 秒；恢复时系统已锁定，privately inherited pipe 收到 watchdog 的重锁请求回报，再由原 session 锁定策略释放遮罩。不是 Guardian 在恢复后才完成锁定；用户确认没有露出桌面、手动解锁正常。没有自动解锁。卡死与进程死亡是不同故障；后者尚未验证。
+
+- 2026-10-05：首次 watchdog 注入测试在启动约 0.4 秒时先发生 guardianFailure，未执行卡死注入；结果明确失败，controller 恢复路径观测系统锁定。补充 coverage 失败细项、tap disable 原因、Secure Input、watchdog pipe / heartbeat age 埋点后再定位，不能将这次提前重锁当作 watchdog 故障验证成功。
+
+- 2026-10-05：输入接管专项测试：用户在倒计时约剩 10 秒时轻微移动鼠标，global mouseMoved 触发 localInput，约 90 毫秒后观测原会话锁定，再释放遮罩。用户确认接管与正常手动解锁。新增独立 watchdog 主线程 5 秒卡死注入入口；必须看到 watchdog 私有管道重锁请求回报且 Guardian 恢复前已锁定才能通过。
 
 - 2026-10-05：多次人工 rehearsal 观测到真实系统锁屏并由用户正常解锁；其中一次同进程后台 AX 调用触发 MainActor 断言退出，已改为 MainActor AXPress 并通过独立自检。controller 异常路径先保留 watchdog / 请求确认重锁，再清理测试进程组。其他短暂遮罩测试有 mouseMoved 接管事件，不能直接归因于真实鼠标移动或宣称持续遮蔽通过。
 - 2026-10-05：按用户要求拆出不锁屏、不执行动作的独立 preview，复用相同遮罩实现，增加倒计时、单调时间、每秒 coverage / 输入类型汇总。两块显示器持续约 15 秒软件覆盖检查通过，无输入事件；用户确认两块物理屏幕完整遮住、倒计时正常、结束恢复桌面。此结果仅覆盖遮罩预览，不证明锁屏解锁或动作闭环。修改后完整 Swift 206 项、1 项跳过、0 失败。

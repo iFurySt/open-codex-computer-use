@@ -100,6 +100,14 @@ struct GuardianMain {
                 try guardian.start()
                 withExtendedLifetime(guardian) { app.run() }
                 if LockedUseSession.current().state == .locked { try inspectLoginwindow() }
+            case ["--watchdog-test", "--confirm-lock-test"]:
+                let app = NSApplication.shared
+                app.setActivationPolicy(.accessory)
+                let guardian = try DisplayGuardian(session: .current(), injectWatchdogStall: true)
+                try guardian.start()
+                withExtendedLifetime(guardian) { app.run() }
+                guard guardian.watchdogTestPassed else { throw GuardianError.message("Independent watchdog stall test did not pass") }
+                if LockedUseSession.current().state == .locked { try inspectLoginwindow() }
             default:
                 fputs("Usage: OpenComputerUseGuardian --diagnose | --request-permissions | --inspect-loginwindow | --shield-preview | --rehearse --confirm-lock-test\nPreview shows a 15-second countdown without locking. Rehearsal consumes local input and locks the Mac. No unlock is attempted.\n", stderr)
                 exit(64)
@@ -175,7 +183,13 @@ func runWatchdog() throws {
         if bytes.contains(76), same, current.state == .locked { return }
         if stopping {
             if same, current.state == .locked { return }
-            if now - lastLock >= 0.5 { lock.request(); lastLock = now }
+            if now - lastLock >= 0.5 {
+                // S reports a request only; the Guardian must still observe
+                // the original session locked before releasing its windows.
+                _ = HeartbeatPipe.send(83, to: STDOUT_FILENO)
+                lock.request()
+                lastLock = now
+            }
         } else if !same || current.state == .unavailable { stopping = true }
         _ = HeartbeatPipe.send(72, to: STDOUT_FILENO)
         Thread.sleep(forTimeInterval: 0.1)

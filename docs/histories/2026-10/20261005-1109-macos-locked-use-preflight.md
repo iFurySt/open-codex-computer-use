@@ -50,7 +50,16 @@ Broker 基础组件补充 LOCAL_PEERTOKEN / Security 动态验证、固定路径
 - 用户保持输入静止后的受控动作 rehearsal 验证通过：AXPress 使 counter 0→1，SCK 捕获被遮挡窗口的预期蓝色内容，动作后图像不同；guardian / watchdog 健康，约 15 秒 leaseExpired 后确认真实锁定再释放遮罩。用户确认两块物理屏幕持续遮住、未露出桌面 / fixture、手动解锁正常；没有执行真正自动解锁。
 - 新增 4 项离线 controller 回归通过，覆盖异常 / 超时先请求重锁再清理、preview 不请求锁屏、锁定会话不启动 GUI。与物理测试结合，仍不能宣称组件死亡时零泄漏或生产 backend 已完成。
 
-### 本地合并状态
+### 接管与 watchdog 故障注入补充
+
+- 用户在约剩 10 秒时移动鼠标，立即 localInput 停止，约 90 毫秒后观测原会话锁定才撤罩；用户确认接管 / 解锁正常。倒计时不是接管等待时间，收到本地输入立即重锁。
+- 后续只记录首次 inputTakeover，避免停止后的高频 mouseMoved 刷屏，输入仍持续被过滤。
+- 新增显式 `--confirm-watchdog-test`：仅在受控 AX / SCK 验证通过后阻塞 Guardian 主线程 5 秒，依赖独立 child watchdog。增加 request-only 回报，恢复前锁定和原 session 确认的通过门槛；不将普通租约结束当作故障测试通过。该测试不验证进程死亡时零泄漏。
+- controller 离线回归现为 5 项通过，包含 watchdog 测试异常恢复顺序。
+- 首次 watchdog 实机尝试在约 0.4 秒健康检查失败，尚未执行卡死注入；测试明确失败并经 controller 确认锁定。新增 coverage 具体失败项、tap disable、Secure Input 和 watchdog 心跳 / 管道健康埋点，再定位；不把提前重锁视为故障测试通过。
+- 第二次 watchdog 验证通过：受控动作 / 截图验证完成后 Guardian 主线程实际卡死约 5 秒，恢复时 session 已锁定，同时收到独立 watchdog 重锁请求回报；原会话锁定策略随后才释放遮罩。用户确认未露出桌面、手动解锁正常。此通过不追溯解释第一次健康检查失败，也不涵盖遮罩进程死亡 / 热插拔。
+
+### 本地集成状态
 
 开发提交保留在隔离分支。目标工作区的另一个会话仍有与 app agent、入口、snapshot / service 重叠的未提交改动；不 stash / reset / 覆盖其工作。等待目标改动提交后执行本地合并和集成验证，不推远端。
 
