@@ -210,8 +210,13 @@ enum LockScreenInteractor {
         }
         let queued = cancellation.performProbe {
             guard LockedUseSession.current() == session, trusted() else { return false }
-            down.post(tap: .cgSessionEventTap)
-            up.post(tap: .cgSessionEventTap)
+            // Single-variable validation experiment, enabled only by the
+            // authenticated Root validation profile. Keep the same event pair
+            // and both session filters; HID posting grants no input exemption.
+            let tap: CGEventTapLocation = validationConfirmation ? .cghidEventTap : .cgSessionEventTap
+            logger.notice("AXTrigger clickTap=\(validationConfirmation ? "hid" : "session", privacy: .public)")
+            down.post(tap: tap)
+            up.post(tap: tap)
             return true
         } ?? false
         logger.notice("AXTrigger sessionClickQueued=\(queued, privacy: .public)")

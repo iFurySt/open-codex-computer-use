@@ -254,3 +254,5 @@ python3 scripts/run-locked-use-native-validation.py --observe-auth-only --observ
 会话入口事件实验使用 NSEvent.windowNumber，并通过 Guardian → watchdog 继承管道共享独立随机点击标记。双过滤器均验证来源、顺序、同目标 / 窗口 / 坐标和短时限，只放行一次 down/up；真实硬件活动不会获得豁免。能力不是认证许可，不能授权 SetResult；认证仍须插件 claim / consume 和原会话解锁观察。原 annotated-stage 实验即使 queued 成功也没有自动解锁；NSEvent 版本曾出现 RPC 超时，timer 阶段及慢签名检查已新增诊断。
 
 Root 通过 IPC 返回绝对 uptime 截止，原生 agent 校验其有限且不超过 20 秒，并使用同一截止控制等待和独立退出余量；客户端不能延长 Root 期限。两个保护表面显示该截止的倒计时。20 秒仅为验证 profile 的有界待命，不是 20 秒授权许可；常驻服务或 socket 生命周期也不是放行期限。参考事件还显式编码窗口内坐标和鼠标 subtype 3，本项目复用现有 SkyLight 编码器，缺符号时不投递。这是私有鼠标编码，不是解锁 / 认证 API。点击后只在原 3 秒唤醒限额内重新查找密码字段（最多额外 1.5 秒），不复用旧 AX 元素、不发第二次点击、不提交密码 / Return。
+
+- HID 单变量实验：用户授权尝试仅将受控 down/up 投递从 session 改到 HID；复用已认证 Root 的验证 profile 开关，生产 / 旧协议保持 session。事件字段、双会话过滤的一次性能力、硬件活动接管、空写 + 单次支持确认、20 秒截止不变。新增固定 clickTap 枚举日志；此改动不保证被系统视作真实硬件或启动认证，待实测。

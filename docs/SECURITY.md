@@ -58,3 +58,5 @@
 - macOS 14.4+ 的授权插件用 public LightweightCodeRequirements 对 socket audit token 建立 SecTask 验证：固定 signing ID / 团队、Developer ID validation category、动态签名有效、已签名、hardened runtime 和 Library Validation。逐项拒绝危险 entitlement，并重校验运行中的任务；现代验证失败不回退到字符串或磁盘检查。旧系统保留原 SecCode 路径。独立签名测试验证合法身份通过、错误 ID / 团队 / ad hoc / get-task-allow 被拒绝；实机锁屏表现仍须单独记录。
 
 认证诊断采集是只读、限时、限量的辅助观察；原始 OS 字段不持久化，只保存白名单枚举，缺失日志不能作为认证 / 撤罩依据。上游报告记录插件介入后的会话级 Keychain 不可访问，未证明空输入导致重设；隔离环境是开发建议，不是 API 要求。新认证路径仍需验证系统的 Keychain 可用状态，不能从固定 AX 探针结果推出安全性。
+
+验证 profile 的 HID 对比实验只改变鼠标投递层，继续经过同样的双会话过滤器和一次性能力校验；HID 注入不等于真实硬件活动或认证授权。生产与旧协议保持 session 层。

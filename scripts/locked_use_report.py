@@ -26,6 +26,7 @@ PATTERNS = {
                       rf"AXProbe writable={BOOL} status=-?[0-9]+", r"AXProbe fixedValueWrite status=-?[0-9]+",
                       r"AXPublication attempt=[0-9]+", r"AXTrigger emptyValueWrite status=-?[0-9]+",
                       r"AXPublication followup=true",
+                      r"AXTrigger clickTap=(?:hid|session)",
                       rf"AXTrigger passwordConfirmSupported={BOOL} status=-?[0-9]+",
                       r"AXTrigger passwordConfirm status=-?[0-9]+ authenticationEvidence=false",
                       rf"AXTrigger annotatedClickQueued={BOOL}", r"AXTrigger annotatedClickTargetAvailable=false",
