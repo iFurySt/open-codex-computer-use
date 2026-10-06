@@ -64,3 +64,15 @@ python3 -B experiments/DisplayPerformance/lifecycle.py --probe /tmp/ocu-display-
 `lifecycle.py` 每批最多三次，前后各 10–60 秒测量，默认任一 ColorSync 服务基线超过 5% 就不接入显示器；仅在明确记录增量对照时调整阈值，上限 20%。应选择已有 ICC 的空闲固定槽位，禁止随意生成身份。每次检查实际移除、退出、ICC 数量/内容、物理拓扑，异常即停止并清理自己的 helper。第一次使用未预热槽位仍可能新增一份 ICC 然后中止，不能把这个保护误读成不会生成记录。原始 stderr/报告含机器信息，不原样提交。
 
 现有 `experiments/VirtualDisplay/Runner --holder-only` 是早期随机 serial 生命周期演示，会生成不同显示身份；**不要用于性能压力或 ICC 增长回归**。使用这里的固定身份、有界对照。正常会话默认 retain/reuse；真正释放、App 退出或崩溃仍会热插拔，不保证外屏 ColorSync 兼容问题消失。
+
+## 独立最小复现（不链接 OCU）
+
+`MinimalDisplay.m` 是单个 Objective-C 文件，仅链接 Foundation/CoreGraphics，运行时调用私有显示器类。没有 SwiftPM、OCU bridge/runtime、NSApplication、AX、SCK、Metal、布局事务或 dealloc hook。stdin 分阶段接受 `descriptor`、`init`、`apply`、`stop`，每阶段确认后等待下一条命令；EOF 同样退出。默认不执行任何创建操作，必须显式发送命令。固定参数为 1920×1080 / 1× / 60Hz，命令行参数为已有身份槽位 0–31。不要直接用陌生槽位压力测试。
+
+```sh
+clang -fobjc-arc -O0 -Wall -Wextra -framework Foundation -framework CoreGraphics experiments/DisplayPerformance/MinimalDisplay.m -o /tmp/ocu-minimal-display
+python3 -B experiments/DisplayPerformance/minimal.py --probe /tmp/ocu-display-performance-probe --helper /tmp/ocu-minimal-display --output /tmp/ocu-minimal-init-only --slot 28
+python3 -B experiments/DisplayPerformance/minimal.py --probe /tmp/ocu-display-performance-probe --helper /tmp/ocu-minimal-display --output /tmp/ocu-minimal-with-apply --slot 28 --apply
+```
+
+控制器每次仅一个进程/一轮，分别测基线、descriptor、init、可选 apply 和退出后的被动窗口。合计 ColorSync 基线超过 20% 时拒绝启动、阶段超过 25% 时停止后续阶段；ICC 数量增长或物理拓扑变化同样中止。记录 ICC 内容变化但不修改系统文件。保持已预热的同一身份，两个条件用同一二进制；建议用既有 Developer ID 配置签名并严格验证。创建锁保护到该身份上线或进程退出，未上线的 init 阶段可能使其他创建请求暂时等待/超时，需协调测试窗口。已有异常基线只能用于增量对照，不能宣传为干净环境下的独立根因定位。

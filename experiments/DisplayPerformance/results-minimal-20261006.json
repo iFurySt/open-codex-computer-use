@@ -1,0 +1,390 @@
+{
+  "source_head": "e18dd95d6c93bf79ce59867588db4829297e717f",
+  "os": "macOS 26.5.1 arm64",
+  "conditions": "Built-in and LG, existing external path and background runtimes preserved",
+  "source_sha256": "2868a40ea9122dce1971da88afe715fc94ca57fbaa943c5b39490290618f5fac",
+  "binary_sha256": "bb24414125b169af6c69c817692cd0cc7a31ab69f298520757a16d9f16ae296d",
+  "scope": "Standalone Foundation/CoreGraphics Objective-C process, no OCU linkage or application/capture/input workload",
+  "limitations": [
+    "Already elevated baseline, sequential single-cycle controls",
+    "One existing ICC content update during apply after previous chromaticity experiment",
+    "Root service caller and hardware path not isolated"
+  ],
+  "phases": [
+    {
+      "case": "init-only",
+      "stage": "baseline",
+      "seconds": 20.092153072357178,
+      "cpu": {
+        "WindowServer": {
+          "mean": 41.07043795718876,
+          "median": 40.40447385287299,
+          "max": 44.20398729396194,
+          "p95": 43.484936383490854
+        },
+        "colorsync.displayservices": {
+          "mean": 8.828337494351674,
+          "median": 8.486851703009142,
+          "max": 14.262585126783575,
+          "p95": 12.391746477486532
+        },
+        "colorsyncd": {
+          "mean": 5.486246386028607,
+          "median": 5.657901135325134,
+          "max": 8.557551076080955,
+          "p95": 7.625690140002549
+        }
+      },
+      "display_info_requests_per_second": 2.140138980882018,
+      "display_info_requests": 43,
+      "icc_before": 146,
+      "icc_after": 146,
+      "icc_content_changes": 0,
+      "online_displays_before": 2,
+      "online_displays_after": 2
+    },
+    {
+      "case": "init-only",
+      "stage": "descriptor",
+      "seconds": 20.049086809158325,
+      "cpu": {
+        "WindowServer": {
+          "mean": 41.41138363283159,
+          "median": 41.58618860979051,
+          "max": 43.277975796347945,
+          "p95": 42.7187459599135
+        },
+        "colorsync.displayservices": {
+          "mean": 8.953654253660876,
+          "median": 9.529846608836671,
+          "max": 16.055876975602082,
+          "p95": 13.484754826838383
+        },
+        "colorsyncd": {
+          "mean": 5.603154355870974,
+          "median": 5.717907965302003,
+          "max": 10.389096866576791,
+          "p95": 9.545036630803837
+        }
+      },
+      "display_info_requests_per_second": 2.1946136708780677,
+      "display_info_requests": 44,
+      "icc_before": 146,
+      "icc_after": 146,
+      "icc_content_changes": 0,
+      "online_displays_before": 2,
+      "online_displays_after": 2
+    },
+    {
+      "case": "init-only",
+      "stage": "init",
+      "seconds": 20.078180074691772,
+      "cpu": {
+        "WindowServer": {
+          "mean": 40.553180550531955,
+          "median": 41.241795138785875,
+          "max": 42.875873856329086,
+          "p95": 42.623932425039456
+        },
+        "colorsync.displayservices": {
+          "mean": 8.827522093408245,
+          "median": 7.6618185022493055,
+          "max": 16.019828144267333,
+          "p95": 15.152151872010991
+        },
+        "colorsyncd": {
+          "mean": 5.437968138030454,
+          "median": 5.5282758993991585,
+          "max": 10.36577115216983,
+          "p95": 9.47009491999341
+        }
+      },
+      "display_info_requests_per_second": 2.1914336775702745,
+      "display_info_requests": 44,
+      "icc_before": 146,
+      "icc_after": 146,
+      "icc_content_changes": 0,
+      "online_displays_before": 2,
+      "online_displays_after": 2
+    },
+    {
+      "case": "init-only",
+      "stage": "after-exit",
+      "seconds": 20.022459983825684,
+      "cpu": {
+        "WindowServer": {
+          "mean": 40.86630340596106,
+          "median": 40.80643320705967,
+          "max": 44.61123562527912,
+          "p95": 43.8293618138204
+        },
+        "colorsync.displayservices": {
+          "mean": 9.204497846918343,
+          "median": 8.5753099199898,
+          "max": 15.322068080225575,
+          "p95": 13.419326177505953
+        },
+        "colorsyncd": {
+          "mean": 5.752723038039595,
+          "median": 5.693920912603944,
+          "max": 9.576292550138263,
+          "p95": 8.62670968555044
+        }
+      },
+      "display_info_requests_per_second": 2.1975321731467354,
+      "display_info_requests": 44,
+      "icc_before": 146,
+      "icc_after": 146,
+      "icc_content_changes": 0,
+      "online_displays_before": 2,
+      "online_displays_after": 2
+    },
+    {
+      "case": "with-apply",
+      "stage": "baseline",
+      "seconds": 20.05492615699768,
+      "cpu": {
+        "WindowServer": {
+          "mean": 40.403524878774384,
+          "median": 40.45079589881642,
+          "max": 43.81973447488046,
+          "p95": 43.1865603563354
+        },
+        "colorsync.displayservices": {
+          "mean": 9.03916416994887,
+          "median": 8.627256848741455,
+          "max": 13.417445818967009,
+          "p95": 12.385064021601902
+        },
+        "colorsyncd": {
+          "mean": 5.644104480316676,
+          "median": 5.653158914536495,
+          "max": 8.625500883632544,
+          "p95": 7.698635319161967
+        }
+      },
+      "display_info_requests_per_second": 2.1939746701409453,
+      "display_info_requests": 44,
+      "icc_before": 146,
+      "icc_after": 146,
+      "icc_content_changes": 0,
+      "online_displays_before": 2,
+      "online_displays_after": 2
+    },
+    {
+      "case": "with-apply",
+      "stage": "descriptor",
+      "seconds": 20.083375215530396,
+      "cpu": {
+        "WindowServer": {
+          "mean": 41.28859243043046,
+          "median": 40.633104706791066,
+          "max": 46.45124534536883,
+          "p95": 45.86337075957413
+        },
+        "colorsync.displayservices": {
+          "mean": 8.978917935561235,
+          "median": 8.539625250303969,
+          "max": 14.404316118544964,
+          "p95": 12.421329580623851
+        },
+        "colorsyncd": {
+          "mean": 5.586302380679146,
+          "median": 5.69308350019905,
+          "max": 9.60287741235967,
+          "p95": 7.643895126548618
+        }
+      },
+      "display_info_requests_per_second": 2.1410743731336686,
+      "display_info_requests": 43,
+      "icc_before": 146,
+      "icc_after": 146,
+      "icc_content_changes": 0,
+      "online_displays_before": 2,
+      "online_displays_after": 2
+    },
+    {
+      "case": "with-apply",
+      "stage": "init",
+      "seconds": 20.052441120147705,
+      "cpu": {
+        "WindowServer": {
+          "mean": 40.906358953094724,
+          "median": 40.23013553216532,
+          "max": 45.47960014910852,
+          "p95": 44.91416914197304
+        },
+        "colorsync.displayservices": {
+          "mean": 8.987218978109086,
+          "median": 10.441463084739963,
+          "max": 15.171699186531399,
+          "p95": 14.249448881912677
+        },
+        "colorsyncd": {
+          "mean": 5.5917518539008535,
+          "median": 6.58373304934305,
+          "max": 9.48231199157943,
+          "p95": 8.549669329145445
+        }
+      },
+      "display_info_requests_per_second": 2.194246562618801,
+      "display_info_requests": 44,
+      "icc_before": 146,
+      "icc_after": 146,
+      "icc_content_changes": 0,
+      "online_displays_before": 2,
+      "online_displays_after": 2
+    },
+    {
+      "case": "with-apply",
+      "stage": "apply",
+      "seconds": 21.030447959899902,
+      "cpu": {
+        "WindowServer": {
+          "mean": 38.09448412123206,
+          "median": 35.800368223410096,
+          "max": 79.081865864409,
+          "p95": 42.88684538713882
+        },
+        "colorsync.displayservices": {
+          "mean": 14.406411465252072,
+          "median": 16.98506097846432,
+          "max": 21.964094600875615,
+          "p95": 21.898184628526757
+        },
+        "colorsyncd": {
+          "mean": 34.84678670778131,
+          "median": 45.898174934801844,
+          "max": 54.43275618476831,
+          "p95": 53.19762669055519
+        }
+      },
+      "display_info_requests_per_second": 2.377505229338823,
+      "display_info_requests": 50,
+      "icc_before": 146,
+      "icc_after": 146,
+      "icc_content_changes": 0,
+      "online_displays_before": 3,
+      "online_displays_after": 3
+    },
+    {
+      "case": "after-apply-exit",
+      "stage": "after-apply-exit",
+      "seconds": 20.218174934387207,
+      "cpu": {
+        "WindowServer": {
+          "mean": 39.96363867208562,
+          "median": 39.825711950426424,
+          "max": 44.49690134702028,
+          "p95": 43.846368664604654
+        },
+        "colorsync.displayservices": {
+          "mean": 10.934546500310587,
+          "median": 11.195361388543452,
+          "max": 16.018884484932965,
+          "p95": 15.171699790709479
+        },
+        "colorsyncd": {
+          "mean": 6.775978313070457,
+          "median": 6.530627476650347,
+          "max": 10.67925632329539,
+          "p95": 9.502658569661289
+        }
+      },
+      "display_info_requests_per_second": 2.571943321726733,
+      "display_info_requests": 52,
+      "icc_before": 146,
+      "icc_after": 146,
+      "icc_content_changes": 0,
+      "online_displays_before": 2,
+      "online_displays_after": 2
+    },
+    {
+      "case": "stable",
+      "stage": "stable-after-exit",
+      "seconds": 20.13650918006897,
+      "cpu": {
+        "WindowServer": {
+          "mean": 39.89669501436458,
+          "median": 39.5132343817228,
+          "max": 44.23242263000196,
+          "p95": 43.750641030550796
+        },
+        "colorsync.displayservices": {
+          "mean": 10.457121247518993,
+          "median": 11.346498423394392,
+          "max": 16.17971540058259,
+          "p95": 15.413039356139663
+        },
+        "colorsyncd": {
+          "mean": 6.471723969325036,
+          "median": 6.618790747001562,
+          "max": 9.633149597573599,
+          "p95": 9.517479647388793
+        }
+      },
+      "display_info_requests_per_second": 2.582374111371269,
+      "display_info_requests": 52,
+      "icc_before": 146,
+      "icc_after": 146,
+      "icc_content_changes": 0,
+      "online_displays_before": 2,
+      "online_displays_after": 2
+    }
+  ],
+  "stages": [
+    {
+      "case": "init-only",
+      "stage": "descriptor",
+      "applied": false,
+      "assigned_display_id": false
+    },
+    {
+      "case": "init-only",
+      "stage": "init",
+      "applied": false,
+      "assigned_display_id": true
+    },
+    {
+      "case": "with-apply",
+      "stage": "descriptor",
+      "applied": false,
+      "assigned_display_id": false
+    },
+    {
+      "case": "with-apply",
+      "stage": "init",
+      "applied": false,
+      "assigned_display_id": true
+    },
+    {
+      "case": "with-apply",
+      "stage": "apply",
+      "applied": true,
+      "assigned_display_id": true
+    }
+  ],
+  "cleanup": [
+    {
+      "case": "init-only",
+      "exit": 0,
+      "removal_verified": true
+    },
+    {
+      "case": "init-only",
+      "exit": 0,
+      "removal_verified": true
+    },
+    {
+      "case": "with-apply",
+      "exit": 0,
+      "removal_verified": true
+    }
+  ],
+  "stopped": [
+    {
+      "case": "with-apply",
+      "reason": "Combined ColorSync above 25%; stop"
+    }
+  ]
+}

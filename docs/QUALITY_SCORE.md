@@ -28,3 +28,5 @@
 ## ColorSync 隔离补充（2026-10-06）
 
 [生命周期隔离](references/20261006-colorsync-root-isolation.md)确认原 helper 的私有对象析构执行；提前释放并处理一秒事件仍累积，90 次先前测试均未执行显式布局事务。色度候选一次后更新现有 ICC 内容并触发停止保护，未验证为修复。共 5 次小批次后仍约 16.31% 单核 CPU / 2.176 请求每秒，保持 C；其他 runtime 未完成隔离、特权请求栈不可用，内部根因未定位。固定 serial 和 retain/reuse 分别控制身份增长及热插拔次数，不上调为根因修复。
+
+[独立最小复现](references/20261006-minimal-colorsync-reproducer.md)进一步缩到 71 行 Foundation/CoreGraphics demo：未应用模式的实例不在线、未观察到阶梯增量；应用一次模式上线再退出后请求约 2.19→2.57/s。已有异常基线、一次现有 ICC 内容更新和其他 runtime 未隔离是限制，内部根因仍未知，质量等级不变。

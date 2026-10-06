@@ -26,3 +26,5 @@
   - 私有显示器接口、Chromium/DeskPad 等参考、采用边界和真实验证入口。
 - `20261006-colorsync-root-isolation.md`
   - LG 条件的对象析构、提前释放与色度候选对照；明确固定身份/复用的作用及未解决的 ColorSync 内部触发边界。
+- `20261006-minimal-colorsync-reproducer.md`
+  - 不链接 OCU 的单文件私有显示器 demo，以及 descriptor/init/apply/退出阶段的增量对照。
