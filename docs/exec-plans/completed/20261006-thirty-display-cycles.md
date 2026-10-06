@@ -1,0 +1,8 @@
+# Thirty warm virtual-display cycles
+
+- Request: test whether ColorSync CPU/request work keeps accumulating across 30 create/remove cycles.
+- Design: passive 30 s baseline and additional 30 s time control; ten batches of three fixed warm-identity cycles, each followed by a 30 s physical-only measurement. Three extra 30 s passive recovery windows after completion. No random identities, capture/input, profile deletion, daemon restart or main App restart.
+- Isolation: require two physical screens and no online OCU screen before every batch; compare physical topology and matched ICC hashes with baseline; verify own helpers/screens removed. Stop on interference, failed cleanup, profile changes or a removed-state mean ColorSync CPU >=120% of one core. User stop/serious stutter also ends hotplug. Threshold bounds this experiment; it is not a general health limit.
+- Evidence: raw snapshots local only; record sanitized CPU deltas, XPC/profile rates, cycle counts and cleanup assertions. Separate hotplug windows from physical-only windows. One sequential run cannot establish unlimited growth or isolate all external workloads.
+- Status: complete. All 30 removals/helper exits verified, 146 ICC hashes unchanged. Removed-state ColorSync increased monotonically to 80.44% / 12.286 XPC/s, stayed 77–79% / ~12 for three extra 30 s windows. User-controlled LG disconnect reduced stable 30 s metrics to zero. User chose to remain disconnected, then requested a new paired current-source built-in-only / LG-connected experiment. No production code or App change.
+- Evidence: [report](../../references/20261006-thirty-display-cycles.md), [metrics](../../../experiments/DisplayPerformance/results-thirty-20261006.json); four offline metric tests passed.
