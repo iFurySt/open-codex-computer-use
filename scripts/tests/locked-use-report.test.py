@@ -97,6 +97,13 @@ class ReportTests(unittest.TestCase):
             self.assertEqual(report.curate([self.entry(message+' value=private')], 0), [])
             self.assertEqual(report.curate([self.entry(message+' x=123 y=456')], 0), [])
 
+    def testClickCapabilityAndIdentityAreNeverIncluded(self):
+        for category, message in [('LockUIClickFilter', 'clickAdmitted filter=watchdog type=down'),
+                                  ('Broker', 'verificationSlow endpoint=guardian elapsedMilliseconds=300'),
+                                  ('UnlockTrigger', 'AXTrigger sessionClickQueued=true')]:
+            self.assertEqual(len(report.curate([self.entry(message, category)], 0)), 1)
+            self.assertEqual(report.curate([self.entry(message+' clickTag=123', category)], 0), [])
+
     def testProtectedWaitingDoesNotImplyPermitIssued(self):
         events = [{'elapsedSeconds': 1, 'category': 'Broker', 'message': 'phase=authorizing stopReason=none'},
                   {'elapsedSeconds': 4, 'category': 'Broker', 'message': 'permitIssued maximumLifetimeSeconds=5'},

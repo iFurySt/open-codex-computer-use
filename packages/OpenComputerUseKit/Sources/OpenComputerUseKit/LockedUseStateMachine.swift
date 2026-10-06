@@ -95,10 +95,17 @@ public struct LockedUseStateMachine: Sendable {
     public static let idleTimeout: TimeInterval = 30
     public static let permitLifetime: TimeInterval = 5
     public static let unlockTimeout: TimeInterval = 8
+    public static let validationUnlockTimeout: TimeInterval = 20
+    private let startupTimeout: TimeInterval
+    public var startupDeadline: TimeInterval? {
+        [.preparing, .authorizing, .unlocking].contains(phase) ? startedAt + startupTimeout : nil
+    }
     public static let heartbeatTimeout: TimeInterval = 3
     public static let maximumLease: TimeInterval = 300
 
-    public init() {}
+    public init(validationWait: Bool = false) {
+        startupTimeout = validationWait ? Self.validationUnlockTimeout : Self.unlockTimeout
+    }
 
     public mutating func restoreForRelock(owner: Owner, fullyReleased: Bool) {
         reset()
@@ -147,8 +154,8 @@ public struct LockedUseStateMachine: Sendable {
         try checkClock(now)
         guard phase == .authorizing, permit == nil, !permitConsumed, let owner,
               guards?.healthy == true, now - lastHeartbeatAt < Self.heartbeatTimeout,
-              now - startedAt < Self.unlockTimeout else { throw Failure.invalidTransition }
-        let issued = Permit(id: UUID(), owner: owner, deadline: min(now + Self.permitLifetime, startedAt + Self.unlockTimeout))
+              now - startedAt < startupTimeout else { throw Failure.invalidTransition }
+        let issued = Permit(id: UUID(), owner: owner, deadline: min(now + Self.permitLifetime, startedAt + startupTimeout))
         permit = issued
         return [.issuePermit(issued)]
     }
@@ -196,7 +203,7 @@ public struct LockedUseStateMachine: Sendable {
             return effects
         }
         if phase == .unlocking, session.state == .unlocked {
-            guard now - startedAt < Self.unlockTimeout,
+            guard now - startedAt < startupTimeout,
                   now - lastHeartbeatAt < Self.heartbeatTimeout,
                   guards?.healthy == true, permitConsumed else {
                 return stop(.unlockTimeout)
@@ -251,7 +258,8 @@ public struct LockedUseStateMachine: Sendable {
         if phase != .preparing, now - lastHeartbeatAt >= Self.heartbeatTimeout { return stop(.guardLost) }
         if now - startedAt >= Self.maximumLease { return stop(.leaseExpired) }
         if phase == .active, now - lastActivityAt >= Self.idleTimeout { return stop(.idleTimeout) }
-        if phase != .active, now - startedAt >= Self.unlockTimeout { return stop(.unlockTimeout) }
+        if phase == .preparing, now - startedAt >= Self.unlockTimeout { return stop(.unlockTimeout) }
+        if phase != .active, now - startedAt >= startupTimeout { return stop(.unlockTimeout) }
         if phase == .authorizing, let permit, now >= permit.deadline { return stop(.unlockTimeout) }
         return []
     }

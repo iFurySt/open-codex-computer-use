@@ -142,7 +142,7 @@ def main():
             record("brokerReady", passed=True)
         if args.confirm_recovery_test or args.confirm_wake_test:
             print("Locking in 5 seconds; recovery-only." if args.confirm_recovery_test else
-                  "Locking in 5 seconds; protected wake/unlock then immediate relock.", flush=True)
+                  "Locking in 5 seconds; protected waiting up to 20 seconds, then relock. Stay still until countdown ends.", flush=True)
             time.sleep(5)
             subprocess.run([str(guardian), "--request-lock"], check=True, stdout=subprocess.DEVNULL, timeout=3)
             locked = True
@@ -150,7 +150,7 @@ def main():
             record("lockedObserved")
             started = time.monotonic()
             method = "ocu/locked-use/validate-recovery" if args.confirm_recovery_test else "ocu/locked-use/validate-unlock"
-            assert rpc.call(method, timeout=10)["passed"]
+            assert rpc.call(method, timeout=24)["passed"]
             if args.confirm_wake_test:
                 record("protectedUnlockObserved", acquisitionSeconds=round(time.monotonic()-started, 3), guiActionsPerformed=False)
                 rpc.notify("notifications/turn-ended")
@@ -187,7 +187,7 @@ def main():
         locked = True
         wait_for(guardian, "locked", timeout=5)
         record("lockedObserved")
-        result = rpc.call("ocu/locked-use/validate", timeout=10)
+        result = rpc.call("ocu/locked-use/validate", timeout=28)
         assert result["passed"]
         record("protectedNativeAXSCKKeychainPassed", dataProtectionIncluded=not args.legacy_only)
         time.sleep(args.hold_seconds)

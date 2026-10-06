@@ -59,6 +59,7 @@ public struct LockedUseBrokerCoordinator: Sendable {
 
     public init(enabled: Bool, backendValidated: Bool, requiresWatchdog: Bool = false, recovery: LockedUseRecoveryRecord? = nil, bootSessionID: String = UUID().uuidString, validationMode: Bool = false) {
         self.validationMode = validationMode
+        machine = .init(validationWait: validationMode)
         prerequisites = .init(enabled: enabled, backendValidated: backendValidated, clientAuthorized: true)
         self.requiresWatchdog = requiresWatchdog
         self.bootSessionID = bootSessionID
@@ -379,7 +380,7 @@ public struct LockedUseBrokerCoordinator: Sendable {
         return .init(id: message.id, result: result, phase: phase,
             leaseID: isOwner(context) || isGuardian(context) || isWatchdog(context) || context.id == pluginID ? leaseID : nil,
             token: token, effects: effects, guardsReleased: isFullyReleased,
-            recoveryProbePrepared: recoveryProbe ? recoveryProbePrepared : nil)
+            recoveryProbePrepared: recoveryProbe ? recoveryProbePrepared : nil, startupDeadline: machine.startupDeadline)
     }
     private func randomToken() throws -> Data {
         var bytes = [UInt8](repeating: 0, count: 32)

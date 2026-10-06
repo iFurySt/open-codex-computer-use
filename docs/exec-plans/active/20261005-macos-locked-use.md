@@ -147,3 +147,11 @@ Apple DTS 确认过 screensaver authorization plugin 的 Data Protection Keychai
 
 - 2026-10-06：保护待命与许可签发分离：首次已认证插件 claim 才签发，许可 deadline 不超过原 8 秒启动上限。原等待版本实测没有机制，agent 的同刻 8 秒退出造成报告失败；修正为 8 秒启动 + 2 秒 RPC 排空余量，控制器容忍已退出 stdin 的 BrokenPipeError。Swift 253 项（1 跳过、0 失败），Python 报告 13 / controller 1 / rehearsal 5 项通过，签名组件 / ABI / 内核身份正反例与 app 构建通过。
 - 短实测确认失败结果约启动 8.1 秒返回，约 0.3 秒后双保护退出 ACK，正常手动解锁和报告保存通过；没有机制 / 许可 / 自动解锁。一次 annotated-stage 点击因同 PID 几何包含目标不唯一而未发出，改为先匹配 AXWindow 完整几何再确定唯一 CGWindow，拒绝模糊目标。原 postToPid 点击 / Return 实验无认证证据，已撤回。参考 build 动态 CGEventAPI.post 路径支持会话级点击，不能再用零导入证明纯观察；实际认证效果仍未证明。生产关闭，未合并。
+
+- 2026-10-06 后续：AXWindow 完整几何匹配后唯一目标和 annotated-stage queued 已实测，仍无机制；NSEvent.windowNumber 版本也未自动解锁，并出现一次 native RPC 超时，独立只读检查确认会话已解锁、保护已退出，但未取得该轮退出 ACK，不能算恢复验证通过。补齐 timer phase 与慢签名检查日志。
+- 新增会话入口的一次性点击能力：独立随机标记经继承管道共享，双过滤器验证 Guardian 来源、有序同窗口 / 坐标点击、5 秒能力 / 250ms 配对；硬件接管与停止撤销，不使用 PID-only 豁免，标记不落日志。离线 Swift 257 项（1 跳过、0 失败）、报告 14 项、controller 1 项 / rehearsal 5 项通过，签名 / ABI / 内核身份正反例通过。第一轮点击被 watchdog 拒绝，约启动 2 秒收束并确认双保护退出 / 手动解锁，未证明跨过滤器投递；补充固定拒绝枚举并为 NSEvent 的 CGEvent 显式指定私有 source，待复测。生产关闭，未合并。
+
+- 事件 source 复测仍由 watchdog 在 flags 检查处拒绝，未观察到一次放行。双保护退出 ACK 与正常手动解锁通过。将过严的所有 flags 为零检查收敛到四个会改变左键语义的键盘修饰键，保留能力 / 来源 / 几何 / 顺序 / 时限，并只记录整数 flags 与固定拒绝枚举，待投递复测。
+
+- 2026-10-06：会话点击经过双过滤器放行已实测（down/up 均有 main / watchdog 记录），flags=0x20000000，四个点击修饰键为零；仍未见机制，约 8.6 秒后双保护退出 ACK / 正常手动解锁通过。参考进一步静态复核定位 CGEventSetWindowLocation 与 mouse subtype=3；本项目补齐编码，并在原 3 秒唤醒预算内有界重新扫描点击后出现的密码字段，不二次点击。
+- 结合用户的待命建议，显式验证 profile 改为 20 秒总等待，双保护准备仍限于 8 秒；插件首次 claim 才签发最多 5 秒许可，截止裁剪到本轮起始 deadline。Root 的绝对 uptime 截止经 IPC 与继承管道传给 agent 和双遮罩，统一倒计时，agent 只增加既有 2 秒 RPC 排空余量。默认 profile 不变。新增晚到 claim、20 秒过期不可重启、待命时本地输入撤销回归；Swift 260 项（1 跳过、0 失败）、报告 14 / controller 1 项通过，签名组件 / ABI / 内核身份正反例与 app 构建通过。系统安装等待管理员认证；新的 20 秒 / 编码路径尚未实测，生产关闭，未合并。

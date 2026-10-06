@@ -60,16 +60,20 @@ final class LockedUseConnection: @unchecked Sendable {
         let connection = try LockedUseIPCClient(endpoint: .agent,
             brokerRequirement: LockedUseSigningIdentity.brokerRequirement(), clientSocket: clientSocket)
         let reply = try connection.request(.init(operation: recoveryProbe ? .beginRecoveryProbe : .begin, session: session))
+        let now = ProcessInfo.processInfo.systemUptime
+        let startupDeadline = reply.startupDeadline ?? now + LockedUseStateMachine.unlockTimeout
         guard reply.result != .denied, reply.phase == .preparing,
+              startupDeadline.isFinite, startupDeadline > now,
+              startupDeadline <= now + LockedUseStateMachine.validationUnlockTimeout,
               let lease = reply.leaseID, let token = reply.token else {
             connection.close()
             throw ComputerUseError.stateUnavailable("Locked Use is unavailable. Enable and validate it in Open Computer Use settings.")
         }
         mutex.lock(); broker = connection; self.lease = lease; let disconnected = clientDisconnected; mutex.unlock()
         if recoveryProbe { mutex.lock(); recoveryProbeStarted = true; mutex.unlock() }
-        // Root expires startup at eight seconds. Allow its existing two-second
-        // RPC budget to deliver stop/drain before the independent agent exit.
-        recoveryDeadline.arm(after: LockedUseStateMachine.unlockTimeout + 2)
+        // Follow the authenticated root's bounded deadline, plus its existing
+        // two-second RPC budget for stop/drain. The client cannot extend it.
+        recoveryDeadline.arm(after: startupDeadline - now + 2)
         do {
             guard !disconnected else { throw ComputerUseError.stateUnavailable("Computer Use client disconnected during lease acquisition.") }
             let child = Process()
@@ -90,10 +94,10 @@ final class LockedUseConnection: @unchecked Sendable {
             child.standardError = FileHandle.nullDevice
             try child.run()
             guardian = child
-            try input.fileHandleForWriting.write(contentsOf: LockedUseIPCFrame.encode(LockedUseGuardianBootstrap(leaseID: lease, token: token)))
+            try input.fileHandleForWriting.write(contentsOf: LockedUseIPCFrame.encode(LockedUseGuardianBootstrap(leaseID: lease, token: token, startupDeadline: startupDeadline)))
             try input.fileHandleForWriting.close()
             startPolling()
-            let deadline = ProcessInfo.processInfo.systemUptime + 8
+            let deadline = startupDeadline
             while ProcessInfo.processInfo.systemUptime < deadline {
                 let status = try connection.request(.init(operation: .status, leaseID: lease, session: .current()))
                 receive(status)

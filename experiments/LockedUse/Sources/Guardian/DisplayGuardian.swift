@@ -49,6 +49,8 @@ final class DisplayGuardian: NSObject {
     private let brokerBootstrap: LockedUseGuardianBootstrap?
     private var brokerClient: LockedUseIPCClient?
     private var watchdogBootstrap: LockedUseGuardianBootstrap?
+    private var clickAllowance: LockedUseClickAllowance?
+    private var displayedStartupRemaining: Int?
     private var hasObservedUnlock = false
     private var brokerReportInFlight = false
     private var lastBrokerReport: TimeInterval = 0
@@ -90,7 +92,10 @@ final class DisplayGuardian: NSObject {
                 try observer.start()
                 let hello = try client.request(.init(operation: .guardianHello, leaseID: bootstrap.leaseID, token: bootstrap.token))
                 guard hello.result != .denied, let token = hello.token else { throw GuardianError.message("Broker rejected Guardian identity/challenge") }
-                watchdogBootstrap = try .init(leaseID: bootstrap.leaseID, token: token)
+                let clickTag = Int64.random(in: 1...Int64.max)
+                clickAllowance = .init(tag: clickTag, sender: getpid(), now: ProcessInfo.processInfo.systemUptime)
+                watchdogBootstrap = try .init(leaseID: bootstrap.leaseID, token: token, clickTag: clickTag,
+                    startupDeadline: bootstrap.startupDeadline)
             } else { createCaptureFixture() }
             try coverDisplays()
             displayPower = try DisplayPowerAssertion()
@@ -238,17 +243,21 @@ final class DisplayGuardian: NSObject {
         tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap,
             options: .defaultTap, eventsOfInterest: mask, callback: { _, type, event, pointer in
                 guard let pointer else { return Unmanaged.passUnretained(event) }
-                MainActor.assumeIsolated {
+                let admitted = MainActor.assumeIsolated { () -> Bool in
                     let guardian = Unmanaged<DisplayGuardian>.fromOpaque(pointer).takeUnretainedValue()
                     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
                         emit("inputTapDisabled", details: ["kind": type == .tapDisabledByTimeout ? "timeout" : "userInput",
                             "phase": guardian.policy.phase.rawValue])
                         guardian.stop(.guardianFailure)
-                        return
+                        return false
                     }
-                    // No synthetic events are exempted on the global stream.
-                    // Default OCU postToPid does not traverse this tap. Global
-                    // input during Locked Use must remain disallowed.
+                    if !guardian.stopping, guardian.unlockRequested,
+                       guardian.clickAllowance?.accepts(event, type: type, filter: "main") == true {
+                        recordLockUIClickAdmission(filter: "main", type: type)
+                        return true
+                    }
+                    // Only the one-use inherited lock-UI capability is admitted.
+                    // Every other global event still requests takeover.
                     if guardian.policy.phase != .relocking {
                         emit("inputTakeover", details: ["type": type.rawValue,
                             "sourcePID": event.getIntegerValueField(.eventSourceUnixProcessID),
@@ -256,8 +265,9 @@ final class DisplayGuardian: NSObject {
                             "phase": guardian.policy.phase.rawValue])
                         guardian.stop(.localInput)
                     }
+                    return false
                 }
-                return nil
+                return admitted ? Unmanaged.passUnretained(event) : nil
             }, userInfo: context)
         guard let tap, let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
             throw GuardianError.message("Cannot create a filtering event tap")
@@ -303,6 +313,13 @@ final class DisplayGuardian: NSObject {
 
     private func poll() {
         let now = ProcessInfo.processInfo.systemUptime
+        if !stopping, let deadline = brokerBootstrap?.startupDeadline {
+            let remaining = max(0, Int(ceil(deadline - now)))
+            if remaining != displayedStartupRemaining {
+                displayedStartupRemaining = remaining
+                shields.updateMessage("Open Computer Use · 保护中\n等待系统认证：剩余 \(remaining) 秒\n移动鼠标或按键可退出")
+            }
+        }
         if stopping, unlockCancellation.quiesced { unlockWorkPending = false }
         let bytes = watchdogReader?.drain(allowed: [72, 82, 83]) ?? []
         if bytes.contains(83) {
@@ -377,6 +394,7 @@ final class DisplayGuardian: NSObject {
     }
 
     private func stop(_ reason: LockedUseGuardianPolicy.Reason) {
+        clickAllowance?.revoke()
         fixtureGate.close()
         unlockCancellation.cancel()
         if unlockCancellation.quiesced { unlockWorkPending = false }
@@ -507,9 +525,10 @@ final class DisplayGuardian: NSObject {
         let session = policy.session
         let cancellation = unlockCancellation
         let ui = lockUIObservation
+        let clickTag = watchdogBootstrap?.clickTag
         emit("unlockRequestStarting", details: ["lockedSessionObserved": true])
         Task { @MainActor in
-            let accepted = await Task.detached { LockScreenInteractor.wake(session: session, cancellation: cancellation, ui: ui) }.value
+            let accepted = await Task.detached { LockScreenInteractor.wake(session: session, cancellation: cancellation, ui: ui, clickTag: clickTag) }.value
             unlockWorkPending = false
             emit("unlockRequestReturned", details: ["displayWakeAccepted": accepted,
                 "session": LockedUseSession.current().state.rawValue])

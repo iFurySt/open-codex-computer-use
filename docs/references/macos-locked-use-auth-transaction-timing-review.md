@@ -51,3 +51,7 @@
 2026-10-06 后续复核：参考 build 的 send 路径在 0x1007150cc 调用 0x10021875c（CGEventAPI.post(_:tap:)），传入 tap=1，封装经缓存函数指针发送事件。这支持会话级合成点击路径，CGEventPost 零导入不能排除动态发送；仍不证明认证效果。我们之前的 postToPid 点击 / Return 均没有观察到机制调用，已撤回。验证实验改用公开 annotated application stage、显式目标 PID / 窗口字段、唯一有效几何的一次点击；保留两级会话过滤和硬件监测。此路由与参考 tap=1 不同，尚待实测，不能声称照搬或保证成功。[Apple 的 stage 定义](https://developer.apple.com/documentation/coregraphics/cgeventtaplocation/cgannotatedsessioneventtap) 和 [post API](https://developer.apple.com/documentation/coregraphics/cgevent/post(tap:)) 只说明投递位置，不保证锁屏认证被触发。
 
 许可模型改为保护待命 → 首次合法插件 claim → 签发 / 消费许可；保留原 8 秒启动截止，晚签发不会延长测试锁屏。待命实测完整 AX 树和空写返回成功，但原截止内没有机制，仍无法证明自动解锁。agent 独立上限增加现有 2 秒 RPC 排空余量，控制器修复 BrokenPipeError 掩盖失败与报告丢失。
+
+后续验证版本改用参考一致的 session stage，不再绕过两个会话过滤器。Guardian 通过继承私有管道向 watchdog 传递独立随机标记；两个过滤器各只接受一次短时、有序、同目标 / 窗口 / 坐标的 mouse down/up，且要求 Guardian 来源与无 Shift / Control / Option / Command 点击修饰键。PID 本身不能放行，真实硬件活动保持独立接管。这是事件传递实验，不是认证许可或解锁成功证据。纯策略的错误标记、错误来源、过期、重复、目标改变和撤销回归通过；真实过滤与认证效果仍需分开判定。
+
+2026-10-06 时限与编码补充：socket 长期存活只证明 Broker 常驻，不能推出许可始终有效；本项目 Broker 同样常驻，但本轮 lease 有界。显式验证 profile 改为最多 20 秒保护待命（准备仍 8 秒），首次 claim 才签发最多 5 秒许可并裁剪到原截止，硬件接管立即撤销。参考 mouseEvent 在 0x1007144c8 调用 0x10022c4cc，即 WindowServerSPI.setWindowLocation；之前仅有全球 / 屏幕坐标还缺窗口内坐标。同时参考设置 field 7 subtype=3。已复用现有 CGEventSetWindowLocation 编码器并加入该 subtype，不能把这段私有鼠标编码称为发起认证 API。待实测验证点击后 AX / 认证的变化。

@@ -112,6 +112,12 @@ private final class BrokerServer: @unchecked Sendable {
         timer.setEventHandler { [weak self] in
             guard let self else { return }
             do {
+                let previousPhase = self.coordinator.phase
+                defer {
+                    if previousPhase != self.coordinator.phase {
+                        self.logger.notice("phase=\(self.coordinator.phase.rawValue, privacy: .public) stopReason=\(self.coordinator.stopReason?.rawValue ?? "none", privacy: .public)")
+                    }
+                }
                 let now = ProcessInfo.processInfo.systemUptime
                 if now - self.lastPolicyCheck >= 1 {
                     self.policyMonitor.refresh(now: now)
@@ -177,6 +183,13 @@ private final class BrokerServer: @unchecked Sendable {
     }
 
     private func authenticate(fd: Int32, endpoint: LockedUseIPCEndpoint) throws -> LockedUsePeerIdentity {
+        let began = ProcessInfo.processInfo.systemUptime
+        defer {
+            let elapsed = ProcessInfo.processInfo.systemUptime - began
+            if elapsed > 0.25 {
+                logger.notice("verificationSlow endpoint=\(endpoint.rawValue, privacy: .public) elapsedMilliseconds=\(Int(elapsed * 1000), privacy: .public)")
+            }
+        }
         switch endpoint {
         case .agent: return try approvals.verifiedPeer(socket: fd, role: .agent)
         case .guardian: return try approvals.verifiedPeer(socket: fd, role: .guardian)
@@ -336,6 +349,11 @@ private final class BrokerServer: @unchecked Sendable {
     }
 
     private func verifyOriginalClient(_ connection: BrokerConnection) throws {
+        let began = ProcessInfo.processInfo.systemUptime
+        defer {
+            let elapsed = ProcessInfo.processInfo.systemUptime - began
+            if elapsed > 0.25 { logger.notice("originalClientVerificationSlow elapsedMilliseconds=\(Int(elapsed * 1000), privacy: .public)") }
+        }
         guard !connection.clientInvalidated, let previous = connection.clientIdentity else { throw BrokerError.message("client unavailable") }
         // A retained SCM_RIGHTS descriptor can outlive its originating client.
         // Reject EOF/dead peers before asking Security.framework to resolve a
