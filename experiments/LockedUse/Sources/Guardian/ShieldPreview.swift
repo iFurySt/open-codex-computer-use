@@ -43,7 +43,7 @@ final class ShieldPreview {
     }
 
     private func message(seconds: Int) -> String {
-        "Open Computer Use · 遮罩预览\n剩余 \(seconds) 秒\n请观察每块物理屏幕 · Esc 提前退出\n本次不会锁屏或操作应用"
+        LockedUseShieldStatus.message
     }
 
     private func installTap() throws {

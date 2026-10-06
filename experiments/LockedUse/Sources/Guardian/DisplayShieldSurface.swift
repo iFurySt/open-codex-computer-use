@@ -14,13 +14,13 @@ private final class ShieldWindow: NSPanel {
 @MainActor
 final class DisplayShieldSurface {
     private var windows: [CGDirectDisplayID: ShieldWindow] = [:]
-    private var labels: [CGDirectDisplayID: NSTextField] = [:]
+    private var appearances: [CGDirectDisplayID: ShieldAppearance] = [:]
     private var topology = ""
     var count: Int { windows.count }
 
     func updateMessage(_ message: String) {
-        for (id, label) in labels {
-            label.stringValue = message
+        for (id, appearance) in appearances {
+            appearance.updateMessage(message)
             windows[id]?.displayIfNeeded()
         }
     }
@@ -34,7 +34,7 @@ final class DisplayShieldSurface {
     func close() {
         for window in windows.values { window.close() }
         windows.removeAll()
-        labels.removeAll()
+        appearances.removeAll()
     }
 
     private func screenIDs() -> [(CGDirectDisplayID, NSScreen)] {
@@ -75,20 +75,12 @@ final class DisplayShieldSurface {
             window.ignoresMouseEvents = false
             window.sharingType = .none
             window.isReleasedWhenClosed = false
-            let label = NSTextField(labelWithString: message)
-            label.alignment = .center
-            label.textColor = .white
-            label.font = .systemFont(ofSize: 22)
-            label.translatesAutoresizingMaskIntoConstraints = false
-            if let view = window.contentView {
-                view.addSubview(label)
-                NSLayoutConstraint.activate([label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-                    label.centerYAnchor.constraint(equalTo: view.centerYAnchor)])
-            }
+            let appearance = ShieldAppearance(frame: NSRect(origin: .zero, size: frame.size), screen: screen, message: message)
+            window.contentView = appearance
             window.orderFrontRegardless()
             window.displayIfNeeded()
             windows[id] = window
-            labels[id] = label
+            appearances[id] = appearance
         }
     }
 

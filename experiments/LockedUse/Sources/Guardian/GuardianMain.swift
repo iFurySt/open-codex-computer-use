@@ -57,6 +57,20 @@ struct GuardianMain {
                 guard failure == nil else { throw GuardianError.message("Independent surface self-test failed") }
             case ["--broker-watchdog"]:
                 try runWatchdog(persistent: true)
+            case let args where args.count == 2 && args[0] == "--render-shield":
+                let app = NSApplication.shared
+                app.setActivationPolicy(.accessory)
+                app.finishLaunching()
+                guard let screen = NSScreen.main else { throw GuardianError.message("No screen for appearance render") }
+                let view = ShieldAppearance(frame: NSRect(x: 0, y: 0, width: 1800, height: 1200), screen: screen, message: LockedUseShieldStatus.message)
+                view.layoutSubtreeIfNeeded()
+                let visible = NSRect(x: 300, y: 200, width: 1200, height: 800)
+                guard let bitmap = view.bitmapImageRepForCachingDisplay(in: visible) else { throw GuardianError.message("Cannot render appearance") }
+                view.cacheDisplay(in: visible, to: bitmap)
+                guard let png = bitmap.representation(using: .png, properties: [:]) else { throw GuardianError.message("Cannot encode appearance") }
+                try png.write(to: URL(fileURLWithPath: args[1]), options: .atomic)
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: args[1])
+                emit("shieldAppearanceRendered", details: ["lockRequested": false, "unlockRequested": false])
             case ["--shield-preview"]:
                 let app = NSApplication.shared
                 app.setActivationPolicy(.accessory)
@@ -147,7 +161,7 @@ struct GuardianMain {
                 guard guardian.watchdogTestPassed else { throw GuardianError.message("Independent watchdog stall test did not pass") }
                 if LockedUseSession.current().state == .locked { try inspectLoginwindow() }
             default:
-                fputs("Usage: OpenComputerUseGuardian --diagnose | --request-permissions | --inspect-loginwindow | --shield-preview | --rehearse --confirm-lock-test\nPreview shows a 15-second countdown without locking. Rehearsal consumes local input and locks the Mac. No unlock is attempted.\n", stderr)
+                fputs("Usage: OpenComputerUseGuardian --diagnose | --request-permissions | --inspect-loginwindow | --shield-preview | --rehearse --confirm-lock-test\nPreview shows the shield for 15 seconds without locking; countdown is logged. Rehearsal consumes local input and locks the Mac. No unlock is attempted.\n", stderr)
                 exit(64)
             }
         } catch {

@@ -253,7 +253,7 @@ python3 scripts/run-locked-use-native-validation.py --observe-auth-only --observ
 
 会话入口事件实验使用 NSEvent.windowNumber，并通过 Guardian → watchdog 继承管道共享独立随机点击标记。双过滤器均验证来源、顺序、同目标 / 窗口 / 坐标和短时限，只放行一次 down/up；真实硬件活动不会获得豁免。能力不是认证许可，不能授权 SetResult；认证仍须插件 claim / consume 和原会话解锁观察。原 annotated-stage 实验即使 queued 成功也没有自动解锁；NSEvent 版本曾出现 RPC 超时，timer 阶段及慢签名检查已新增诊断。
 
-Root 通过 IPC 返回绝对 uptime 截止，原生 agent 校验其有限且不超过 20 秒，并使用同一截止控制等待和独立退出余量；客户端不能延长 Root 期限。两个保护表面显示该截止的倒计时。20 秒仅为验证 profile 的有界待命，不是 20 秒授权许可；常驻服务或 socket 生命周期也不是放行期限。参考事件还显式编码窗口内坐标和鼠标 subtype 3，本项目复用现有 SkyLight 编码器，缺符号时不投递。这是私有鼠标编码，不是解锁 / 认证 API。点击后只在原 3 秒唤醒限额内重新查找密码字段（最多额外 1.5 秒），不复用旧 AX 元素、不发第二次点击、不提交密码 / Return。
+Root 通过 IPC 返回绝对 uptime 截止，原生 agent 校验其有限且不超过 20 秒，并使用同一截止控制等待和独立退出余量；客户端不能延长 Root 期限。启动截止保留在日志与协议中，产品遮罩不显示认证倒计时。20 秒仅为验证 profile 的有界待命，不是 20 秒授权许可；常驻服务或 socket 生命周期也不是放行期限。参考事件还显式编码窗口内坐标和鼠标 subtype 3，本项目复用现有 SkyLight 编码器，缺符号时不投递。这是私有鼠标编码，不是解锁 / 认证 API。点击后只在原 3 秒唤醒限额内重新查找密码字段（最多额外 1.5 秒），不复用旧 AX 元素、不发第二次点击、不提交密码 / Return。
 
 - HID 单变量实验：用户授权尝试仅将受控 down/up 投递从 session 改到 HID；复用已认证 Root 的验证 profile 开关，生产 / 旧协议保持 session。事件字段、双会话过滤的一次性能力、硬件活动接管、空写 + 单次支持确认、20 秒截止不变。新增固定 clickTap 枚举日志；此改动不保证被系统视作真实硬件或启动认证，待实测。
 
@@ -284,7 +284,7 @@ Return 独立无遮罩诊断已实测跑通：空写 / 点击后对聚焦的唯�
 受保护管理员验证 profile 现支持独立 Return 一次性能力：主 / watchdog 两个 session tap 必须各自验证原锁定会话、来源 PID 和随机 tag、固定 keyCode 36、无修饰 / repeat、5 秒有效期与 250ms 成对时限。实际派发前还需唯一密码框焦点、空写与 Apple loginwindow 签名复查。任何硬件接管或停止均撤销；默认生产 profile 仍不签发键盘能力。完整 AX / SCK / 重锁已在管理员验证 profile 的 legacy-only 轮通过；不作为生产 promotion 证据。
 
 
-遮罩采用居中 1.5× 不透明面板，为 loginwindow 解锁动画的缩放留出实际黑色覆盖余量；健康检查不容忍任何实际未覆盖边缘，仍严格比较 WindowServer 实际边界与显示器。受保护首轮已进入插件放行，但动画缩小遮罩导致 guardLost，overscan 修正版随后通过真实受保护 GUI / SCK / 重锁闭环，未发生覆盖失败。
+遮罩采用居中 1.5× 不透明面板，为 loginwindow 解锁动画的缩放留出实际不透明覆盖余量；健康检查不容忍任何实际未覆盖边缘，仍严格比较 WindowServer 实际边界与显示器。受保护首轮已进入插件放行，但动画缩小遮罩导致 guardLost，overscan 修正版随后通过真实受保护 GUI / SCK / 重锁闭环，未发生覆盖失败。
 
 
 overscan 修正版首次完整实测通过：Return → loginwindow 认证 → 插件一次性许可 → 原会话实际解锁 → 双保护健康下 AX 修改固定 fixture 且 SCK 图像变化 → 重锁 → 双保护释放。手动正常解锁后的自有隔离 legacy Keychain 项验证 / 清理通过。物理屏幕持续覆盖待现场确认；本轮未覆盖 Data Protection Keychain、Secure Input 硬件接管和组件死亡 / 显示器变化，因此 productionEvidenceEligible=false，生产保持关闭，尚未合并。
@@ -293,7 +293,7 @@ overscan 修正版首次完整实测通过：Return → loginwindow 认证 → �
 停留计时复测：--fast 会将停留设为 0，因此首轮双保护就绪至释放约 3.68 秒。使用 --hold-seconds 5 后，AX / SCK 通过再实际停留 5.002 秒，随后 turnEnded 正常重锁和双保护释放；双保护就绪至释放约 7.78 秒。控制器现输出停留开始 / 结束及单调时钟实际耗时；现场观察不应把初始“5 秒后锁屏”提示当作遮罩停留承诺。
 
 
-主 / watchdog 遮罩使用共同的单向显示状态：等待认证倒计时 → 正在操作，退出时冻结最后文字直到关闭。观察到解锁后不再显示启动截止或 300 秒上限倒计时；停止后不再更新标签，避免关闭前发生文字重排。显示状态仅控制提示文字，独立于 Broker 的许可、GUI action 和释放屏障。
+主 / watchdog 遮罩使用同一固定展示：`Open Computer Use is Using Your Mac` 与 `Press any key or click to unlock`。认证、操作和排空不切换文字，停止后冻结最后一帧。共享视图从各屏幕的 NSWorkspace 壁纸文件读取并模糊处理，只查询当前本地账户的 OpenDirectory 头像，叠加 bundle 内的 OCU 图标；不截图桌面，不读密码或 Keychain。资源缺失时使用不透明备用背景 / 默认头像，窗口仍为 alpha=1 的 1.5× overscan，覆盖检查和重锁呈现屏障保持不变。隔离诊断可显示额外说明；15 秒不锁屏 preview 的倒计时只记录在日志中。
 
 
 用户现场确认显示状态修正版整体正常、两块物理屏幕覆盖稳定；退出前轻微文字跳动另以冻结最后一帧修正，待现场复测。
@@ -303,3 +303,7 @@ overscan 修正版首次完整实测通过：Return → loginwindow 认证 → �
 
 
 撤罩屏障首次实测因将 loginwindow layer 与极高 CGShieldingWindowLevel 比较而永久等待，已纠正为 screenSaverWindow 级别。新增独立本地恢复：Root 排空后已观察原会话锁定且真实 IOHID 活动发生，才把输入交回系统 loginwindow；仍维持遮蔽，直到用户实际解锁同一会话才释放，不反复重锁。此恢复不签发远程 GUI 许可；软件超时和模拟输入不能启动它。新呈现屏障 / 恢复仍待现场验收，不能视为生产可用。
+
+### 遮罩外观渲染
+
+签名 Guardian 的 `--render-shield <output.png>` 在当前主屏壁纸和头像上离屏渲染外观，不创建保护租约、输入 tap 或锁屏请求。输出可能包含用户头像及壁纸，应仅留在忽略的本地构建目录，不上传或纳入版本控制。动态 / 视频壁纸无法解码静态帧时使用备用背景。`--shield-preview` 则对全部显示器执行 15 秒覆盖检查，Esc 可提前结束，无自动解锁 / 锁定动作。

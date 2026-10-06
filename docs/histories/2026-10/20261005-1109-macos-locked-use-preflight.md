@@ -299,3 +299,11 @@ WindowServer 元数据并不提供像素或 compositor 原子交接保证；1 �
 - 新增 `reconcile-stopped-guards` 维护入口：只允许 idle、agent 已排空且内核确认记录中所有保护进程均退出的旧 epoch 归档；重查状态、独占 daemon 锁并保留私有恢复记录。失败时恢复原记录与服务，不伪造 release ACK、不修改认证规则。
 - 恢复策略相关 9 项测试通过；签名维护入口已实测恢复旧 epoch。修正后的完整 legacy 验证通过自动解锁、AX/SCK、约 5 秒操作保持及重锁后双保护释放，用户确认无桌面闪现、后续解锁正常。
 - 完整 Data Protection 预检在锁屏前因缺少 entitlement（-34018）中止；生产资格与故障矩阵仍待验证。
+
+### 壁纸、头像与固定品牌提示
+
+- 共享 ShieldAppearance 将各屏幕本地壁纸模糊并暗化，读取当前本地用户头像，右下叠加签名 bundle 内的圆形 OCU logo（按现场反馈上移，贴住头像）；缺少资源时保持不透明备用展示。没有桌面截图或密码读取。
+- 两行固定英文为 `Open Computer Use is Using Your Mac` / `Press any key or click to unlock`；认证阶段和操作阶段不更换文字，排空期间继续冻结。独立 preview 倒计时留在日志，产品不显示事务内部状态。
+- 保留 alpha=1、不透明 1.5× overscan、严格 WindowServer 覆盖健康检查和重锁呈现屏障。添加不创建租约、不锁屏的离屏渲染诊断，图像仅本地构建目录保存，不进入版本库。
+- Developer ID Guardian 构建 / 严格签名验证、两项显示状态测试通过；离屏图已检查。双屏预览约 10.8 秒后由 Esc 结束，期间覆盖检查通过；未把主动提前退出记为完整 15 秒验收。
+- 用户确认新版外观整体正常；随后按反馈上移标志并采用圆形裁剪框，离屏渲染再次检查，系统 Guardian 已更新。

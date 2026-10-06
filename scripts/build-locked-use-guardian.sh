@@ -14,7 +14,8 @@ cd "$repo_root"
 swift build --product OpenComputerUseGuardian
 binary_dir="$(swift build --show-bin-path)"
 app_path="$repo_root/.build/locked-use/Open Computer Use Guardian (Dev).app"
-mkdir -p "$app_path/Contents/MacOS"
+mkdir -p "$app_path/Contents/MacOS" "$app_path/Contents/Resources"
+cp "$repo_root/assets/app-icons/open-computer-use-1024.png" "$app_path/Contents/Resources/OCUShieldLogo.png"
 cp "$binary_dir/OpenComputerUseGuardian" "$app_path/Contents/MacOS/OpenComputerUseGuardian"
 cat > "$app_path/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>

@@ -4,9 +4,8 @@ import XCTest
 final class LockedUseShieldStatusTests: XCTestCase {
     func testAuthenticationNeverReplacesActiveAndExitFreezesText() {
         var status = LockedUseShieldStatus()
-        XCTAssertTrue(status.update(now: 1, startupDeadline: 20, unlocked: false, stopping: false)!.contains("剩余 19 秒"))
-        let active = status.update(now: 2, startupDeadline: 20, unlocked: true, stopping: false)!
-        XCTAssertTrue(active.contains("正在操作"))
+        XCTAssertTrue(status.update(now: 1, startupDeadline: 20, unlocked: false, stopping: false)! == LockedUseShieldStatus.message)
+        XCTAssertNil(status.update(now: 2, startupDeadline: 20, unlocked: true, stopping: false))
         for now in 3...23 {
             XCTAssertNil(status.update(now: Double(now), startupDeadline: 20, unlocked: false, stopping: false))
         }
