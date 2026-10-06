@@ -89,7 +89,11 @@ final class DisplayGuardian: NSObject {
         try installTap()
         do {
             if let bootstrap = brokerBootstrap, let client = brokerClient {
-                let observer = PhysicalInputMonitor(activity: { [weak self] in self?.stop(.localInput) },
+                let observer = PhysicalInputMonitor(activity: { [weak self] in
+                    guard let self else { return }
+                    self.policy.requestLocalRecovery()
+                    if self.policy.phase != .relocking { self.stop(.localInput) }
+                },
                     failure: { [weak self] in self?.stop(.guardianFailure) })
                 physicalInput = observer
                 try observer.start()
@@ -257,6 +261,7 @@ final class DisplayGuardian: NSObject {
                         guardian.stop(.guardianFailure)
                         return false
                     }
+                    if guardian.policy.localRecoveryReady { return true }
                     if !guardian.stopping, guardian.unlockRequested,
                        guardian.returnAllowance?.accepts(event, type: type, filter: "main") == true { return true }
                     if !guardian.stopping, guardian.unlockRequested,
@@ -378,6 +383,7 @@ final class DisplayGuardian: NSObject {
                     "topologyUnchanged": displayTopology() == topology, "secureInput": secureInput])
             }
             if policy.phase != .preparing {
+                if policy.localRecoveryReady { shields.allowLocalLoginInput() }
                 execute(try policy.poll(session: current, topology: displayTopology(), guardsHealthy: healthy,
                     lockPresentationReady: lockPresentation.ready(session: current, requested: policy.phase == .relocking, now: now), now: now))
             }
@@ -429,7 +435,9 @@ final class DisplayGuardian: NSObject {
                         "independentRelockReported": watchdogRelockSeen])
                 }
                 if let watchdogInput { _ = HeartbeatPipe.send(76, to: watchdogInput.fileDescriptor) }
-                emit("lockConfirmed", details: ["shieldReleased": true, "unlockRequested": false])
+                let localRecovery = policy.localRecoveryReady && LockedUseSession.current().state == .unlocked
+                emit(localRecovery ? "localRecoveryReleased" : "lockConfirmed",
+                    details: ["shieldReleased": true, "unlockRequested": false])
                 if let client = brokerClient, let bootstrap = brokerBootstrap {
                     cleanup(closeBroker: false)
                     Task { @MainActor in

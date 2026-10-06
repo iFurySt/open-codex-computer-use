@@ -13,6 +13,8 @@ final class WatchdogShield {
     private var source: CFRunLoopSource?
     private var clickAllowance: LockedUseClickAllowance?
     private var returnAllowance: LockedUseReturnAllowance?
+    private(set) var localRecoveryRequested = false
+    private var localRecoveryEnabled = false
     private let startupDeadline: TimeInterval?
     private var shieldStatus = LockedUseShieldStatus()
     private let stop: @MainActor (String) -> Void
@@ -38,6 +40,7 @@ final class WatchdogShield {
                     if let pointer {
                         let admitted = MainActor.assumeIsolated { () -> Bool in
                             let shield = Unmanaged<WatchdogShield>.fromOpaque(pointer).takeUnretainedValue()
+                            if shield.localRecoveryEnabled { return true }
                             if shield.returnAllowance?.accepts(event, type: type, filter: "watchdog") == true { return true }
                             if shield.clickAllowance?.accepts(event, type: type, filter: "watchdog") == true {
                                 recordLockUIClickAdmission(filter: "watchdog", type: type)
@@ -57,7 +60,10 @@ final class WatchdogShield {
             self.source = source
             CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
             CGEvent.tapEnable(tap: tap, enable: true)
-            let monitor = PhysicalInputMonitor(activity: { [weak self] in self?.cancelNativeClick(); stop("hardwareActivity") },
+            let monitor = PhysicalInputMonitor(activity: { [weak self] in
+                self?.localRecoveryRequested = true
+                self?.cancelNativeClick(); stop("hardwareActivity")
+            },
                 failure: { [weak self] in self?.cancelNativeClick(); stop("hardwareMonitorFailure") })
             self.monitor = monitor
             try monitor.start()
@@ -80,6 +86,10 @@ final class WatchdogShield {
         if let tap { CGEvent.tapEnable(tap: tap, enable: false); CFMachPortInvalidate(tap) }
         source = nil; tap = nil; surface.close()
         displayPower?.close(); displayPower = nil
+    }
+    func allowLocalLoginInput() {
+        localRecoveryEnabled = true
+        surface.allowLocalLoginInput()
     }
     func cancelNativeClick() { clickAllowance?.revoke(); returnAllowance?.revoke() }
     func updateStatus(now: TimeInterval, session: LockedUseSession, stopping: Bool) {

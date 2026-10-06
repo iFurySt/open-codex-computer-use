@@ -94,6 +94,39 @@ final class LockedUseGuardianTests: XCTestCase {
         XCTAssertEqual(policy.phase, .relocking)
     }
 
+    func testActualLocalRecoveryAfterDrainAndLockNeverRelocksTheUser() throws {
+        var policy = try shielding()
+        _ = policy.stop(.stopRequested, now: 100)
+        policy.requestLocalRecovery()
+        // Physical input alone is insufficient, and drain alone isn't a lock.
+        XCTAssertEqual(try policy.poll(session: unlocked, topology: "", guardsHealthy: true, now: 100.1), [])
+        policy.confirmQuiescence()
+        XCTAssertEqual(try policy.poll(session: unlocked, topology: "", guardsHealthy: true, now: 100.2), [])
+        XCTAssertFalse(policy.localRecoveryReady)
+        XCTAssertEqual(try policy.poll(session: locked, topology: "", guardsHealthy: true, now: 100.3), [])
+        XCTAssertTrue(policy.localRecoveryReady)
+        XCTAssertEqual(policy.stop(.localInput, now: 101), [])
+        XCTAssertEqual(try policy.poll(session: unlocked, topology: "", guardsHealthy: true, now: 101.1), [.releaseShield])
+    }
+    func testLockAndDrainWithoutHardwareIntentCannotReleaseAnUnlock() throws {
+        var policy = try shielding()
+        _ = policy.stop(.stopRequested, now: 100)
+        policy.confirmQuiescence()
+        _ = try policy.poll(session: locked, topology: "", guardsHealthy: true, now: 100.1)
+        XCTAssertFalse(policy.localRecoveryReady)
+        XCTAssertEqual(try policy.poll(session: unlocked, topology: "", guardsHealthy: true, now: 101), [.requestRelock])
+    }
+    func testNewWorkInvalidatesTheManualRecoveryFence() throws {
+        var policy = try shielding()
+        _ = policy.stop(.stopRequested, now: 100)
+        policy.confirmQuiescence(); policy.requestLocalRecovery()
+        _ = try policy.poll(session: locked, topology: "", guardsHealthy: true, now: 100.1)
+        XCTAssertTrue(policy.localRecoveryReady)
+        policy.requireQuiescence()
+        XCTAssertFalse(policy.localRecoveryReady)
+        XCTAssertEqual(try policy.poll(session: unlocked, topology: "", guardsHealthy: true, now: 101), [.requestRelock])
+    }
+
     func testInvalidIdentityAndClockAreRejected() throws {
         XCTAssertThrowsError(try LockedUseGuardianPolicy(session: .init(state: .unavailable, userID: nil, auditSessionID: nil), now: 100))
         XCTAssertThrowsError(try LockedUseGuardianPolicy(session: unlocked, now: 100, lifetime: .infinity))

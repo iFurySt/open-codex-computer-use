@@ -18,6 +18,10 @@ public struct LockedUseGuardianPolicy: Sendable {
     private var lastNow: TimeInterval
     private var lastRelock: TimeInterval = -.infinity
     private var quiesced = false
+    private var lockedAfterDrain = false
+    private var localRecoveryRequested = false
+    public var localRecoveryReady: Bool { quiesced && lockedAfterDrain && localRecoveryRequested }
+    public mutating func requestLocalRecovery() { localRecoveryRequested = true }
     private var topology: String?
 
     public init(session: LockedUseSession, now: TimeInterval, lifetime: TimeInterval = 300) throws {
@@ -60,14 +64,14 @@ public struct LockedUseGuardianPolicy: Sendable {
             self.reason = reason
             phase = .relocking
         }
-        guard now.isFinite, now >= lastNow, now - lastRelock >= 0.5 else { return [] }
+        guard !localRecoveryReady, now.isFinite, now >= lastNow, now - lastRelock >= 0.5 else { return [] }
         lastNow = now
         lastRelock = now
         return [.requestRelock]
     }
 
     public mutating func confirmQuiescence() { quiesced = true }
-    public mutating func requireQuiescence() { quiesced = false }
+    public mutating func requireQuiescence() { quiesced = false; lockedAfterDrain = false }
 
     public mutating func poll(session current: LockedUseSession, topology currentTopology: String,
                               guardsHealthy: Bool, lockPresentationReady: Bool = false, now: TimeInterval) throws -> [Effect] {
@@ -75,7 +79,12 @@ public struct LockedUseGuardianPolicy: Sendable {
         guard phase != .finished else { return [] }
         let sameSession = current.userID == session.userID && current.auditSessionID == session.auditSessionID
         if phase == .relocking {
+            if sameSession, current.state == .unlocked, localRecoveryReady {
+                phase = .finished
+                return [.releaseShield]
+            }
             if sameSession, current.state == .locked {
+                if quiesced { lockedAfterDrain = true }
                 if quiesced, lockPresentationReady {
                     phase = .finished
                     return [.releaseShield]

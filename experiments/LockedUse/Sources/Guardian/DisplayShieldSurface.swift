@@ -25,6 +25,12 @@ final class DisplayShieldSurface {
         }
     }
 
+    /// Only after root drain, an observed original-session lock and actual
+    /// hardware takeover. Keep opaque coverage while loginwindow takes input.
+    func allowLocalLoginInput() {
+        for window in windows.values { window.ignoresMouseEvents = true }
+    }
+
     func close() {
         for window in windows.values { window.close() }
         windows.removeAll()

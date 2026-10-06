@@ -244,6 +244,7 @@ enum GuardianError: Error { case message(String) }
     lastHeartbeat = ProcessInfo.processInfo.systemUptime
     let lockPresentation = LockScreenPresentation(session: initial)
     var releaseSignalSeen = false
+    var lockedAfterRelease = false
     let brokerLink = bootstrap.map { WatchdogBrokerLink(bootstrap: $0, protected: shield?.healthy == true) }
     if !persistent { _ = HeartbeatPipe.send(82, to: STDOUT_FILENO) } // R requires root registration in broker mode
     while true {
@@ -262,15 +263,18 @@ enum GuardianError: Error { case message(String) }
         if brokerLink?.ready == true { _ = HeartbeatPipe.send(82, to: STDOUT_FILENO) }
         releaseSignalSeen = releaseSignalSeen || bytes.contains(76) || brokerLink?.releaseRequested == true
         let releaseRequested = releaseSignalSeen
+        if releaseRequested, same, current.state == .locked { lockedAfterRelease = true }
+        let localRecovery = releaseRequested && lockedAfterRelease && shield?.localRecoveryRequested == true
+        if localRecovery { shield?.allowLocalLoginInput() }
         let presentationReady = lockPresentation.ready(session: current, requested: releaseRequested, now: now)
-        if releaseRequested, same, current.state == .locked, presentationReady {
+        if releaseRequested, same, (current.state == .locked && presentationReady || current.state == .unlocked && localRecovery) {
             shield?.close()
             brokerLink?.finish()
             return
         }
         if stopping {
             if same, current.state == .locked, !persistent { return }
-            if !(same && current.state == .locked), now - lastLock >= 0.5 {
+            if !localRecovery, !(same && current.state == .locked), now - lastLock >= 0.5 {
                 // S reports a request only; the Guardian must still observe
                 // the original session locked before releasing its windows.
                 _ = HeartbeatPipe.send(83, to: STDOUT_FILENO)

@@ -47,7 +47,7 @@ final class LockScreenPresentation {
         let backgrounds: [CGRect] = windows.compactMap { info in
             guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == process.processIdentifier,
                   (info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue == 1,
-                  (info[kCGWindowLayer as String] as? NSNumber)?.intValue ?? -1 >= Int(CGShieldingWindowLevel()),
+                  (info[kCGWindowLayer as String] as? NSNumber)?.intValue ?? -1 >= Int(CGWindowLevelForKey(.screenSaverWindow)),
                   let bounds = info[kCGWindowBounds as String] as? [String: Any],
                   let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary) else { return nil }
             return rect

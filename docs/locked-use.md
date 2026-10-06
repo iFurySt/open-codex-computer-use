@@ -300,3 +300,6 @@ overscan 修正版首次完整实测通过：Return → loginwindow 认证 → �
 
 
 撤罩另需主 / watchdog 各自确认锁屏呈现屏障：原会话 locked、已排空，并观察到经 Apple 签名验证的 loginwindow 不透明屏蔽层窗口覆盖所有活动显示器，几何 / 拓扑连续稳定至少 1 秒。仅会话锁定不再允许释放。该元数据条件不是 compositor 原子交接证明，仍须现场验证；缺少证据时继续保留保护，不重新发送锁屏请求去打断正常恢复登录。
+
+
+撤罩屏障首次实测因将 loginwindow layer 与极高 CGShieldingWindowLevel 比较而永久等待，已纠正为 screenSaverWindow 级别。新增独立本地恢复：Root 排空后已观察原会话锁定且真实 IOHID 活动发生，才把输入交回系统 loginwindow；仍维持遮蔽，直到用户实际解锁同一会话才释放，不反复重锁。此恢复不签发远程 GUI 许可；软件超时和模拟输入不能启动它。新呈现屏障 / 恢复仍待现场验收，不能视为生产可用。
