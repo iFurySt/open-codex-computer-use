@@ -1,0 +1,416 @@
+{
+  "source_head": "13faead",
+  "conditions": "macOS 26.5.1 arm64, built-in + LG via existing external path",
+  "cycles": {
+    "drain": 3,
+    "current": 1,
+    "primaries": 1
+  },
+  "limitations": [
+    "Sequential incremental comparisons, not independent healthy baselines for every variant",
+    "Other worktree runtimes preserved; active work not identifiable via older agentInfo",
+    "No privileged service stack or XPC caller PID identified",
+    "Primaries batch stopped on one existing ICC content change; no file count increase"
+  ],
+  "variants": {
+    "current": {
+      "variant": "current",
+      "source_head": "13faeadb76b8bff677f3d3edc9535a251ea5d29e",
+      "swift_sha256": "9b68583d6827a3e43934ae8cfc6c14a8293abf36f37e45848b24e25f89c23c8f",
+      "bridge_sha256": "d09e07c591c276d3a85f1e233381d00ca835965507297a27aa7e20e266c545c5",
+      "binary_sha256": "c24ff9e7a80b6cc809c26810b6b7a68d8cc98b9a559a55de40af2da4e9d31470"
+    },
+    "drain": {
+      "variant": "drain",
+      "source_head": "13faeadb76b8bff677f3d3edc9535a251ea5d29e",
+      "swift_sha256": "0d1b07dfa3a1007f3066de1c0d15f1a8cb0490643e430f4f3b255dddf373a42d",
+      "bridge_sha256": "d09e07c591c276d3a85f1e233381d00ca835965507297a27aa7e20e266c545c5",
+      "binary_sha256": "c7782b62ef490037095d7899352e1fc4c4257d26947d4a8e370eb2ae77c6cad0"
+    },
+    "primaries": {
+      "variant": "primaries",
+      "source_head": "13faeadb76b8bff677f3d3edc9535a251ea5d29e",
+      "swift_sha256": "9b68583d6827a3e43934ae8cfc6c14a8293abf36f37e45848b24e25f89c23c8f",
+      "bridge_sha256": "4c3ac39d59de4951f81c4442e9b1ebb73c42b0aaaaf6ec7e3ba491000f8c5ee2",
+      "binary_sha256": "1b7e5554bc8aee22e32b902a2706aa2ed0f79164c81bb36809e330db5e03cf24"
+    }
+  },
+  "phases": [
+    {
+      "variant": "passive",
+      "name": "lg-reconnected-baseline",
+      "seconds": 20.241131067276,
+      "cpu": {
+        "WindowServer": {
+          "mean": 43.844314278864026,
+          "median": 43.99503464550947,
+          "max": 46.81882472579763,
+          "p95": 46.42524069103677
+        },
+        "colorsync.displayservices": {
+          "mean": 1.0883091338101376,
+          "median": 0.0,
+          "max": 5.624507634043885,
+          "p95": 5.619538512838798
+        },
+        "colorsyncd": {
+          "mean": 0.6925379394908293,
+          "median": 0.0,
+          "max": 3.7572463497633017,
+          "p95": 3.746359008569846
+        }
+      },
+      "display_info_requests_per_second": 0.19761741508935893,
+      "display_info_requests": 4,
+      "profile_calls_per_second": 0.39523483017871786,
+      "icc_before": 146,
+      "icc_after": 146,
+      "icc_content_changes": 0,
+      "physical_topology_unchanged": true
+    },
+    {
+      "variant": "drain",
+      "name": "baseline",
+      "seconds": 20.310449361801147,
+      "cpu": {
+        "WindowServer": {
+          "mean": 43.29894642862884,
+          "median": 43.3164842404673,
+          "max": 47.0897713409513,
+          "p95": 46.51401762771308
+        },
+        "colorsync.displayservices": {
+          "mean": 1.0315592241104043,
+          "median": 0.0,
+          "max": 5.696433952914283,
+          "p95": 5.669232190958529
+        },
+        "colorsyncd": {
+          "mean": 0.6390937000976356,
+          "median": 0.0,
+          "max": 3.7976226352761886,
+          "p95": 3.7794881273056857
+        }
+      },
+      "display_info_requests_per_second": 0.19694295920025262,
+      "display_info_requests": 4,
+      "profile_calls_per_second": 0.39388591840050524,
+      "icc_before": 146,
+      "icc_after": 146,
+      "icc_content_changes": 0,
+      "physical_topology_unchanged": true
+    },
+    {
+      "variant": "drain",
+      "name": "post-batch",
+      "seconds": 20.271823167800903,
+      "cpu": {
+        "WindowServer": {
+          "mean": 40.58171266870091,
+          "median": 40.375924912965075,
+          "max": 44.9190404344787,
+          "p95": 44.17216429953607
+        },
+        "colorsync.displayservices": {
+          "mean": 6.376593142667269,
+          "median": 7.630197998004316,
+          "max": 12.23617944124513,
+          "p95": 12.045585119326079
+        },
+        "colorsyncd": {
+          "mean": 3.9051547409045155,
+          "median": 4.768873748752698,
+          "max": 7.529956579227772,
+          "p95": 7.412667765749658
+        }
+      },
+      "display_info_requests_per_second": 1.3812275180297684,
+      "display_info_requests": 28,
+      "profile_calls_per_second": 2.762455036059537,
+      "icc_before": 146,
+      "icc_after": 146,
+      "icc_content_changes": 0,
+      "physical_topology_unchanged": true
+    },
+    {
+      "variant": "current",
+      "name": "baseline",
+      "seconds": 20.228349924087524,
+      "cpu": {
+        "WindowServer": {
+          "mean": 41.63279227560783,
+          "median": 42.245564562211015,
+          "max": 44.319245195689426,
+          "p95": 44.30504589717169
+        },
+        "colorsync.displayservices": {
+          "mean": 6.430442029682747,
+          "median": 8.44902169596269,
+          "max": 12.39112883746692,
+          "p95": 11.571030734582187
+        },
+        "colorsyncd": {
+          "mean": 4.0040835333149465,
+          "median": 5.632681130652466,
+          "max": 8.010713585476083,
+          "p95": 7.625310053825797
+        }
+      },
+      "display_info_requests_per_second": 1.3841959480173984,
+      "display_info_requests": 28,
+      "profile_calls_per_second": 2.768391896034797,
+      "icc_before": 146,
+      "icc_after": 146,
+      "icc_content_changes": 0,
+      "physical_topology_unchanged": true
+    },
+    {
+      "variant": "current",
+      "name": "post-batch",
+      "seconds": 20.21127700805664,
+      "cpu": {
+        "WindowServer": {
+          "mean": 39.95063288890844,
+          "median": 39.30126100914008,
+          "max": 46.01010073241854,
+          "p95": 43.49573316369357
+        },
+        "colorsync.displayservices": {
+          "mean": 8.13514559928373,
+          "median": 8.487226530467677,
+          "max": 16.852779336178113,
+          "p95": 13.326741875934248
+        },
+        "colorsyncd": {
+          "mean": 5.059714218701294,
+          "median": 5.6488511706488165,
+          "max": 10.298920705452826,
+          "p95": 8.567191205968552
+        }
+      },
+      "display_info_requests_per_second": 1.7811838403703855,
+      "display_info_requests": 36,
+      "profile_calls_per_second": 3.562367680740771,
+      "icc_before": 146,
+      "icc_after": 146,
+      "icc_content_changes": 0,
+      "physical_topology_unchanged": true
+    },
+    {
+      "variant": "primaries",
+      "name": "baseline",
+      "seconds": 20.1664719581604,
+      "cpu": {
+        "WindowServer": {
+          "mean": 39.420069412280256,
+          "median": 38.65150855990171,
+          "max": 45.017002739392325,
+          "p95": 44.9632653636083
+        },
+        "colorsync.displayservices": {
+          "mean": 8.205281102725106,
+          "median": 8.485641099719441,
+          "max": 17.085660859018407,
+          "p95": 13.414841270280768
+        },
+        "colorsyncd": {
+          "mean": 5.072954924140043,
+          "median": 4.788638668960221,
+          "max": 10.44123719161996,
+          "p95": 8.623826530905673
+        }
+      },
+      "display_info_requests_per_second": 1.785141202422,
+      "display_info_requests": 36,
+      "profile_calls_per_second": 3.570282404844,
+      "icc_before": 146,
+      "icc_after": 146,
+      "icc_content_changes": 0,
+      "physical_topology_unchanged": true
+    },
+    {
+      "variant": "final",
+      "name": "final-no-hotplug",
+      "seconds": 20.218985080718994,
+      "cpu": {
+        "WindowServer": {
+          "mean": 38.6982594752714,
+          "median": 38.516828103732145,
+          "max": 45.09901700496063,
+          "p95": 42.51966994543858
+        },
+        "colorsync.displayservices": {
+          "mean": 9.963291278328645,
+          "median": 9.448815543483313,
+          "max": 17.958765739790366,
+          "p95": 15.12786890315423
+        },
+        "colorsyncd": {
+          "mean": 6.345053565874705,
+          "median": 6.590787867432973,
+          "max": 10.397180165140094,
+          "p95": 9.454918064468705
+        }
+      },
+      "display_info_requests_per_second": 2.1761725340981033,
+      "display_info_requests": 44,
+      "profile_calls_per_second": 4.352345068196207,
+      "icc_before": 146,
+      "icc_after": 146,
+      "icc_content_changes": 0,
+      "physical_topology_unchanged": true
+    }
+  ],
+  "lifecycle": [
+    {
+      "variant": "drain",
+      "name": "create",
+      "configuration_applied": false,
+      "physical_origin_changes": 0
+    },
+    {
+      "name": "lifecycle_diagnostics",
+      "cycle": 1,
+      "exit": 0,
+      "events": [
+        {
+          "display_dealloc": "begin"
+        },
+        {
+          "display_dealloc": "end"
+        },
+        {
+          "object_released_before_exit": true,
+          "display_online_before_exit": true
+        }
+      ],
+      "variant": "drain"
+    },
+    {
+      "variant": "drain",
+      "name": "create",
+      "configuration_applied": false,
+      "physical_origin_changes": 0
+    },
+    {
+      "name": "lifecycle_diagnostics",
+      "cycle": 2,
+      "exit": 0,
+      "events": [
+        {
+          "display_dealloc": "begin"
+        },
+        {
+          "display_dealloc": "end"
+        },
+        {
+          "object_released_before_exit": true,
+          "display_online_before_exit": true
+        }
+      ],
+      "variant": "drain"
+    },
+    {
+      "variant": "drain",
+      "name": "create",
+      "configuration_applied": false,
+      "physical_origin_changes": 0
+    },
+    {
+      "name": "lifecycle_diagnostics",
+      "cycle": 3,
+      "exit": 0,
+      "events": [
+        {
+          "display_dealloc": "begin"
+        },
+        {
+          "display_dealloc": "end"
+        },
+        {
+          "object_released_before_exit": true,
+          "display_online_before_exit": true
+        }
+      ],
+      "variant": "drain"
+    },
+    {
+      "variant": "drain",
+      "name": "cleanup",
+      "exit": 0,
+      "removal_verified": true
+    },
+    {
+      "variant": "drain",
+      "name": "cleanup",
+      "exit": 0,
+      "removal_verified": true
+    },
+    {
+      "variant": "drain",
+      "name": "cleanup",
+      "exit": 0,
+      "removal_verified": true
+    },
+    {
+      "variant": "current",
+      "name": "create",
+      "configuration_applied": false,
+      "physical_origin_changes": 0
+    },
+    {
+      "name": "lifecycle_diagnostics",
+      "cycle": 1,
+      "exit": 0,
+      "events": [
+        {
+          "display_dealloc": "begin"
+        },
+        {
+          "display_dealloc": "end"
+        }
+      ],
+      "variant": "current"
+    },
+    {
+      "variant": "current",
+      "name": "cleanup",
+      "exit": 0,
+      "removal_verified": true
+    },
+    {
+      "variant": "primaries",
+      "name": "create",
+      "configuration_applied": false,
+      "physical_origin_changes": 0
+    },
+    {
+      "name": "lifecycle_diagnostics",
+      "cycle": 1,
+      "exit": 0,
+      "events": [
+        {
+          "display_dealloc": "begin"
+        },
+        {
+          "display_dealloc": "end"
+        }
+      ],
+      "variant": "primaries"
+    },
+    {
+      "variant": "primaries",
+      "name": "cleanup",
+      "exit": 0,
+      "removal_verified": true
+    }
+  ],
+  "primaries_abort": {
+    "reason": "existing ICC content changed",
+    "count_before": 146,
+    "count_after": 146,
+    "added": 0,
+    "removed": 0,
+    "changed": 1
+  }
+}

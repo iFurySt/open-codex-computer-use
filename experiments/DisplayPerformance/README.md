@@ -51,3 +51,16 @@ clang -fobjc-arc experiments/DisplayPerformance/ColorProfiles.m -framework Found
 同日扩展为十组各三次、每组后被动观察 30 秒的[30 次累积记录](results-thirty-20261006.json)，另有停止后约 90 秒恢复窗口；[完整解释](../../docs/references/20261006-thirty-display-cycles.md)。原始窗口由 `cycles.run_batch` 与 `run.Experiment.phase` 编排采集，不提高单批次上限、不使用随机 serial。
 
 当前分支重新编译并签名的同一 helper/bridge 二进制，分别在内置屏与 LG 条件各运行 30 次，见[内置屏数据](results-builtin-current-source-20261006.json)、[LG 数据](results-lg-current-source-20261006.json)及[同构建控制变量报告](../../docs/references/20261006-current-source-display-controls.md)。两个数据集包含相同构建/源码 SHA-256；不是对整个 GUI/registry 的端到端验证。
+
+## 最小生命周期隔离
+
+`build_isolation.py` 在仓库外复制当前 helper/bridge，构建 `current`、`drain`、`primaries` 三种实验变体；不会修改生产源码。三者都在自己的 helper 内给私有类 `dealloc` 加诊断：`current` 保持原逻辑，`drain` 提前释放对象并运行一秒 RunLoop，`primaries` 显式填写 Chromium 测试实现的色度坐标。这是用于排除假设的实验，不是已验证修复；编译锚点改变时拒绝自动补丁。可传 `--sign` 使用已有证书，产物和指纹留在输出目录。
+
+```sh
+python3 -B experiments/DisplayPerformance/build_isolation.py --variant drain --output /tmp/ocu-isolation-build
+python3 -B experiments/DisplayPerformance/lifecycle.py --probe /tmp/ocu-display-performance-probe --helper /tmp/ocu-isolation-build/drain/.build/debug/IsolationHost --output /tmp/ocu-isolation-drain --slot 28 --cycles 3
+```
+
+`lifecycle.py` 每批最多三次，前后各 10–60 秒测量，默认任一 ColorSync 服务基线超过 5% 就不接入显示器；仅在明确记录增量对照时调整阈值，上限 20%。应选择已有 ICC 的空闲固定槽位，禁止随意生成身份。每次检查实际移除、退出、ICC 数量/内容、物理拓扑，异常即停止并清理自己的 helper。第一次使用未预热槽位仍可能新增一份 ICC 然后中止，不能把这个保护误读成不会生成记录。原始 stderr/报告含机器信息，不原样提交。
+
+现有 `experiments/VirtualDisplay/Runner --holder-only` 是早期随机 serial 生命周期演示，会生成不同显示身份；**不要用于性能压力或 ICC 增长回归**。使用这里的固定身份、有界对照。正常会话默认 retain/reuse；真正释放、App 退出或崩溃仍会热插拔，不保证外屏 ColorSync 兼容问题消失。
