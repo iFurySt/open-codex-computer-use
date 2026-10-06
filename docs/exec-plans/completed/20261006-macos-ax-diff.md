@@ -36,3 +36,10 @@ Playwright v1.59.0 AI snapshot tests and anchortree identity/diff design; extern
 - Order patches replace the affected sibling list; they do not compute a minimal sequence of moves. This is simple and reconstructable, and the measured list trace still exceeds the 50% token-reduction target.
 - Playwright reference: 01b2b1533e0bfa1c582117e3ec109fcb57657747 (v1.59.0). anchortree reference: 2f085c506e9fa92e24940ba7c280545a35bee529. External clones were inspected, not vendored.
 - No release version or tag change, and no push.
+
+## Follow-up verification (2026-10-06)
+
+- Full Swift suite remains 217 tests with 2 existing skips and zero failures; JS 31 passed; native 11-step and cursor idle smoke passed.
+- Real virtual-session AX/SCK and AXPress counter transition passed. Extended `--ax-diff-only` now checks hidden observations/actions with an explicit published baseline, Chinese field-value updates, stable button/input references and missing-baseline full recovery; all passed.
+- Real counter replay includes the first full observation plus unchanged and clicked observations: 1,671 full tokens versus 719 contextual-auto tokens (56.97% reduction, o200k_base, screenshots excluded). Full/unchanged/clicked text sizes were 1,714/220/328 bytes; text update was 438 versus 1,786 full bytes.
+- One expanded attempt stopped because the managed window left its verified frame; rerun passed without bypassing any safety checks. Commercial-app traces and model-success comparisons remain outstanding.

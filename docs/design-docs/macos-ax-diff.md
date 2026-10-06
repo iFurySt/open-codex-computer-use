@@ -71,7 +71,9 @@ OPEN_COMPUTER_USE_AX_REAL_REPLAY_OUTPUT=/tmp/ocu-ax-real-replay.json ./scripts/r
 
 这些是确定性清洗节点的文本评测，不含截图、模型推理或实际账单。文本 diff 对顺序的表达更短；结构化增量额外携带明确的引用关系、焦点与父容器。不能据此断言模型任务成功率提升。
 
-真实 AppKit 测试本轮已经取得 AX 状态和 SCK 截图，但点击被既有系统对话框/登录屏安全门暂停；未宣称真实动作或商业应用验收通过。Calculator、TextEdit、Finder、Electron/WebView 的真实连续轨迹和相同模型的动作成功率对照仍需补充。
+2026-10-06 后续真实 AppKit 验证已通过 AX/SCK、AXPress 后 Counter 0 → Counter 1、隐藏观察/隐藏 set_value 后的显式基线 diff、中文输入、按钮/输入框引用稳定性和缺失基线完整恢复。`--ax-diff-only` 已包含这些断言。完整观察为 1,714 字节，无变化增量 220 字节，点击增量 328 字节；输入更新增量 438 字节，对应完整观察 1,786 字节。真实计数器的三次观察（包含首次完整）经 o200k_base 测量：完整 1,671 token、文本行 diff 627 token、上下文增量 719 token，减少 56.97%；仍不包含截图和模型推理。
+
+首次实施时系统对话框/登录屏安全门曾阻止点击，本次复测没有绕过该门。扩展测试的一次尝试因窗口离开已验证 frame 而停止，重新运行后全部断言通过；连续操作仍依赖稳定桌面/窗口布局。Calculator、TextEdit、Finder、Electron/WebView 的真实连续轨迹和相同模型的动作成功率对照仍需补充。
 
 ## 外部参考
 

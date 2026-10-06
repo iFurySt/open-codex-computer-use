@@ -165,7 +165,34 @@ func runChecks() throws {
     }
     report("ax_diff_verified", ["full_bytes": beforeText.utf8.count, "unchanged_bytes": steady.primaryText?.utf8.count ?? 0, "changed_bytes": delta.primaryText?.utf8.count ?? 0])
     report("ax_click_verified")
-    if args.contains("--ax-diff-only") { return }
+    if args.contains("--ax-diff-only") {
+        let baseline = try call("get_app_state", ["text_limit": "max"])
+        let baselineText = baseline.primaryText ?? ""
+        let baselineID = String(baselineText.split(separator: " ")[2])
+        try ensure(try index(baselineText, matching: "Increment") == button,
+                   "Real AX button reference changed after clicking")
+        let input = try index(baselineText, matching: "live-input")
+        let hidden = try call("get_app_state", ["text_limit": "max", "snapshot_mode": "none"])
+        try ensure(hidden.primaryText?.contains("AX snapshot") != true,
+                   "Hidden observation published an AX snapshot")
+        let value = "AX diff verification 你好"
+        _ = try call("set_value", ["element_index": input, "value": value, "snapshot_mode": "none"])
+        let changed = try call("get_app_state", ["text_limit": "max", "snapshot_mode": "auto", "base_snapshot_id": baselineID])
+        let changedText = changed.primaryText ?? ""
+        try ensure(changedText.contains("mode=diff") && changedText.contains(value) && changedText.contains("base_snapshot_id=\(baselineID)"),
+                   "Hidden reads/actions lost the explicit published baseline or text update")
+        let current = try call("get_app_state", ["text_limit": "max"])
+        try ensure(try index(current.primaryText ?? "", matching: "live-input") == input,
+                   "Real AX text field reference changed after value update")
+        try ensure(try index(current.primaryText ?? "", matching: "Increment") == button,
+                   "Unchanged button reference changed after text update")
+        report("ax_hidden_baseline_and_value_verified", ["full_bytes": (current.primaryText ?? "").utf8.count, "changed_bytes": changedText.utf8.count])
+        let recovered = try call("get_app_state", ["text_limit": "max", "snapshot_mode": "auto", "base_snapshot_id": "missing-verification-baseline"])
+        try ensure(recovered.primaryText?.contains("mode=full") == true && recovered.primaryText?.contains(value) == true,
+                   "Missing baseline did not recover the current full AX tree")
+        report("ax_stable_references_and_full_recovery_verified")
+        return
+    }
     desktop("after_click")
     let after = try call("get_app_state", ["text_limit": "max"])
     let textInput = try index(after.primaryText ?? "", matching: "live-input")
