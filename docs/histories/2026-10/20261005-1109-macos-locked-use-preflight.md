@@ -307,3 +307,10 @@ WindowServer 元数据并不提供像素或 compositor 原子交接保证；1 �
 - 保留 alpha=1、不透明 1.5× overscan、严格 WindowServer 覆盖健康检查和重锁呈现屏障。添加不创建租约、不锁屏的离屏渲染诊断，图像仅本地构建目录保存，不进入版本库。
 - Developer ID Guardian 构建 / 严格签名验证、两项显示状态测试通过；离屏图已检查。双屏预览约 10.8 秒后由 Esc 结束，期间覆盖检查通过；未把主动提前退出记为完整 15 秒验收。
 - 用户确认新版外观整体正常；随后按反馈上移标志并采用圆形裁剪框，离屏渲染再次检查，系统 Guardian 已更新。
+
+### 品牌遮罩完整闭环复测
+
+- 首轮在准备阶段因调用运行期 heartbeat 提前触发 heartbeatExpired，未发起自动解锁。第二轮增加准备阶段日志，发现新增虚拟显示器上的实际窗口偏移，严格覆盖检查中止；两轮均观察到双保护释放和正常手动恢复，不计为成功。
+- 主 Guardian 仅在 shielding 状态执行运行期心跳；AppKit finishLaunching 在构建保护窗口前完成，避免 run() 的初始化与已发布窗口布局竞争。准备仍受原有 3.5 秒限制，运行期 1.5 秒心跳和原会话保护未放宽。添加仅含耗时 / ready / 几何失败枚举的准备日志及私有报告白名单。
+- 用户移除 virtual display 后，只对两块物理屏幕复测，不将这轮成功外推为虚拟显示器兼容验收。实际链路通过：插件 claim / consume 放行，原会话自动解锁，受保护 AX counter 递增且 SCK 图像改变；实际保持 5.005 秒，确认重锁，约 1.458 秒后双保护释放；手动解锁和隔离测试数据清理完成。
+- 用户确认双屏持续覆盖、撤罩无桌面闪现、手动解锁正常。Guardian 签名构建 / 部署通过，12 项 Guardian 策略测试通过。此次使用 legacy-only，productionEvidenceEligible=false；Data Protection / Secure Input / 故障矩阵仍未完成。

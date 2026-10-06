@@ -41,6 +41,9 @@ struct GuardianMain {
                 let bootstrap = try readGuardianBootstrap()
                 let app = NSApplication.shared
                 app.setActivationPolicy(.accessory)
+                // Initialize AppKit's screen/layout state before publishing
+                // full-display shields; run() must not relocate them afterward.
+                app.finishLaunching()
                 let guardian = try DisplayGuardian(session: .current(), brokerBootstrap: bootstrap)
                 try guardian.start()
                 withExtendedLifetime(guardian) { app.run() }

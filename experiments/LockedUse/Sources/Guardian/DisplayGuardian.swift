@@ -5,6 +5,7 @@ import CryptoKit
 import Darwin
 import Foundation
 import OpenComputerUseKit
+import os
 @preconcurrency import ScreenCaptureKit
 
 private final class FixtureActionGate: @unchecked Sendable {
@@ -32,6 +33,8 @@ final class DisplayGuardian: NSObject {
     private var watchdogReader: HeartbeatPipe?
     private var watchdogReady = false
     private var lastWatchdogHeartbeat: TimeInterval
+    private let preparationLogger = Logger(subsystem: "dev.opencomputeruse.locked-use", category: "GuardianPreparation")
+    private var preparationLoggedAt = -Double.infinity
     private var started: TimeInterval
     private var lastReport: TimeInterval = 0
     private var topology = ""
@@ -340,6 +343,11 @@ final class DisplayGuardian: NSObject {
         if let watchdogInput, !HeartbeatPipe.send(72, to: watchdogInput.fileDescriptor) { stop(.parentDisconnected) }
         do {
             if policy.phase == .preparing {
+                if now - preparationLoggedAt >= 0.5 {
+                    preparationLoggedAt = now
+                    let failure = shields.coverageFailure() ?? "none"
+                    preparationLogger.notice("preparing elapsedMilliseconds=\(Int((now - self.started) * 1000), privacy: .public) watchdogReady=\(self.watchdogReady, privacy: .public) coverage=\(failure, privacy: .public)")
+                }
                 // Initial AppKit drawing and child launch can take a few frames.
                 if now - started >= 3.5 {
                     emit("preparationFailed", details: ["coverageFailure": shields.coverageFailure() ?? "",
@@ -357,7 +365,9 @@ final class DisplayGuardian: NSObject {
                     }
                 }
             }
-            if watchdogHealthy { execute(try policy.heartbeat(now: now)) }
+            // prepared() starts the live heartbeat only once *all* protection
+            // is ready. A child heartbeat alone cannot arm it during startup.
+            if watchdogHealthy, policy.phase == .shielding { execute(try policy.heartbeat(now: now)) }
             let current = LockedUseSession.current()
             if current.state == .unlocked, brokerBootstrap != nil { hasObservedUnlock = true }
             if brokerBootstrap != nil, let message = shieldStatus.update(now: now,
