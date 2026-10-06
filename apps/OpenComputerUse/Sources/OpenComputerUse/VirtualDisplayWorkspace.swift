@@ -352,7 +352,7 @@ struct VirtualDisplayWorkspaceView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .automatic) {
-                    Button(action: showCreateSession) { Image(systemName: "square.and.pencil") }
+                    Button(action: showCreateSession) { Image(systemName: "plus") }
                         .help("New Session").accessibilityLabel("New Session")
                         .keyboardShortcut("n", modifiers: .command).disabled(model.busy)
                 }
