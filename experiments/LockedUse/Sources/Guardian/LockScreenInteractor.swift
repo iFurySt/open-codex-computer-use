@@ -12,7 +12,7 @@ enum LockScreenInteractor {
     /// Wake once, await complete AX publication and clear the selected field.
     /// This observes readiness, not authentication. The mechanism claim starts
     /// the short permit; the original session must separately become unlocked.
-    static func wake(session: LockedUseSession, cancellation: UnlockCancellation, ui: LockUIObservation, clickTag: Int64? = nil, validationConfirmation: Bool = false, unshieldedReturn: Bool = false) -> Bool {
+    static func wake(session: LockedUseSession, cancellation: UnlockCancellation, ui: LockUIObservation, clickTag: Int64? = nil, validationConfirmation: Bool = false, unshieldedReturn: Bool = false, returnTag: Int64? = nil) -> Bool {
         guard cancellation.allowsRequest(), session.state == .locked,
               LockedUseSession.current() == session else { return false }
         var activity: IOPMAssertionID = 0
@@ -34,7 +34,7 @@ enum LockScreenInteractor {
             guard current == session else { return false }
             attempt += 1
             logger.notice("AXPublication attempt=\(attempt, privacy: .public)")
-            if probe(session: session, cancellation: cancellation, logger: logger, clickTag: clickTag, validationConfirmation: validationConfirmation, confirmationAttempted: &confirmationAttempted, requestDeadline: deadline, unshieldedReturn: unshieldedReturn) {
+            if probe(session: session, cancellation: cancellation, logger: logger, clickTag: clickTag, validationConfirmation: validationConfirmation, confirmationAttempted: &confirmationAttempted, requestDeadline: deadline, unshieldedReturn: unshieldedReturn, returnTag: returnTag) {
                 // The fallback tile can reveal the real password field only
                 // after click delivery. Re-query, never reuse a stale element
                 // or spend another input capability. Stay within the same limit.
@@ -44,7 +44,7 @@ enum LockScreenInteractor {
                     Thread.sleep(forTimeInterval: 0.15)
                     logger.notice("AXPublication followup=true")
                     if probe(session: session, cancellation: cancellation, logger: logger,
-                        clickTag: nil, passwordOnly: true, validationConfirmation: validationConfirmation, confirmationAttempted: &confirmationAttempted, requestDeadline: deadline, unshieldedReturn: unshieldedReturn) { break }
+                        clickTag: nil, passwordOnly: true, validationConfirmation: validationConfirmation, confirmationAttempted: &confirmationAttempted, requestDeadline: deadline, unshieldedReturn: unshieldedReturn, returnTag: returnTag) { break }
                 }
                 break
             }
@@ -55,7 +55,7 @@ enum LockScreenInteractor {
     }
 
     private static func probe(session: LockedUseSession, cancellation: UnlockCancellation, logger: Logger,
-        clickTag: Int64?, passwordOnly: Bool = false, validationConfirmation: Bool = false, confirmationAttempted: inout Bool, requestDeadline: TimeInterval, unshieldedReturn: Bool = false) -> Bool {
+        clickTag: Int64?, passwordOnly: Bool = false, validationConfirmation: Bool = false, confirmationAttempted: inout Bool, requestDeadline: TimeInterval, unshieldedReturn: Bool = false, returnTag: Int64? = nil) -> Bool {
         guard cancellation.allowsRequest(), LockedUseSession.current() == session, AXIsProcessTrusted() else { return false }
         let processes = NSWorkspace.shared.runningApplications.filter {
             $0.localizedName == "loginwindow" || $0.bundleIdentifier == "com.apple.loginwindow"
@@ -130,9 +130,9 @@ enum LockScreenInteractor {
             var focused: CFTypeRef?
             let focusStatus = AXUIElementCopyAttributeValue(candidates[0], kAXFocusedAttribute as CFString, &focused)
             logger.notice("AXProbe passwordFocused=\((focused as? Bool) == true, privacy: .public) status=\(focusStatus.rawValue, privacy: .public)")
-            // Only the explicit unshielded diagnostic can deliver a global
-            // Return. Protected filters have no keyboard capability yet.
-            if unshieldedReturn, !confirmationAttempted, result == .success,
+            // Return requires the explicit unshielded diagnostic or a separate
+            // inherited one-pair capability admitted by both protected taps.
+            if unshieldedReturn || returnTag != nil, !confirmationAttempted, result == .success,
                availability == .success, settable.boolValue, focusStatus == .success,
                (focused as? Bool) == true {
                 confirmationAttempted = true
@@ -152,6 +152,13 @@ enum LockScreenInteractor {
                           LockedUseSession.current() == session,
                           ProcessInfo.processInfo.systemUptime < requestDeadline else { return false }
                     down.flags = []; up.flags = []
+                    if let returnTag {
+                        for event in [down, up] {
+                            event.setIntegerValueField(.eventSourceUserData, value: returnTag)
+                            event.setIntegerValueField(.eventSourceUnixProcessID, value: Int64(getpid()))
+                            event.setIntegerValueField(.eventTargetUnixProcessID, value: Int64(process.processIdentifier))
+                        }
+                    }
                     down.setIntegerValueField(.keyboardEventAutorepeat, value: 0)
                     up.setIntegerValueField(.keyboardEventAutorepeat, value: 0)
                     logger.notice("AXTrigger returnDispatching=true keyCode=36 tap=hid")
@@ -171,7 +178,7 @@ enum LockScreenInteractor {
             let supportsConfirm = actionStatus == .success &&
                 (actions as? [String] ?? []).contains(kAXConfirmAction)
             logger.notice("AXTrigger passwordConfirmSupported=\(supportsConfirm, privacy: .public) status=\(actionStatus.rawValue, privacy: .public)")
-            if validationConfirmation, !unshieldedReturn, !confirmationAttempted, supportsConfirm, result == .success {
+            if validationConfirmation, !unshieldedReturn, returnTag == nil, !confirmationAttempted, supportsConfirm, result == .success {
                 confirmationAttempted = true
                 let confirm = cancellation.performProbe {
                     guard LockedUseSession.current() == session, trusted() else { return AXError.cannotComplete }

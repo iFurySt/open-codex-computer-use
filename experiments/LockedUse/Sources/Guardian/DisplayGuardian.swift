@@ -50,6 +50,7 @@ final class DisplayGuardian: NSObject {
     private var brokerClient: LockedUseIPCClient?
     private var watchdogBootstrap: LockedUseGuardianBootstrap?
     private var clickAllowance: LockedUseClickAllowance?
+    private var returnAllowance: LockedUseReturnAllowance?
     private var validationConfirmation = false
     private var displayedStartupRemaining: Int?
     private var hasObservedUnlock = false
@@ -96,7 +97,9 @@ final class DisplayGuardian: NSObject {
                 validationConfirmation = hello.validationConfirmation == true
                 let clickTag = Int64.random(in: 1...Int64.max)
                 clickAllowance = .init(tag: clickTag, sender: getpid(), now: ProcessInfo.processInfo.systemUptime)
-                watchdogBootstrap = try .init(leaseID: bootstrap.leaseID, token: token, clickTag: clickTag,
+                let returnTag = validationConfirmation ? Int64.random(in: 1...Int64.max) : nil
+                if let returnTag { returnAllowance = .init(tag: returnTag, sender: getpid(), session: policy.session, now: ProcessInfo.processInfo.systemUptime) }
+                watchdogBootstrap = try .init(leaseID: bootstrap.leaseID, token: token, clickTag: clickTag, returnTag: returnTag,
                     startupDeadline: bootstrap.startupDeadline)
             } else { createCaptureFixture() }
             try coverDisplays()
@@ -254,6 +257,8 @@ final class DisplayGuardian: NSObject {
                         return false
                     }
                     if !guardian.stopping, guardian.unlockRequested,
+                       guardian.returnAllowance?.accepts(event, type: type, filter: "main") == true { return true }
+                    if !guardian.stopping, guardian.unlockRequested,
                        guardian.clickAllowance?.accepts(event, type: type, filter: "main") == true {
                         recordLockUIClickAdmission(filter: "main", type: type)
                         return true
@@ -396,7 +401,7 @@ final class DisplayGuardian: NSObject {
     }
 
     private func stop(_ reason: LockedUseGuardianPolicy.Reason) {
-        clickAllowance?.revoke()
+        clickAllowance?.revoke(); returnAllowance?.revoke()
         fixtureGate.close()
         unlockCancellation.cancel()
         if unlockCancellation.quiesced { unlockWorkPending = false }
@@ -528,10 +533,11 @@ final class DisplayGuardian: NSObject {
         let cancellation = unlockCancellation
         let ui = lockUIObservation
         let clickTag = watchdogBootstrap?.clickTag
+        let returnTag = watchdogBootstrap?.returnTag
         let validationConfirmation = self.validationConfirmation
         emit("unlockRequestStarting", details: ["lockedSessionObserved": true])
         Task { @MainActor in
-            let accepted = await Task.detached { LockScreenInteractor.wake(session: session, cancellation: cancellation, ui: ui, clickTag: clickTag, validationConfirmation: validationConfirmation) }.value
+            let accepted = await Task.detached { LockScreenInteractor.wake(session: session, cancellation: cancellation, ui: ui, clickTag: clickTag, validationConfirmation: validationConfirmation, returnTag: returnTag) }.value
             unlockWorkPending = false
             emit("unlockRequestReturned", details: ["displayWakeAccepted": accepted,
                 "session": LockedUseSession.current().state.rawValue])

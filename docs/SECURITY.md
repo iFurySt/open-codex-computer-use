@@ -62,3 +62,6 @@
 验证 profile 的 HID 对比实验只改变鼠标投递层，继续经过同样的双会话过滤器和一次性能力校验；HID 注入不等于真实硬件活动或认证授权。生产与旧协议保持 session 层。
 
 - 用户明确选择的无遮罩诊断是独立验证 profile 分支：只接受 Root 已批准签名探针的原锁定 session，不声明 guardsReady，不接受应用 action / 生产验证 / promotion，不恢复诊断许可。许可仍为首次同 audit session 插件 claim 后最多 5 秒且不超过 20 秒诊断截止；断开 / 策略失效 / 过期撤销不可重启。结果明确不含生产证据。正常生产保护规则不变。
+
+
+受保护 Return 验证实验不开放通用 keyboard exemption。与 click 不同的随机 tag 只经继承管道交给独立 watchdog；两套 gate 对原锁定 session、来源、目标、固定 keyCode 36、无 modifiers / autorepeat、5 秒有效期及 250ms down/up 进行独立一次性检查。真实硬件输入监控继续生效，停止 / 接管同时撤销 mouse 与 Return gate。只有管理员 validation profile 创建 Return 能力，生产等待完整实测。

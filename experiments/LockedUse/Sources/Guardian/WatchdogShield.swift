@@ -12,13 +12,15 @@ final class WatchdogShield {
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
     private var clickAllowance: LockedUseClickAllowance?
+    private var returnAllowance: LockedUseReturnAllowance?
     private let startupDeadline: TimeInterval?
     private var displayedRemaining: Int?
     private let stop: @MainActor (String) -> Void
 
-    init(clickTag: Int64? = nil, startupDeadline: TimeInterval? = nil, stop: @escaping @MainActor (String) -> Void) throws {
+    init(clickTag: Int64? = nil, returnTag: Int64? = nil, startupDeadline: TimeInterval? = nil, stop: @escaping @MainActor (String) -> Void) throws {
         self.stop = stop
         self.startupDeadline = startupDeadline
+        if let returnTag { returnAllowance = .init(tag: returnTag, sender: getppid(), session: LockedUseSession.current(), now: ProcessInfo.processInfo.systemUptime) }
         if let clickTag { clickAllowance = .init(tag: clickTag, sender: getppid(), now: ProcessInfo.processInfo.systemUptime) }
         NSApplication.shared.setActivationPolicy(.accessory)
         try surface.coverDisplays(message: "Open Computer Use 正在使用电脑\n移动鼠标或按键可返回锁屏", levelOffset: -1)
@@ -34,6 +36,7 @@ final class WatchdogShield {
                     if let pointer {
                         let admitted = MainActor.assumeIsolated { () -> Bool in
                             let shield = Unmanaged<WatchdogShield>.fromOpaque(pointer).takeUnretainedValue()
+                            if shield.returnAllowance?.accepts(event, type: type, filter: "watchdog") == true { return true }
                             if shield.clickAllowance?.accepts(event, type: type, filter: "watchdog") == true {
                                 recordLockUIClickAdmission(filter: "watchdog", type: type)
                                 return true
@@ -76,7 +79,7 @@ final class WatchdogShield {
         source = nil; tap = nil; surface.close()
         displayPower?.close(); displayPower = nil
     }
-    func cancelNativeClick() { clickAllowance?.revoke() }
+    func cancelNativeClick() { clickAllowance?.revoke(); returnAllowance?.revoke() }
     func updateCountdown(now: TimeInterval) {
         guard let startupDeadline, startupDeadline.isFinite else { return }
         let remaining = max(0, Int(ceil(startupDeadline - now)))

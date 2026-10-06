@@ -60,6 +60,8 @@ PATTERNS["UnlockTrigger"].extend([r"AXProbe passwordUI enabledButtons=[0-9]+ dis
 
 PATTERNS["UnlockTrigger"].extend(["AXTrigger returnDispatching=true keyCode=36 tap=hid", rf"AXTrigger returnPairQueued={BOOL} authenticationEvidence=false"])
 
+PATTERNS["LockUIClickFilter"].extend([r"returnAdmitted filter=(?:main|watchdog) type=(?:down|up)", r"returnRejected filter=(?:main|watchdog) reason=(?:inactive|timing|capability|source|target|key|sequence)"])
+
 # Normalize markers into enums; never retain the surrounding user/context text.
 SYSTEM_MARKERS = {
     "loginwindow": [

@@ -225,3 +225,10 @@ python3 scripts/run-locked-use-unshielded-diagnostic.py --confirm-visible-deskto
 随后无遮罩复测出现完整自动链：FocusedUser 空写 → 单次 HID 点击 → 唯一密码框空写、focused=true → Return 单对派发 → loginPressed / authBegan / loginwindow rights request → OCU mechanism claim / 一次性 permit consume / SetResult allowed → 原会话实际 unlocked → 立即请求且确认 locked → Root idle。原生诊断起始约 8.358s，观察解锁约 9.692s，结束 / 重锁确认约 10.137s（相对控制器开始，含 5 秒初始提示）。报告内无 Touch ID match；未访问应用 GUI、SCK 或 Keychain。不能视为完整生产验收，报告仍 productionEvidenceEligible=false，自动归因没有因缺失 Touch ID 就签发证书。用户现场观察仍待补充。
 
 下一步是为受保护主 / watchdog 过滤器增加严格的一次性 Return 能力，保留硬件接管 / 重锁、原会话及焦点校验，再验证遮罩期间应用操作和故障恢复。本轮 Return 尚未启用到受保护路径；生产关闭，未合并 awesome-extension。
+
+
+### 受保护 Return 接入（待真实完整复测）
+
+用户确认无遮罩通过后要求提交并恢复 Guardian。此前实现与证据已分别提交 b444978 / 48d918f。新增 LockedUseReturnAllowance，通过 Guardian → watchdog 私有继承管道传递独立随机 returnTag，只在 Root 管理员 validation profile 下创建，不与鼠标 clickTag 混用。两套 session tap 分别验证同一原锁定 UID / audit session、Guardian 来源 PID、能力 tag、有效目标 PID、固定 keyCode 36、无重复 / 修饰键、5 秒总有效期和 250ms 匹配 down/up；重放、错序、取消和真实硬件接管均不能重开。watchdog / 主 Guardian 停止会撤销两类输入能力。
+
+LockScreenInteractor 在完整扫描唯一密码框、空写成功、可写且焦点确认、Apple loginwindow 签名 / 会话再次检查后才提交 Return；受保护事件写入来源 / 目标和独立 tag。没有通用键盘放行、没有 PID-only 绕过。无 Return 能力的旧 bootstrap 不获得键盘权限。生产 profile 暂不启用。新增 6 项策略回归覆盖两独立 gate、nonce / 来源错误、其他按键 / 修饰 / repeat、跨会话 / 过期、顺序 / 目标 / 间隔 / 重放、取消与旧 bootstrap。Swift 272 项（1 跳过、0 失败）、Python 报告 17 项与归因 3 项通过；签名组件、ABI、内核身份检查与 Dev app 构建通过。真实受保护完整链待安装复测，未合并。

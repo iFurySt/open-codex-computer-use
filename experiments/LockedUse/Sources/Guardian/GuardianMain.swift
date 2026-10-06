@@ -236,7 +236,7 @@ enum GuardianError: Error { case message(String) }
         app.setActivationPolicy(.accessory)
         app.finishLaunching()
     }
-    let shield = persistent ? try WatchdogShield(clickTag: bootstrap?.clickTag,
+    let shield = persistent ? try WatchdogShield(clickTag: bootstrap?.clickTag, returnTag: bootstrap?.returnTag,
         startupDeadline: bootstrap?.startupDeadline, stop: stop) : nil
     // Unlike the parent, this process drives RunLoop directly instead of
     // NSApplication.run(). Publish the first AppKit frame before health/RPC.

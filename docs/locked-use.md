@@ -279,3 +279,6 @@ python3 scripts/run-locked-use-unshielded-diagnostic.py --confirm-visible-deskto
 
 
 Return 独立无遮罩诊断已实测跑通：空写 / 点击后对聚焦的唯一密码框发送单对 Return，loginwindow 提交认证、OCU 插件消费许可、原会话解锁后立即重锁，报告中无 Touch ID match。它仅证明本轮无保护的解锁 / 重锁链，不替代受保护 GUI / 捕获 / 故障验收。认证规则一度变更后 Broker 会持续关闭该进程周期的解锁接受能力；恢复规则本身不能重开，须完整复核后经管理员重启服务。
+
+
+受保护管理员验证 profile 现支持独立 Return 一次性能力：主 / watchdog 两个 session tap 必须各自验证原锁定会话、来源 PID 和随机 tag、固定 keyCode 36、无修饰 / repeat、5 秒有效期与 250ms 成对时限。实际派发前还需唯一密码框焦点、空写与 Apple loginwindow 签名复查。任何硬件接管或停止均撤销；默认生产 profile 仍不签发键盘能力。完整 AX / SCK / 重锁实测待验证。

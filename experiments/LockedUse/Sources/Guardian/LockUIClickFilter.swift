@@ -35,3 +35,28 @@ extension LockedUseClickAllowance {
         return accepted ? true : reject(rejection?.rawValue ?? "inactive")
     }
 }
+
+
+extension LockedUseReturnAllowance {
+    mutating func accepts(_ event: CGEvent, type: CGEventType, filter: String) -> Bool {
+        guard type == .keyDown || type == .keyUp else { return false }
+        let modifiers: CGEventFlags = [.maskShift, .maskControl, .maskAlternate, .maskCommand]
+        let accepted = accept(isDown: type == .keyDown,
+            tag: event.getIntegerValueField(.eventSourceUserData),
+            sender: Int32(clamping: event.getIntegerValueField(.eventSourceUnixProcessID)),
+            target: Int32(clamping: event.getIntegerValueField(.eventTargetUnixProcessID)),
+            keyCode: event.getIntegerValueField(.keyboardEventKeycode),
+            repeated: event.getIntegerValueField(.keyboardEventAutorepeat) != 0,
+            modified: !event.flags.intersection(modifiers).isEmpty,
+            session: LockedUseSession.current(), now: ProcessInfo.processInfo.systemUptime)
+        let logger = Logger(subsystem: "dev.opencomputeruse.locked-use", category: "LockUIClickFilter")
+        if accepted {
+            let button = type == .keyDown ? "down" : "up"
+            logger.notice("returnAdmitted filter=\(filter, privacy: .public) type=\(button, privacy: .public)")
+        } else {
+            let reason = rejection?.rawValue ?? "inactive"
+            logger.notice("returnRejected filter=\(filter, privacy: .public) reason=\(reason, privacy: .public)")
+        }
+        return accepted
+    }
+}
