@@ -58,10 +58,15 @@ PATTERNS["UnlockTrigger"].append(r"lockUIState=(?:candidateFound|candidateUnavai
 PATTERNS["Broker"].append(rf"guardLostEvidence guardianAgeMilliseconds=[0-9]+ watchdogAgeMilliseconds=[0-9]+ watchdogProtected={BOOL}")
 PATTERNS["UnlockTrigger"].extend([r"AXProbe passwordUI enabledButtons=[0-9]+ disabledButtons=[0-9]+ unknownButtons=[0-9]+", rf"AXProbe passwordFocused={BOOL} status=-?[0-9]+"])
 
+PATTERNS["UnlockTrigger"].extend(["AXTrigger returnDispatching=true keyCode=36 tap=hid", rf"AXTrigger returnPairQueued={BOOL} authenticationEvidence=false"])
+
 # Normalize markers into enums; never retain the surrounding user/context text.
 SYSTEM_MARKERS = {
     "loginwindow": [
         ("loginPressed", "localSubmitObserved"),
+        ("return in secure textfield", "secureReturnObserved"),
+        ("authBegan", "localAuthenticationBegan"),
+        ("_authCopyRightsWithUsername", "loginwindowRightsRequested"),
         ("APEventTouchIDMatch", "touchIDMatchObserved"),
         ("evaluatePolicy", "localAuthenticationEvaluationObserved"),
         ("askForPasswordSecAgent", "securityAgentUIRequested"),

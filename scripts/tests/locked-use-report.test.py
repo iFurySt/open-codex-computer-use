@@ -17,6 +17,18 @@ class ReportTests(unittest.TestCase):
         return {"eventMessage": message, "category": category, "processImagePath": "/private/"+process,
                 "timestamp": "2026-10-05T10:00:00+00:00", "privateData": "must never be retained"}
 
+    def testReturnSubmissionMarkersAreCuratedWithoutContext(self):
+        entries = [self.entry('AXTrigger returnDispatching=true keyCode=36 tap=hid'),
+                   self.entry('AXTrigger returnPairQueued=true authenticationEvidence=false'),
+                   self.entry('keyPressed: return in secure textfield private-context', process='loginwindow'),
+                   self.entry('authBegan private-context', process='loginwindow'),
+                   self.entry('_authCopyRightsWithUsername private-context', process='loginwindow')]
+        result = report.curate(entries, 0)
+        self.assertEqual(len(result), 5)
+        self.assertEqual([e['message'] for e in result[2:]],
+                         ['secureReturnObserved', 'localAuthenticationBegan', 'loginwindowRightsRequested'])
+        self.assertNotIn('private-context', str(result))
+
     def testKeepsCodesAndBooleansWithoutRawMetadata(self):
         result = report.curate([self.entry("AXProbe nodes=14 primaryMatches=0 fallbackMatches=1 complete=true")], 0)
         self.assertEqual(len(result), 1)

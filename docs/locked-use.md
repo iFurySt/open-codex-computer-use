@@ -273,3 +273,6 @@ python3 scripts/run-locked-use-unshielded-diagnostic.py --confirm-visible-deskto
 
 
 无遮罩诊断的实际结果：首轮存在 Touch ID 手动认证与许可窗口重叠，不算自动解锁；随后不手动介入的 20 秒复测没有解锁或许可消费。控制器按原生 uptime 记录事件，并标记许可窗口内的 Touch ID match。AXConfirm 返回 success、插件放行和自动解锁必须分别验证，不能相互替代。
+
+
+独立无遮罩诊断现用固定 Return HID 按下 / 松开替代 AXConfirm，要求唯一且已聚焦、可写的密码框及签名 / 原锁定会话再次校验，只发送一次。该键盘实验尚未实测，不在受保护解锁路径启用；保护过滤器当前没有键盘许可。派发成功仅表示排队，必须另外观察 loginwindow 提交、插件许可与原会话实际解锁。

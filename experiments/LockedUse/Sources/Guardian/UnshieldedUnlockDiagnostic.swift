@@ -33,7 +33,7 @@ func runUnshieldedUnlockDiagnostic() throws {
         if sameOriginal(current), current.state == .unlocked, !relockRequested { lock.request() }
     }
     _ = LockScreenInteractor.wake(session: original, cancellation: cancellation, ui: LockUIObservation(),
-        clickTag: Int64.random(in: 1...Int64.max), validationConfirmation: true)
+        clickTag: Int64.random(in: 1...Int64.max), validationConfirmation: true, unshieldedReturn: true)
     while ProcessInfo.processInfo.systemUptime < deadline {
         let current = LockedUseSession.current()
         guard sameOriginal(current) else { throw GuardianError.message("Diagnostic session changed") }

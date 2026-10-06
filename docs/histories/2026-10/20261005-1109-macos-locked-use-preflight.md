@@ -197,3 +197,12 @@ python3 scripts/run-locked-use-unshielded-diagnostic.py --confirm-visible-deskto
 修正控制器将原生 stdout 缓冲到进程退出才记录的时间偏差：改为有界逐行读取，以原生 uptime 对齐本轮时间线；修正 trace 清理调用为 finish，确保保存报告。报告增加 authorizing 窗口内 Touch ID 介入标记，拒绝将这类结果当作自动解锁证据；没有该标记也不自动认定为成功。新增 3 项归因回归测试，覆盖窗内 / 窗外 Touch ID 与单独 evaluatePolicy 不能证明人工操作。
 
 第二轮明确不操作鼠标、密码或 Touch ID，无遮罩、无输入过滤、无 watchdog 等满原 20 秒：唯一真实密码框已聚焦，空写成功，单次 AXConfirm 88ms 返回 success，但未观察到认证 right 求值、mechanism、许可消费或原会话解锁。结束后确认原会话锁定、Root 返回 idle。这说明撤掉保护逻辑本身没有解决认证入口；AXConfirm success 不能替代实际解锁证据。生产保持关闭，尚未合并。
+
+
+### Return 单变量诊断（待实测）
+
+用户提供成功时间线中 secure textfield Return → loginPressed → authBegan → authCopyRights → 插件的链路，作为新的待验证假设。Apple 文档仍将 AXConfirm 定义为模拟 Return，不能据该样本断言所有实现中它只聚焦或按钮永远不能提交；当前系统上的 AXConfirm 实测未产生同样授权链。
+
+仅独立无遮罩诊断改为固定 keyCode 36 的单对 HID down/up，替代 AXConfirm，未加入保护路径。要求同一原锁定会话、完整扫描唯一密码框、空写成功且可写 / focused、Apple loginwindow 签名有效、无 Shift / Control / Option / Command，签名检查后再校验焦点与会话 / 请求截止。私有事件源，无修饰键、重复或文字载荷，派发按下后立即释放，即使期间取消也释放；不重试。Root 20 秒诊断窗口及首次 claim 才发一次性许可不变，观察实际解锁后立即重锁。受保护输入过滤器没有键盘许可，不能直接推广该实验。
+
+新增固定枚举日志 secureReturnObserved / localAuthenticationBegan / loginwindowRightsRequested 与 Return dispatch / queued 标记，不保存 surrounding 账户 / 认证上下文。Swift 编译通过，报告回归 17 项、诊断归因 3 项通过。Developer ID 签名两次返回 errSecInternalComponent，新制品未部署 / 未实测；等待用户恢复系统构建签名私钥访问。旧已签名 components 未替换，生产关闭，尚未合并。
