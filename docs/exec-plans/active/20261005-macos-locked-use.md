@@ -260,3 +260,6 @@ LockScreenInteractor 在完整扫描唯一密码框、空写成功、可写且�
 ### 遮罩文字跳变修正
 
 用户现场观察认证倒计时 / 使用倒计时反复跳变。代码确认主 Guardian 的 startup 倒计时在 hasObservedUnlock 后仍每秒更新，与 active 标签互相覆盖；watchdog 又未离开 startup 标签。新增两套遮罩共用的纯显示状态 LockedUseShieldStatus：等待认证（同一 Root startup deadline）→ 正在操作 → 正在锁屏，阶段只前进，只有文字改变时绘制。操作阶段显示稳定提示，不再展示与固定 5 秒测试停留无关的 300 秒上限。此显示状态不授予 GUI 权限、不改变 Broker / 输入 / coverage 策略。新增两项回归覆盖解锁后旧 locked 样本 / 认证截止不能覆盖 active 文案、停止后不回退和主 / watchdog 同输入一致，均通过；真实部署复测待完成。
+
+
+显示状态修正版 e25dd37 已签名部署。相同 5 秒停留实测的 AX / SCK 闭环通过，实际停留 5.005 秒，约 19.625s 确认重锁、19.679s 双保护释放；没有以显示文案变化代替认证 / coverage / 释放证据。现场文字稳定性与正常手动解锁清理待反馈。
