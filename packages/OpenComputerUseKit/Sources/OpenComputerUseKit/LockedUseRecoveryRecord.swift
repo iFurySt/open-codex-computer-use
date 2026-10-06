@@ -44,6 +44,14 @@ public struct LockedUseRecoveryRecord: Codable, Sendable {
         return self
     }
 
+    /// Administrative reconciliation, never validation evidence. The caller
+    /// must obtain an authenticated live Broker status and kernel ESRCH for
+    /// every recorded guard before stopping the service under its instance lock.
+    public func canRetireStoppedGuards(phase: LockedUseStateMachine.Phase, allGuardsExited: Bool) -> Bool {
+        phase == .idle && !fullyReleased && (guardian != nil || watchdog != nil)
+            && agentDrained && (!everGranted || observedUnlocked) && allGuardsExited
+    }
+
     public static func loadInstalled() throws -> Self? {
         do {
             let data = try LockedUseSecureStore.read(components: ["Library", "Application Support", "OpenComputerUse", "LockedUse", "lease-recovery.json"], privateFile: true)

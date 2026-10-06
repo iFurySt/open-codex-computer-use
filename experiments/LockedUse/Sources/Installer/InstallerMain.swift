@@ -40,6 +40,7 @@ struct InstallerMain {
                 try install(source: URL(fileURLWithPath: args[1], isDirectory: true), uid: uid, team: team, validation: args[3] == "validation")
             } else if args == ["uninstall"] { try uninstall(team: team) }
             else if args == ["recover"] { try recover(team: team) }
+            else if args == ["reconcile-stopped-guards"] { try reconcileStoppedGuards() }
             else if args == ["promote"] { try promote(team: team) }
             else { throw InstallError.invalidArguments }
         } catch {
@@ -224,6 +225,62 @@ struct InstallerMain {
         guard chmod(daemon.path, 0o644) == 0 else { throw InstallError.untrusted }
         try run("/bin/launchctl", ["bootstrap", "system", daemon.path])
         print("Enabled production Locked Use for the verified OS and component build.")
+    }
+
+    /// Explicit administrator maintenance for missing release ACKs after a
+    /// failed test. No policy mutation, permit restoration or certification.
+    private static func reconcileStoppedGuards() throws {
+        try trustedTreeShallow(root)
+        let client = try LockedUseIPCClient(endpoint: .admin, brokerRequirement: LockedUseSigningIdentity.brokerRequirement())
+        let status = try client.request(.init(operation: .status))
+        client.close()
+        guard status.result != .denied, let record = try LockedUseRecoveryRecord.loadInstalled() else {
+            throw InstallError.changedPolicy
+        }
+        func exited(_ context: LockedUseBrokerCoordinator.Context) -> Bool {
+            context.processID > 0 && kill(context.processID, 0) != 0 && errno == ESRCH
+        }
+        let peers = [record.guardian, record.watchdog].compactMap { $0 }
+        guard record.canRetireStoppedGuards(phase: status.phase, allGuardsExited: peers.allSatisfy(exited)) else {
+            throw InstallError.changedPolicy
+        }
+        // An idle epoch with unreleased peers cannot accept another begin.
+        // Stop it before changing its durable fence; keep the original record.
+        try run("/bin/launchctl", ["bootout", "system/" + service])
+        var retired: URL?
+        do {
+            let lockFD = open(root.appendingPathComponent("run/broker.lock").path, O_RDWR | O_NOFOLLOW | O_CLOEXEC)
+            guard lockFD >= 0 else { throw InstallError.untrusted }
+            defer { Darwin.close(lockFD) }
+            var lockInfo = stat()
+            guard fstat(lockFD, &lockInfo) == 0, lockInfo.st_uid == 0, lockInfo.st_mode & S_IFMT == S_IFREG,
+                  lockInfo.st_mode & 0o077 == 0, ocu_has_mutating_acl(lockFD) == 0,
+                  flock(lockFD, LOCK_EX | LOCK_NB) == 0,
+                  let current = try LockedUseRecoveryRecord.loadInstalled(), current.leaseID == record.leaseID,
+                  current.owner.id == record.owner.id,
+                  current.guardian?.id == record.guardian?.id, current.watchdog?.id == record.watchdog?.id,
+                  current.canRetireStoppedGuards(phase: .idle, allGuardsExited: peers.allSatisfy(exited)) else {
+                throw InstallError.changedPolicy
+            }
+            let archive = root.appendingPathComponent("retired-lease-" + UUID().uuidString + ".json")
+            guard rename(root.appendingPathComponent("lease-recovery.json").path, archive.path) == 0 else {
+                throw InstallError.untrusted
+            }
+            retired = archive
+            let directory = open(root.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+            guard directory >= 0 else { throw InstallError.untrusted }
+            defer { Darwin.close(directory) }
+            guard fsync(directory) == 0 else { throw InstallError.untrusted }
+        } catch {
+            // Restore service with its original fence on any failed check.
+            if let retired, rename(retired.path, root.appendingPathComponent("lease-recovery.json").path) != 0 {
+                throw InstallError.untrusted
+            }
+            try? run("/bin/launchctl", ["bootstrap", "system", daemon.path])
+            throw error
+        }
+        try run("/bin/launchctl", ["bootstrap", "system", daemon.path])
+        print("Retired the drained idle epoch after kernel-confirmed guard exits; authentication policy unchanged.")
     }
 
     private static func recover(team: String) throws {

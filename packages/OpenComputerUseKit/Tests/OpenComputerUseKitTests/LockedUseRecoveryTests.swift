@@ -11,6 +11,21 @@ final class LockedUseRecoveryTests: XCTestCase {
     private let unlocked = LockedUseSession(state: .unlocked, userID: 501, auditSessionID: 42)
     private let guards = LockedUseStateMachine.Guards(allDisplaysCovered: true, inputTapHealthy: true, watchdogHealthy: true, displayGeneration: 1)
 
+    func testAdministrativeRetirementNeedsIdleDrainAndEveryGuardExit() {
+        func record(drained: Bool = true, observed: Bool = true) -> LockedUseRecoveryRecord {
+            .init(leaseID: UUID(), owner: context(.agent, 1), originalClientToken: Data(repeating: 1, count: 32),
+                guardian: context(.guardian, 2), watchdog: context(.guardian, 3), watchdogChallenge: nil,
+                everGranted: true, observedUnlocked: observed, agentDrained: drained, fullyReleased: false)
+        }
+        XCTAssertTrue(record().canRetireStoppedGuards(phase: .idle, allGuardsExited: true))
+        for phase in [LockedUseStateMachine.Phase.active, .authorizing, .unlocking, .relocking, .awaitingManualUnlock] {
+            XCTAssertFalse(record().canRetireStoppedGuards(phase: phase, allGuardsExited: true))
+        }
+        XCTAssertFalse(record().canRetireStoppedGuards(phase: .idle, allGuardsExited: false))
+        XCTAssertFalse(record(drained: false).canRetireStoppedGuards(phase: .idle, allGuardsExited: true))
+        XCTAssertFalse(record(observed: false).canRetireStoppedGuards(phase: .idle, allGuardsExited: true))
+    }
+
     func testWatchdogMustRegisterBeforeProductionPermitIsIssued() throws {
         let owner = context(.agent, 1), guardian = context(.guardian, 2), watchdog = context(.guardian, 3)
         var broker = LockedUseBrokerCoordinator(enabled: true, backendValidated: true, requiresWatchdog: true)
