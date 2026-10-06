@@ -9,41 +9,51 @@ struct WorkspaceAppDock: View {
     let show: (UInt32) -> Void
     @State private var icons: [Int32: NSImage] = [:]
 
+    // ScrollView has no useful intrinsic width; size its visible surface explicitly.
+    private var contentWidth: CGFloat {
+        let count = state.dockApplications.count
+        return CGFloat(count * 44 + max(0, count - 1) * 4 + 12)
+    }
+
     var body: some View {
         if !state.dockApplications.isEmpty {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(state.dockApplications) { app in
-                        let windows = state.windows.filter { $0.pid == app.pid && state.frame.contains($0.frame) }
-                        let target = windows.first { $0.id == app.selectedWindowID } ?? windows.first
-                        Button {
-                            if let target { show(target.id) }
-                        } label: {
-                            VStack(spacing: 4) {
-                                if let icon = icons[app.pid] {
-                                    Image(nsImage: icon).resizable().scaledToFit().frame(width: 36, height: 36)
-                                } else {
-                                    Image(systemName: "app.dashed").font(.system(size: 30)).frame(width: 36, height: 36)
+            GeometryReader { geometry in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 4) {
+                        ForEach(state.dockApplications) { app in
+                            let windows = state.windows.filter { $0.pid == app.pid && state.frame.contains($0.frame) }
+                            let target = windows.first { $0.id == app.selectedWindowID } ?? windows.first
+                            Button {
+                                if let target { show(target.id) }
+                            } label: {
+                                VStack(spacing: 2) {
+                                    if let icon = icons[app.pid] {
+                                        Image(nsImage: icon).resizable().scaledToFit().frame(width: 36, height: 36)
+                                    } else {
+                                        Image(systemName: "app.dashed").font(.system(size: 30)).frame(width: 36, height: 36)
+                                    }
+                                    Circle().fill(state.pid == app.pid ? Color.primary : Color.clear).frame(width: 4, height: 4)
+                                }.padding(4)
+                            }
+                            .buttonStyle(DockIconButtonStyle())
+                            .disabled(busy || target == nil)
+                            .help(app.name).accessibilityLabel("Show \(app.name)")
+                            .contextMenu {
+                                ForEach(windows) { window in
+                                    Button(window.title.isEmpty ? app.name : window.title) { show(window.id) }
+                                        .disabled(busy)
                                 }
-                                Circle().fill(state.pid == app.pid ? Color.primary : Color.clear).frame(width: 4, height: 4)
-                            }.padding(6)
-                        }
-                        .buttonStyle(DockIconButtonStyle())
-                        .disabled(busy || target == nil)
-                        .help(app.name).accessibilityLabel("Show \(app.name)")
-                        .contextMenu {
-                            ForEach(windows) { window in
-                                Button(window.title.isEmpty ? app.name : window.title) { show(window.id) }
-                                    .disabled(busy)
                             }
                         }
-                    }
-                }.padding(6)
+                    }.padding(.horizontal, 6).padding(.vertical, 5)
+                }
+                .frame(width: min(contentWidth, geometry.size.width), height: 60)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.white.opacity(0.15)))
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .frame(maxWidth: .infinity)
             }
-            .fixedSize(horizontal: true, vertical: true)
-            .frame(maxWidth: 480)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
-            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.15)))
+            .frame(maxWidth: 480).frame(height: 60)
             .task(id: state.dockApplications.map(\.pid)) {
                 let pids = Set(state.dockApplications.map(\.pid))
                 icons = icons.filter { pids.contains($0.key) }
