@@ -1,0 +1,1954 @@
+{
+  "environment": {
+    "os": "macOS 26.5.1",
+    "architecture": "arm64",
+    "initial_physical_displays": 2
+  },
+  "scope": "Six fixed warm-identity create/remove cycles, user-controlled LG disconnect/reconnect. No capture, AX/input, profile deletion, daemon restart or main App restart.",
+  "phases": [
+    {
+      "name": "connected-baseline",
+      "offset_seconds": 0.0,
+      "duration_seconds": 30.644219875335693,
+      "cpu": {
+        "WindowServer": {
+          "mean": 43.48595298541514,
+          "median": 44.20374304560009,
+          "max": 47.62750335985888,
+          "p95": 47.3517395192226
+        },
+        "colorsync.displayservices": {
+          "mean": 0.9462100203000137,
+          "median": 0.0,
+          "max": 4.745436028888593,
+          "p95": 4.72090779605572
+        },
+        "colorsyncd": {
+          "mean": 0.5547004861850111,
+          "median": 0.0,
+          "max": 3.784852128355156,
+          "p95": 2.8325446776506067
+        }
+      },
+      "cpu_samples": [
+        {
+          "WindowServer": 41.953782902959816,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 1.0819499492645264
+        },
+        {
+          "WindowServer": 42.11064315475222,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 2.150514841079712
+        },
+        {
+          "WindowServer": 42.488170165531955,
+          "colorsync.displayservices": 4.72090779605572,
+          "colorsyncd": 2.8325446776506067,
+          "elapsed": 3.2095890045166016
+        },
+        {
+          "WindowServer": 46.29477999255449,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 4.267973899841309
+        },
+        {
+          "WindowServer": 44.77785420753935,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 5.317560911178589
+        },
+        {
+          "WindowServer": 44.809192670490404,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 6.366416692733765
+        },
+        {
+          "WindowServer": 46.309039596353244,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 7.424485683441162
+        },
+        {
+          "WindowServer": 40.096266055586696,
+          "colorsync.displayservices": 3.818692005393202,
+          "colorsyncd": 1.909346002696601,
+          "elapsed": 8.47193169593811
+        },
+        {
+          "WindowServer": 41.67047789772371,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 9.527803897857666
+        },
+        {
+          "WindowServer": 38.763664425530095,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 10.585468769073486
+        },
+        {
+          "WindowServer": 39.58628874786898,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 11.64641284942627
+        },
+        {
+          "WindowServer": 39.911358772843414,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 12.69872784614563
+        },
+        {
+          "WindowServer": 38.79473431531763,
+          "colorsync.displayservices": 4.731065160379401,
+          "colorsyncd": 3.784852128355156,
+          "elapsed": 13.755563020706177
+        },
+        {
+          "WindowServer": 46.490122287468985,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 14.809515953063965
+        },
+        {
+          "WindowServer": 46.5751317620812,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 15.861555814743042
+        },
+        {
+          "WindowServer": 47.62750335985888,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 16.91134786605835
+        },
+        {
+          "WindowServer": 45.5844207793275,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 17.96433186531067
+        },
+        {
+          "WindowServer": 40.509615675439505,
+          "colorsync.displayservices": 4.710420427304952,
+          "colorsyncd": 1.8841681709048448,
+          "elapsed": 19.025798797607422
+        },
+        {
+          "WindowServer": 44.38910673855314,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 20.084640979766846
+        },
+        {
+          "WindowServer": 47.58137522399852,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 21.135414838790894
+        },
+        {
+          "WindowServer": 44.20374304560009,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 22.19866394996643
+        },
+        {
+          "WindowServer": 39.59398103267075,
+          "colorsync.displayservices": 4.713569170678526,
+          "colorsyncd": 2.8281415023213765,
+          "elapsed": 23.259432792663574
+        },
+        {
+          "WindowServer": 45.66079552730635,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 24.310642957687378
+        },
+        {
+          "WindowServer": 46.99915209647499,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 25.35319972038269
+        },
+        {
+          "WindowServer": 47.3517395192226,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 26.409122943878174
+        },
+        {
+          "WindowServer": 45.28898620424442,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 27.46898889541626
+        },
+        {
+          "WindowServer": 43.658011466327494,
+          "colorsync.displayservices": 4.745436028888593,
+          "colorsyncd": 2.8472616174367382,
+          "elapsed": 28.52261781692505
+        },
+        {
+          "WindowServer": 41.41897484317194,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 29.58493685722351
+        },
+        {
+          "WindowServer": 40.59372411024078,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 30.64420485496521
+        }
+      ],
+      "xpc_requests": 6,
+      "xpc_per_second": 0.1957954884937097,
+      "profile_calls_per_second": 0.3915909769874194,
+      "profile_descriptions": {
+        "Color LCD": 6,
+        "LG HDR 4K": 6
+      },
+      "profile_count_before": 146,
+      "profile_count_after": 146,
+      "profile_hashes_unchanged": true,
+      "display_count_before": 2,
+      "display_count_after": 2,
+      "virtual_count_after": 0,
+      "topology_changed": false,
+      "log_exit": 0
+    },
+    {
+      "name": "after-three-cycles",
+      "offset_seconds": 78.72,
+      "duration_seconds": 30.93950629234314,
+      "cpu": {
+        "WindowServer": {
+          "mean": 46.59204276653695,
+          "median": 45.70020658232627,
+          "max": 70.05077447939037,
+          "p95": 58.84719034898709
+        },
+        "colorsync.displayservices": {
+          "mean": 5.593112486098836,
+          "median": 3.858061128552406,
+          "max": 15.463452974520017,
+          "p95": 14.279949605825673
+        },
+        "colorsyncd": {
+          "mean": 3.433937523446401,
+          "median": 1.9309839774893545,
+          "max": 10.613396841561311,
+          "p95": 8.567969763530037
+        }
+      },
+      "cpu_samples": [
+        {
+          "WindowServer": 40.607959401365804,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 1.0902361869812012
+        },
+        {
+          "WindowServer": 58.84719034898709,
+          "colorsync.displayservices": 11.769438069698609,
+          "colorsyncd": 7.2427311198525315,
+          "elapsed": 2.194758176803589
+        },
+        {
+          "WindowServer": 43.30200393376059,
+          "colorsync.displayservices": 3.849067016380951,
+          "colorsyncd": 1.9245335081029578,
+          "elapsed": 3.2339398860931396
+        },
+        {
+          "WindowServer": 48.163870812141944,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 4.272032976150513
+        },
+        {
+          "WindowServer": 41.5554593311826,
+          "colorsync.displayservices": 11.081455821626296,
+          "colorsyncd": 6.4641825627273235,
+          "elapsed": 5.354907035827637
+        },
+        {
+          "WindowServer": 49.20151051973568,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 6.391427993774414
+        },
+        {
+          "WindowServer": 45.879312859011705,
+          "colorsync.displayservices": 11.469828214926789,
+          "colorsyncd": 7.646552143226572,
+          "elapsed": 7.437628269195557
+        },
+        {
+          "WindowServer": 42.43867241530457,
+          "colorsync.displayservices": 3.858061128552406,
+          "colorsyncd": 1.929030564276203,
+          "elapsed": 8.47440791130066
+        },
+        {
+          "WindowServer": 45.70020658232627,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 9.568469047546387
+        },
+        {
+          "WindowServer": 52.64924203840309,
+          "colorsync.displayservices": 12.444366300017842,
+          "colorsyncd": 7.658071569174778,
+          "elapsed": 10.613100051879883
+        },
+        {
+          "WindowServer": 55.734532914006664,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 11.653728008270264
+        },
+        {
+          "WindowServer": 42.453587366245245,
+          "colorsync.displayservices": 15.437668133084356,
+          "colorsyncd": 10.613396841561311,
+          "elapsed": 12.69014024734497
+        },
+        {
+          "WindowServer": 47.716335956902725,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 13.737987995147705
+        },
+        {
+          "WindowServer": 49.240091427339614,
+          "colorsync.displayservices": 3.861967954978709,
+          "colorsyncd": 1.9309839774893545,
+          "elapsed": 14.773715019226074
+        },
+        {
+          "WindowServer": 43.93996240230362,
+          "colorsync.displayservices": 7.479142536536991,
+          "colorsyncd": 4.674464085356876,
+          "elapsed": 15.843346118927002
+        },
+        {
+          "WindowServer": 49.145447396596616,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 16.881071090698242
+        },
+        {
+          "WindowServer": 40.591564058686394,
+          "colorsync.displayservices": 15.463452974520017,
+          "colorsyncd": 8.698192298189484,
+          "elapsed": 17.915756940841675
+        },
+        {
+          "WindowServer": 58.943060799518236,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 19.357834100723267
+        },
+        {
+          "WindowServer": 70.05077447939037,
+          "colorsync.displayservices": 11.060648602159018,
+          "colorsyncd": 7.373765734716792,
+          "elapsed": 20.442744970321655
+        },
+        {
+          "WindowServer": 46.971235988900744,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 21.507216215133667
+        },
+        {
+          "WindowServer": 42.83478040940696,
+          "colorsync.displayservices": 11.42260810914056,
+          "colorsyncd": 6.663188063593182,
+          "elapsed": 22.557757139205933
+        },
+        {
+          "WindowServer": 44.893465748343644,
+          "colorsync.displayservices": 4.775900611444591,
+          "colorsyncd": 2.8655403669710027,
+          "elapsed": 23.60467505455017
+        },
+        {
+          "WindowServer": 49.48894338438699,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 24.655412912368774
+        },
+        {
+          "WindowServer": 50.33897330466597,
+          "colorsync.displayservices": 11.616686147217061,
+          "colorsyncd": 7.744457431419345,
+          "elapsed": 25.68839716911316
+        },
+        {
+          "WindowServer": 43.218336689655125,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 26.729628086090088
+        },
+        {
+          "WindowServer": 34.27187905412015,
+          "colorsync.displayservices": 14.279949605825673,
+          "colorsyncd": 8.567969763530037,
+          "elapsed": 27.78004026412964
+        },
+        {
+          "WindowServer": 37.13134642565551,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 28.83036994934082
+        },
+        {
+          "WindowServer": 38.85657267715415,
+          "colorsync.displayservices": 3.7908851391798906,
+          "colorsyncd": 2.8431638544280156,
+          "elapsed": 29.885534048080444
+        },
+        {
+          "WindowServer": 37.00292150407341,
+          "colorsync.displayservices": 8.539135731576494,
+          "colorsyncd": 4.743964295329862,
+          "elapsed": 30.939494132995605
+        }
+      ],
+      "xpc_requests": 42,
+      "xpc_per_second": 1.3574877246956618,
+      "profile_calls_per_second": 2.7149754493913236,
+      "profile_descriptions": {
+        "Color LCD": 42,
+        "LG HDR 4K": 42
+      },
+      "profile_count_before": 146,
+      "profile_count_after": 146,
+      "profile_hashes_unchanged": true,
+      "display_count_before": 2,
+      "display_count_after": 2,
+      "virtual_count_after": 0,
+      "topology_changed": false,
+      "log_exit": 0
+    },
+    {
+      "name": "recovery-2",
+      "offset_seconds": 150.03,
+      "duration_seconds": 30.604933261871338,
+      "cpu": {
+        "WindowServer": {
+          "mean": 38.29217641015414,
+          "median": 38.6637065970264,
+          "max": 51.11682424563797,
+          "p95": 47.53142569914422
+        },
+        "colorsync.displayservices": {
+          "mean": 11.120777116911112,
+          "median": 11.358534348991203,
+          "max": 25.679096181240297,
+          "p95": 23.804299128164885
+        },
+        "colorsyncd": {
+          "mean": 6.85675288512412,
+          "median": 7.572356232603411,
+          "max": 15.217242181539806,
+          "p95": 14.28257947686429
+        }
+      },
+      "cpu_samples": [
+        {
+          "WindowServer": 42.226897838486096,
+          "colorsync.displayservices": 2.87910667085348,
+          "colorsyncd": 1.9194044472356533,
+          "elapsed": 1.0730152130126953
+        },
+        {
+          "WindowServer": 29.51733091870276,
+          "colorsync.displayservices": 23.804299128164885,
+          "colorsyncd": 14.28257947686429,
+          "elapsed": 2.1232492923736572
+        },
+        {
+          "WindowServer": 46.110769473576504,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 3.2292861938476562
+        },
+        {
+          "WindowServer": 48.138427223300425,
+          "colorsync.displayservices": 12.270579488339397,
+          "colorsyncd": 7.5511258389120535,
+          "elapsed": 4.288732290267944
+        },
+        {
+          "WindowServer": 38.6637065970264,
+          "colorsync.displayservices": 15.46548263874023,
+          "colorsyncd": 9.6659266492566,
+          "elapsed": 5.323298215866089
+        },
+        {
+          "WindowServer": 41.22929950644591,
+          "colorsync.displayservices": 5.752925512474609,
+          "colorsyncd": 3.8352836750121404,
+          "elapsed": 6.366248369216919
+        },
+        {
+          "WindowServer": 41.54683536681165,
+          "colorsync.displayservices": 18.357903999325657,
+          "colorsyncd": 10.628260210075782,
+          "elapsed": 7.4012322425842285
+        },
+        {
+          "WindowServer": 47.186122194009,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 8.439674139022827
+        },
+        {
+          "WindowServer": 45.479555289525294,
+          "colorsync.displayservices": 18.94981470402632,
+          "colorsyncd": 12.317379557694665,
+          "elapsed": 9.495105028152466
+        },
+        {
+          "WindowServer": 40.55828957217756,
+          "colorsync.displayservices": 10.375376402232837,
+          "colorsyncd": 5.659296219321742,
+          "elapsed": 10.555314302444458
+        },
+        {
+          "WindowServer": 37.89619432667177,
+          "colorsync.displayservices": 12.316263156047693,
+          "colorsyncd": 7.579238865386054,
+          "elapsed": 11.610819101333618
+        },
+        {
+          "WindowServer": 51.11682424563797,
+          "colorsync.displayservices": 10.609152202004307,
+          "colorsyncd": 7.715747055955285,
+          "elapsed": 12.647667407989502
+        },
+        {
+          "WindowServer": 47.53142569914422,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 13.699609279632568
+        },
+        {
+          "WindowServer": 38.17417128598441,
+          "colorsync.displayservices": 20.483701665414713,
+          "colorsyncd": 12.104005529524748,
+          "elapsed": 14.773636102676392
+        },
+        {
+          "WindowServer": 40.6810560927634,
+          "colorsync.displayservices": 8.514639647330576,
+          "colorsyncd": 4.730355359637658,
+          "elapsed": 15.830641269683838
+        },
+        {
+          "WindowServer": 36.115792445656275,
+          "colorsync.displayservices": 12.355402678959125,
+          "colorsyncd": 8.553740316149277,
+          "elapsed": 16.882816076278687
+        },
+        {
+          "WindowServer": 37.584223908784956,
+          "colorsync.displayservices": 11.275267172498756,
+          "colorsyncd": 6.577239183986093,
+          "elapsed": 17.947101354599
+        },
+        {
+          "WindowServer": 38.934779234304116,
+          "colorsync.displayservices": 1.8992575236498697,
+          "colorsyncd": 1.8992575236498697,
+          "elapsed": 19.000144243240356
+        },
+        {
+          "WindowServer": 27.974010072021432,
+          "colorsync.displayservices": 25.08014696169746,
+          "colorsyncd": 14.469315554778216,
+          "elapsed": 20.036821126937866
+        },
+        {
+          "WindowServer": 34.86006548427284,
+          "colorsync.displayservices": 3.7686557279136985,
+          "colorsyncd": 2.826491796063808,
+          "elapsed": 21.098215341567993
+        },
+        {
+          "WindowServer": 30.45703155263693,
+          "colorsync.displayservices": 20.939209192567738,
+          "colorsyncd": 12.373169068280394,
+          "elapsed": 22.148876190185547
+        },
+        {
+          "WindowServer": 36.72533814111285,
+          "colorsync.displayservices": 3.766701347722998,
+          "colorsyncd": 1.883350673861499,
+          "elapsed": 23.210824251174927
+        },
+        {
+          "WindowServer": 33.37579742364351,
+          "colorsync.displayservices": 12.396724757501982,
+          "colorsyncd": 8.582347908986462,
+          "elapsed": 24.259485960006714
+        },
+        {
+          "WindowServer": 27.71204793262154,
+          "colorsync.displayservices": 15.28940575586919,
+          "colorsyncd": 9.555878597374788,
+          "elapsed": 25.305967330932617
+        },
+        {
+          "WindowServer": 40.11665027905899,
+          "colorsync.displayservices": 1.9103166800048303,
+          "colorsyncd": 0.9551583400024152,
+          "elapsed": 26.352924346923828
+        },
+        {
+          "WindowServer": 28.53232909068989,
+          "colorsync.displayservices": 25.679096181240297,
+          "colorsyncd": 15.217242181539806,
+          "elapsed": 27.40436100959778
+        },
+        {
+          "WindowServer": 39.61158690762208,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 28.48992109298706
+        },
+        {
+          "WindowServer": 34.07560304680143,
+          "colorsync.displayservices": 11.358534348991203,
+          "colorsyncd": 7.572356232603411,
+          "elapsed": 29.54638433456421
+        },
+        {
+          "WindowServer": 28.340954744979825,
+          "colorsync.displayservices": 17.004572846850422,
+          "colorsyncd": 10.391683406446777,
+          "elapsed": 30.604925394058228
+        }
+      ],
+      "xpc_requests": 79,
+      "xpc_per_second": 2.5812831978438218,
+      "profile_calls_per_second": 5.1625663956876435,
+      "profile_descriptions": {
+        "Color LCD": 79,
+        "LG HDR 4K": 79
+      },
+      "profile_count_before": 146,
+      "profile_count_after": 146,
+      "profile_hashes_unchanged": true,
+      "display_count_before": 2,
+      "display_count_after": 2,
+      "virtual_count_after": 0,
+      "topology_changed": false,
+      "log_exit": 0
+    },
+    {
+      "name": "recovery-2-late",
+      "offset_seconds": 186.84,
+      "duration_seconds": 45.14817404747009,
+      "cpu": {
+        "WindowServer": {
+          "mean": 38.55080339647537,
+          "median": 35.98599574333136,
+          "max": 64.20509599420429,
+          "p95": 50.08490809440418
+        },
+        "colorsync.displayservices": {
+          "mean": 10.84113388214073,
+          "median": 11.511248228423291,
+          "max": 26.06625148087009,
+          "p95": 21.872128168437527
+        },
+        "colorsyncd": {
+          "mean": 6.687208709176241,
+          "median": 7.592056952707102,
+          "max": 16.412084265824074,
+          "p95": 13.389232857670159
+        }
+      },
+      "cpu_samples": [
+        {
+          "WindowServer": 46.50015735391207,
+          "colorsync.displayservices": 11.387793637816051,
+          "colorsyncd": 7.591862425153161,
+          "elapsed": 1.0817101001739502
+        },
+        {
+          "WindowServer": 60.25017450493388,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 2.127345085144043
+        },
+        {
+          "WindowServer": 41.975372155052305,
+          "colorsync.displayservices": 20.033700346871484,
+          "colorsyncd": 12.401814500506228,
+          "elapsed": 3.1755800247192383
+        },
+        {
+          "WindowServer": 49.71062707663299,
+          "colorsync.displayservices": 7.5034908795014275,
+          "colorsyncd": 4.689681799709719,
+          "elapsed": 4.241755962371826
+        },
+        {
+          "WindowServer": 64.20509599420429,
+          "colorsync.displayservices": 15.332560237455741,
+          "colorsyncd": 9.582850148257316,
+          "elapsed": 5.285290002822876
+        },
+        {
+          "WindowServer": 41.76934140275976,
+          "colorsync.displayservices": 10.44233535068994,
+          "colorsyncd": 6.645122495940692,
+          "elapsed": 6.338702201843262
+        },
+        {
+          "WindowServer": 50.08490809440418,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 7.396914005279541
+        },
+        {
+          "WindowServer": 34.43222751227839,
+          "colorsync.displayservices": 22.954818341460932,
+          "colorsyncd": 14.346761463478325,
+          "elapsed": 8.442441940307617
+        },
+        {
+          "WindowServer": 34.99985042358706,
+          "colorsync.displayservices": 6.62159332330693,
+          "colorsyncd": 3.7837676133305362,
+          "elapsed": 9.499593019485474
+        },
+        {
+          "WindowServer": 31.64204348028583,
+          "colorsync.displayservices": 19.176996048626364,
+          "colorsyncd": 11.506197629123497,
+          "elapsed": 10.542511224746704
+        },
+        {
+          "WindowServer": 41.26807059685036,
+          "colorsync.displayservices": 4.485659847426974,
+          "colorsyncd": 2.691395908472503,
+          "elapsed": 11.657181978225708
+        },
+        {
+          "WindowServer": 35.79326150693649,
+          "colorsync.displayservices": 13.543396245891639,
+          "colorsyncd": 8.706469015153209,
+          "elapsed": 12.690893173217773
+        },
+        {
+          "WindowServer": 39.27687758392885,
+          "colorsync.displayservices": 13.411616736043705,
+          "colorsyncd": 8.621753616077884,
+          "elapsed": 13.734768867492676
+        },
+        {
+          "WindowServer": 48.68778463327633,
+          "colorsync.displayservices": 3.8186497752270268,
+          "colorsyncd": 1.9093248875266873,
+          "elapsed": 14.782275199890137
+        },
+        {
+          "WindowServer": 55.02875312653496,
+          "colorsync.displayservices": 26.06625148087009,
+          "colorsyncd": 16.412084265824074,
+          "elapsed": 15.818089962005615
+        },
+        {
+          "WindowServer": 39.36549069792695,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 16.859618186950684
+        },
+        {
+          "WindowServer": 36.45228605687733,
+          "colorsync.displayservices": 11.511248228423291,
+          "colorsyncd": 7.6741654855573636,
+          "elapsed": 17.9020779132843
+        },
+        {
+          "WindowServer": 34.6276347071101,
+          "colorsync.displayservices": 15.39005986978783,
+          "colorsyncd": 8.656908676777524,
+          "elapsed": 18.941711902618408
+        },
+        {
+          "WindowServer": 39.50691991388197,
+          "colorsync.displayservices": 0.9635834125636314,
+          "colorsyncd": 0.9635834125636314,
+          "elapsed": 19.97951316833496
+        },
+        {
+          "WindowServer": 38.690899827143745,
+          "colorsync.displayservices": 22.247267400484493,
+          "colorsyncd": 13.541814939482716,
+          "elapsed": 21.013349294662476
+        },
+        {
+          "WindowServer": 47.5323938010088,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 22.04422616958618
+        },
+        {
+          "WindowServer": 39.76223957435486,
+          "colorsync.displayservices": 13.577350098388091,
+          "colorsyncd": 8.728296491871317,
+          "elapsed": 23.075361013412476
+        },
+        {
+          "WindowServer": 45.53828185520222,
+          "colorsync.displayservices": 14.533494209212089,
+          "colorsyncd": 8.720096525368636,
+          "elapsed": 24.10746121406555
+        },
+        {
+          "WindowServer": 33.315619228162234,
+          "colorsync.displayservices": 7.614998680747531,
+          "colorsyncd": 4.759374175488851,
+          "elapsed": 25.158029079437256
+        },
+        {
+          "WindowServer": 30.444966263447892,
+          "colorsync.displayservices": 16.173888327478323,
+          "colorsyncd": 9.514051957370732,
+          "elapsed": 26.209108114242554
+        },
+        {
+          "WindowServer": 33.940837652520536,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 27.269792079925537
+        },
+        {
+          "WindowServer": 31.559084533406427,
+          "colorsync.displayservices": 21.039389689227548,
+          "colorsyncd": 13.388702529492624,
+          "elapsed": 28.315442085266113
+        },
+        {
+          "WindowServer": 33.13042917562793,
+          "colorsync.displayservices": 7.572669525724986,
+          "colorsyncd": 4.732918453599639,
+          "elapsed": 29.371881008148193
+        },
+        {
+          "WindowServer": 31.338542749183844,
+          "colorsync.displayservices": 12.345486537860879,
+          "colorsyncd": 7.5972224847710255,
+          "elapsed": 30.42489719390869
+        },
+        {
+          "WindowServer": 35.2573482683078,
+          "colorsync.displayservices": 12.387716958971213,
+          "colorsyncd": 7.623210436329976,
+          "elapsed": 31.47432804107666
+        },
+        {
+          "WindowServer": 35.76847630061076,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 32.5367271900177
+        },
+        {
+          "WindowServer": 29.314246387653974,
+          "colorsync.displayservices": 20.803658726328223,
+          "colorsyncd": 12.293071065604497,
+          "elapsed": 33.59419298171997
+        },
+        {
+          "WindowServer": 36.909499783492834,
+          "colorsync.displayservices": 7.571179442772174,
+          "colorsyncd": 4.731987151754128,
+          "elapsed": 34.650789976119995
+        },
+        {
+          "WindowServer": 30.318957804536844,
+          "colorsync.displayservices": 17.05441376509506,
+          "colorsyncd": 10.422141745287998,
+          "elapsed": 35.706191062927246
+        },
+        {
+          "WindowServer": 37.26179619337929,
+          "colorsync.displayservices": 6.688014701357944,
+          "colorsyncd": 4.777153358150059,
+          "elapsed": 36.752798080444336
+        },
+        {
+          "WindowServer": 33.70690753507641,
+          "colorsync.displayservices": 4.815272505136043,
+          "colorsyncd": 2.8891635030816256,
+          "elapsed": 37.79112720489502
+        },
+        {
+          "WindowServer": 27.57790073425226,
+          "colorsync.displayservices": 21.872128168437527,
+          "colorsyncd": 12.362507225585958,
+          "elapsed": 38.84265613555908
+        },
+        {
+          "WindowServer": 35.98599574333136,
+          "colorsync.displayservices": 3.7879995520384115,
+          "colorsyncd": 2.8409996640288084,
+          "elapsed": 39.89859890937805
+        },
+        {
+          "WindowServer": 26.77846571603617,
+          "colorsync.displayservices": 21.04022306207796,
+          "colorsyncd": 13.389232857670159,
+          "elapsed": 40.94417905807495
+        },
+        {
+          "WindowServer": 39.27859743813082,
+          "colorsync.displayservices": 2.874043715074438,
+          "colorsyncd": 0.9580145716914792,
+          "elapsed": 41.98798894882202
+        },
+        {
+          "WindowServer": 32.26624204939358,
+          "colorsync.displayservices": 12.337092548084307,
+          "colorsyncd": 7.592056952707102,
+          "elapsed": 43.041688203811646
+        },
+        {
+          "WindowServer": 30.55771654319584,
+          "colorsync.displayservices": 17.188715555591084,
+          "colorsyncd": 10.504215061788708,
+          "elapsed": 44.08887004852295
+        },
+        {
+          "WindowServer": 35.8722240696101,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 45.14816427230835
+        }
+      ],
+      "xpc_requests": 114,
+      "xpc_per_second": 2.525019060131582,
+      "profile_calls_per_second": 5.050038120263164,
+      "profile_descriptions": {
+        "Color LCD": 114,
+        "LG HDR 4K": 114
+      },
+      "profile_count_before": 146,
+      "profile_count_after": 146,
+      "profile_hashes_unchanged": true,
+      "display_count_before": 2,
+      "display_count_after": 2,
+      "virtual_count_after": 0,
+      "topology_changed": false,
+      "log_exit": 0
+    },
+    {
+      "name": "waiting-for-disconnect",
+      "offset_seconds": 282.76,
+      "duration_seconds": 30.67838215827942,
+      "cpu": {
+        "WindowServer": {
+          "mean": 39.93163498258321,
+          "median": 39.42268296729105,
+          "max": 55.11880240139318,
+          "p95": 48.095951454108175
+        },
+        "colorsync.displayservices": {
+          "mean": 11.100837853313442,
+          "median": 11.293384241287715,
+          "max": 23.814798969186572,
+          "p95": 20.782732810825046
+        },
+        "colorsyncd": {
+          "mean": 6.88946768435822,
+          "median": 6.587807474198626,
+          "max": 14.288879381477287,
+          "p95": 13.22537542505486
+        }
+      },
+      "cpu_samples": [
+        {
+          "WindowServer": 55.11880240139318,
+          "colorsync.displayservices": 13.304538510758604,
+          "colorsyncd": 8.552917613997366,
+          "elapsed": 1.0853121280670166
+        },
+        {
+          "WindowServer": 36.82248834362312,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 2.144437074661255
+        },
+        {
+          "WindowServer": 32.8557412458672,
+          "colorsync.displayservices": 20.652180211712352,
+          "colorsyncd": 12.203561034240233,
+          "elapsed": 3.209700107574463
+        },
+        {
+          "WindowServer": 43.458392045928925,
+          "colorsync.displayservices": 8.502728878581198,
+          "colorsyncd": 5.668485918996849,
+          "elapsed": 4.26819109916687
+        },
+        {
+          "WindowServer": 48.095951454108175,
+          "colorsync.displayservices": 12.504947377991138,
+          "colorsyncd": 6.733433203634635,
+          "elapsed": 5.307783365249634
+        },
+        {
+          "WindowServer": 32.77547523512803,
+          "colorsync.displayservices": 10.300863645423288,
+          "colorsyncd": 6.555095047025605,
+          "elapsed": 6.375580310821533
+        },
+        {
+          "WindowServer": 40.514688845721196,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 7.43684720993042
+        },
+        {
+          "WindowServer": 34.95534947301253,
+          "colorsync.displayservices": 22.673740198529696,
+          "colorsyncd": 14.171087624059581,
+          "elapsed": 8.495296001434326
+        },
+        {
+          "WindowServer": 41.6605665107214,
+          "colorsync.displayservices": 6.627817399370323,
+          "colorsyncd": 3.7873242282239152,
+          "elapsed": 9.551375150680542
+        },
+        {
+          "WindowServer": 34.434333953518795,
+          "colorsync.displayservices": 18.173676253265363,
+          "colorsyncd": 11.478111317897593,
+          "elapsed": 10.59678316116333
+        },
+        {
+          "WindowServer": 35.08438802753933,
+          "colorsync.displayservices": 5.689360220705362,
+          "colorsyncd": 3.792906813832322,
+          "elapsed": 11.651332139968872
+        },
+        {
+          "WindowServer": 49.168600754452044,
+          "colorsync.displayservices": 8.676811897823846,
+          "colorsyncd": 5.784541265157442,
+          "elapsed": 12.688533067703247
+        },
+        {
+          "WindowServer": 40.889459862905404,
+          "colorsync.displayservices": 16.165600410912067,
+          "colorsyncd": 10.460094383582213,
+          "elapsed": 13.740102291107178
+        },
+        {
+          "WindowServer": 41.432150961776365,
+          "colorsync.displayservices": 4.708198973006988,
+          "colorsyncd": 2.8249193837185516,
+          "elapsed": 14.80204701423645
+        },
+        {
+          "WindowServer": 35.24590247395254,
+          "colorsync.displayservices": 23.814798969186572,
+          "colorsyncd": 14.288879381477287,
+          "elapsed": 15.851765155792236
+        },
+        {
+          "WindowServer": 45.82368793581218,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 16.899227142333984
+        },
+        {
+          "WindowServer": 39.42268296729105,
+          "colorsync.displayservices": 11.26362370489152,
+          "colorsyncd": 6.570447161300545,
+          "elapsed": 17.964564085006714
+        },
+        {
+          "WindowServer": 37.83686635034416,
+          "colorsync.displayservices": 16.08066819884465,
+          "colorsyncd": 9.45921658750001,
+          "elapsed": 19.02170705795288
+        },
+        {
+          "WindowServer": 45.595688072197824,
+          "colorsync.displayservices": 1.8998203363991721,
+          "colorsyncd": 1.8998203363991721,
+          "elapsed": 20.07440733909607
+        },
+        {
+          "WindowServer": 36.80938893460507,
+          "colorsync.displayservices": 20.764270681028453,
+          "colorsyncd": 12.269796311563635,
+          "elapsed": 21.133894205093384
+        },
+        {
+          "WindowServer": 42.4728528535053,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 22.193377017974854
+        },
+        {
+          "WindowServer": 42.87323734815452,
+          "colorsync.displayservices": 19.0547721549279,
+          "colorsyncd": 12.385601900581824,
+          "elapsed": 23.242952346801758
+        },
+        {
+          "WindowServer": 43.29130625855488,
+          "colorsync.displayservices": 11.293384241287715,
+          "colorsyncd": 6.587807474198626,
+          "elapsed": 24.305504083633423
+        },
+        {
+          "WindowServer": 31.77755956513871,
+          "colorsync.displayservices": 13.084877467968289,
+          "colorsyncd": 8.411706943633183,
+          "elapsed": 25.37541627883911
+        },
+        {
+          "WindowServer": 33.80825320575826,
+          "colorsync.displayservices": 12.208535879762247,
+          "colorsyncd": 7.512945156816188,
+          "elapsed": 26.44023299217224
+        },
+        {
+          "WindowServer": 39.36889937004851,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 27.50705099105835
+        },
+        {
+          "WindowServer": 32.118768889222565,
+          "colorsync.displayservices": 20.782732810825046,
+          "colorsyncd": 13.22537542505486,
+          "elapsed": 28.565603256225586
+        },
+        {
+          "WindowServer": 37.624672905010534,
+          "colorsync.displayservices": 9.406168226252634,
+          "colorsyncd": 5.64370093576869,
+          "elapsed": 29.6287260055542
+        },
+        {
+          "WindowServer": 46.68125824962126,
+          "colorsync.displayservices": 14.290181096635399,
+          "colorsyncd": 9.52678739772805,
+          "elapsed": 30.678375244140625
+        }
+      ],
+      "xpc_requests": 79,
+      "xpc_per_second": 2.5751031978288217,
+      "profile_calls_per_second": 5.150206395657643,
+      "profile_descriptions": {
+        "Color LCD": 79,
+        "LG HDR 4K": 79
+      },
+      "profile_count_before": 146,
+      "profile_count_after": 146,
+      "profile_hashes_unchanged": true,
+      "display_count_before": 2,
+      "display_count_after": 2,
+      "virtual_count_after": 0,
+      "topology_changed": false,
+      "log_exit": 0
+    },
+    {
+      "name": "disconnected-1",
+      "offset_seconds": 430.89,
+      "duration_seconds": 30.476309061050415,
+      "cpu": {
+        "WindowServer": {
+          "mean": 53.24907286893276,
+          "median": 52.6172854232565,
+          "max": 63.49674911830006,
+          "p95": 59.587028805736665
+        },
+        "colorsync.displayservices": {
+          "mean": 0.0,
+          "median": 0.0,
+          "max": 0.0,
+          "p95": 0.0
+        },
+        "colorsyncd": {
+          "mean": 0.0,
+          "median": 0.0,
+          "max": 0.0,
+          "p95": 0.0
+        }
+      },
+      "cpu_samples": [
+        {
+          "WindowServer": 63.49674911830006,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 1.0691659450531006
+        },
+        {
+          "WindowServer": 54.6288234560337,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 2.13087797164917
+        },
+        {
+          "WindowServer": 54.05650184658551,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 3.1853389739990234
+        },
+        {
+          "WindowServer": 53.814239635873115,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 4.2445409297943115
+        },
+        {
+          "WindowServer": 56.36582980395241,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 5.291276931762695
+        },
+        {
+          "WindowServer": 56.150183993269124,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 6.3420250415802
+        },
+        {
+          "WindowServer": 55.176083469448464,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 7.393205881118774
+        },
+        {
+          "WindowServer": 59.67213528286213,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 8.432218790054321
+        },
+        {
+          "WindowServer": 56.87753882196358,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 9.469534873962402
+        },
+        {
+          "WindowServer": 49.932741915706046,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 10.530970811843872
+        },
+        {
+          "WindowServer": 59.587028805736665,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 11.588258981704712
+        },
+        {
+          "WindowServer": 56.25695315648787,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 12.637017011642456
+        },
+        {
+          "WindowServer": 52.6172854232565,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 13.682300806045532
+        },
+        {
+          "WindowServer": 53.375964207101866,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 14.731467962265015
+        },
+        {
+          "WindowServer": 52.01205379383656,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 15.76967978477478
+        },
+        {
+          "WindowServer": 51.83503835105252,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 16.811455965042114
+        },
+        {
+          "WindowServer": 53.0166953109383,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 17.867729902267456
+        },
+        {
+          "WindowServer": 51.042495712782234,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 18.925678968429565
+        },
+        {
+          "WindowServer": 51.401921979781704,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 19.976220846176147
+        },
+        {
+          "WindowServer": 50.604041974504746,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 21.023568868637085
+        },
+        {
+          "WindowServer": 49.43239297599858,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 22.075478076934814
+        },
+        {
+          "WindowServer": 49.46724212964206,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 23.126628875732422
+        },
+        {
+          "WindowServer": 45.90396382274318,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 24.172242879867554
+        },
+        {
+          "WindowServer": 56.669180075924395,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 25.2133469581604
+        },
+        {
+          "WindowServer": 48.580647327161316,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 26.26311492919922
+        },
+        {
+          "WindowServer": 51.926986026734426,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 27.30300498008728
+        },
+        {
+          "WindowServer": 49.779173387730516,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 28.367692947387695
+        },
+        {
+          "WindowServer": 51.348185062620985,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 29.41930079460144
+        },
+        {
+          "WindowServer": 49.19503633102133,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 30.476299047470093
+        }
+      ],
+      "xpc_requests": 0,
+      "xpc_per_second": 0.0,
+      "profile_calls_per_second": 0.0,
+      "profile_descriptions": {},
+      "profile_count_before": 146,
+      "profile_count_after": 146,
+      "profile_hashes_unchanged": true,
+      "display_count_before": 1,
+      "display_count_after": 1,
+      "virtual_count_after": 0,
+      "topology_changed": false,
+      "log_exit": 0
+    },
+    {
+      "name": "reconnected-1",
+      "offset_seconds": 490.35,
+      "duration_seconds": 30.269300937652588,
+      "cpu": {
+        "WindowServer": {
+          "mean": 43.07245164803327,
+          "median": 43.55126360207988,
+          "max": 48.3332558501454,
+          "p95": 46.190143168797206
+        },
+        "colorsync.displayservices": {
+          "mean": 0.8247377441264703,
+          "median": 0.0,
+          "max": 4.833033398149601,
+          "p95": 3.8396129695490653
+        },
+        "colorsyncd": {
+          "mean": 0.4953608384399804,
+          "median": 0.0,
+          "max": 2.8998200389073427,
+          "p95": 1.9333302340480165
+        }
+      },
+      "cpu_samples": [
+        {
+          "WindowServer": 43.19882843414717,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 1.071427822113037
+        },
+        {
+          "WindowServer": 38.829905021774806,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 2.127318859100342
+        },
+        {
+          "WindowServer": 39.87165757694368,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 3.180701732635498
+        },
+        {
+          "WindowServer": 41.65316847678375,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 4.237044811248779
+        },
+        {
+          "WindowServer": 39.83841509163077,
+          "colorsync.displayservices": 3.7058990783696184,
+          "colorsyncd": 1.8529495391848092,
+          "elapsed": 5.316396951675415
+        },
+        {
+          "WindowServer": 41.75201248412906,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 6.370242595672607
+        },
+        {
+          "WindowServer": 44.41811544595489,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 7.405850887298584
+        },
+        {
+          "WindowServer": 44.39299219424345,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 8.442055940628052
+        },
+        {
+          "WindowServer": 43.15263392907403,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 9.484863996505737
+        },
+        {
+          "WindowServer": 40.59748054487862,
+          "colorsync.displayservices": 4.833033398149601,
+          "colorsyncd": 2.8998200389073427,
+          "elapsed": 10.519413948059082
+        },
+        {
+          "WindowServer": 46.33079227054587,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 11.555442810058594
+        },
+        {
+          "WindowServer": 44.282147891204076,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 12.594244718551636
+        },
+        {
+          "WindowServer": 45.437894399242516,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 13.628619909286499
+        },
+        {
+          "WindowServer": 43.55126360207988,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 14.661890029907227
+        },
+        {
+          "WindowServer": 44.343917297833876,
+          "colorsync.displayservices": 3.8559928085987814,
+          "colorsyncd": 2.8919946063614104,
+          "elapsed": 15.69924283027649
+        },
+        {
+          "WindowServer": 45.647779613158384,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 16.728861808776855
+        },
+        {
+          "WindowServer": 43.492325824692955,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 17.76353096961975
+        },
+        {
+          "WindowServer": 45.470451713357505,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 18.79717183113098
+        },
+        {
+          "WindowServer": 43.804229046643485,
+          "colorsync.displayservices": 0.9522658488626693,
+          "colorsyncd": 0.9522658488626693,
+          "elapsed": 19.84730291366577
+        },
+        {
+          "WindowServer": 48.3332558501454,
+          "colorsync.displayservices": 2.899995350896189,
+          "colorsyncd": 1.9333302340480165,
+          "elapsed": 20.88178563117981
+        },
+        {
+          "WindowServer": 46.190143168797206,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 21.92096996307373
+        },
+        {
+          "WindowServer": 39.88998437241574,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 22.973874807357788
+        },
+        {
+          "WindowServer": 45.16334778162065,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 24.01454472541809
+        },
+        {
+          "WindowServer": 41.27583942177942,
+          "colorsync.displayservices": 3.8396129695490653,
+          "colorsyncd": 1.9198064846872298,
+          "elapsed": 25.056315898895264
+        },
+        {
+          "WindowServer": 45.33528091389918,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 26.093037605285645
+        },
+        {
+          "WindowServer": 44.223283504189595,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 27.133221864700317
+        },
+        {
+          "WindowServer": 41.289959164790815,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 28.17463493347168
+        },
+        {
+          "WindowServer": 39.028041503545865,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 29.22513484954834
+        },
+        {
+          "WindowServer": 38.3059512534623,
+          "colorsync.displayservices": 3.8305951252417128,
+          "colorsyncd": 1.9152975627079536,
+          "elapsed": 30.2692928314209
+        }
+      ],
+      "xpc_requests": 6,
+      "xpc_per_second": 0.19822063325342543,
+      "profile_calls_per_second": 0.39644126650685085,
+      "profile_descriptions": {
+        "Color LCD": 6,
+        "LG HDR 4K": 6
+      },
+      "profile_count_before": 146,
+      "profile_count_after": 146,
+      "profile_hashes_unchanged": true,
+      "display_count_before": 2,
+      "display_count_after": 2,
+      "virtual_count_after": 0,
+      "topology_changed": false,
+      "log_exit": 0
+    },
+    {
+      "name": "reconnected-late",
+      "offset_seconds": 530.32,
+      "duration_seconds": 45.578470945358276,
+      "cpu": {
+        "WindowServer": {
+          "mean": 44.077469381412556,
+          "median": 42.034217286606605,
+          "max": 61.07911278238123,
+          "p95": 55.99079820125241
+        },
+        "colorsync.displayservices": {
+          "mean": 0.9723882485288774,
+          "median": 0.0,
+          "max": 5.6922944832311595,
+          "p95": 4.727860599411122
+        },
+        "colorsyncd": {
+          "mean": 0.5973164200399305,
+          "median": 0.0,
+          "max": 3.82099878564812,
+          "p95": 2.865969360410957
+        }
+      },
+      "cpu_samples": [
+        {
+          "WindowServer": 55.99079820125241,
+          "colorsync.displayservices": 3.861434358604126,
+          "colorsyncd": 2.8960757689969943,
+          "elapsed": 1.0694968700408936
+        },
+        {
+          "WindowServer": 48.15623582468008,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 2.1285269260406494
+        },
+        {
+          "WindowServer": 51.19616740837587,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 3.2027909755706787
+        },
+        {
+          "WindowServer": 58.9288959572848,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 4.288813829421997
+        },
+        {
+          "WindowServer": 42.034217286606605,
+          "colorsync.displayservices": 4.7766156008297385,
+          "colorsyncd": 2.865969360410957,
+          "elapsed": 5.335554838180542
+        },
+        {
+          "WindowServer": 43.02466418092126,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 6.381439924240112
+        },
+        {
+          "WindowServer": 47.028419179822826,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 7.444622993469238
+        },
+        {
+          "WindowServer": 48.49648275736484,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 8.516868829727173
+        },
+        {
+          "WindowServer": 46.417025954296605,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 9.572458982467651
+        },
+        {
+          "WindowServer": 57.871660580063256,
+          "colorsync.displayservices": 5.6922944832311595,
+          "colorsyncd": 2.8461472417018645,
+          "elapsed": 10.62650203704834
+        },
+        {
+          "WindowServer": 53.980140828448675,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 11.849185943603516
+        },
+        {
+          "WindowServer": 61.07911278238123,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 12.880590915679932
+        },
+        {
+          "WindowServer": 50.390593212550364,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 13.95220685005188
+        },
+        {
+          "WindowServer": 39.6220668024665,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 15.012216806411743
+        },
+        {
+          "WindowServer": 44.13119465831769,
+          "colorsync.displayservices": 3.837495187596338,
+          "colorsyncd": 2.878121390740881,
+          "elapsed": 16.054544925689697
+        },
+        {
+          "WindowServer": 42.794225156198394,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 17.106077909469604
+        },
+        {
+          "WindowServer": 47.98145037169556,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 18.148139715194702
+        },
+        {
+          "WindowServer": 47.347175215811774,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 19.183043956756592
+        },
+        {
+          "WindowServer": 42.107742961613404,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 20.227970838546753
+        },
+        {
+          "WindowServer": 41.17228411021103,
+          "colorsync.displayservices": 3.7429349191719883,
+          "colorsyncd": 1.8714674595859941,
+          "elapsed": 21.296655893325806
+        },
+        {
+          "WindowServer": 43.40600300240969,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 22.356409788131714
+        },
+        {
+          "WindowServer": 39.64422296436445,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 23.41583013534546
+        },
+        {
+          "WindowServer": 40.893551061391136,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 24.46732807159424
+        },
+        {
+          "WindowServer": 38.768456916065595,
+          "colorsync.displayservices": 4.727860599411122,
+          "colorsyncd": 2.8367163596638734,
+          "elapsed": 25.52489185333252
+        },
+        {
+          "WindowServer": 37.83073371149662,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 26.58222794532776
+        },
+        {
+          "WindowServer": 44.99360576264427,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 27.62681293487549
+        },
+        {
+          "WindowServer": 37.747688226933995,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 28.686481952667236
+        },
+        {
+          "WindowServer": 39.50974985405089,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 29.749521017074585
+        },
+        {
+          "WindowServer": 42.03098664169492,
+          "colorsync.displayservices": 4.77624848216875,
+          "colorsyncd": 3.82099878564812,
+          "elapsed": 30.796349048614502
+        },
+        {
+          "WindowServer": 41.030361420304324,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 31.84435272216797
+        },
+        {
+          "WindowServer": 41.491711912465064,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 32.90480399131775
+        },
+        {
+          "WindowServer": 40.17316547371265,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 33.9502809047699
+        },
+        {
+          "WindowServer": 38.956999205972906,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 35.002721071243286
+        },
+        {
+          "WindowServer": 39.87331045421579,
+          "colorsync.displayservices": 3.797458138422733,
+          "colorsyncd": 1.8987290692113665,
+          "elapsed": 36.05606412887573
+        },
+        {
+          "WindowServer": 38.62357664808198,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 37.11759090423584
+        },
+        {
+          "WindowServer": 43.548344315627276,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 38.17388200759888
+        },
+        {
+          "WindowServer": 39.80988882307483,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 39.228893995285034
+        },
+        {
+          "WindowServer": 38.612618808533476,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 40.290732860565186
+        },
+        {
+          "WindowServer": 37.68631167972211,
+          "colorsync.displayservices": 3.7686311680407614,
+          "colorsyncd": 2.826473376030571,
+          "elapsed": 41.35212182998657
+        },
+        {
+          "WindowServer": 39.563961212990066,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 42.41369986534119
+        },
+        {
+          "WindowServer": 44.88164257185913,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 43.460893869400024
+        },
+        {
+          "WindowServer": 38.747449311649575,
+          "colorsync.displayservices": 0.0,
+          "colorsyncd": 0.0,
+          "elapsed": 44.519030809402466
+        },
+        {
+          "WindowServer": 37.756289991115835,
+          "colorsync.displayservices": 2.8317217492650095,
+          "colorsyncd": 0.9439072497263872,
+          "elapsed": 45.57845997810364
+        }
+      ],
+      "xpc_requests": 10,
+      "xpc_per_second": 0.2194018314477573,
+      "profile_calls_per_second": 0.39492329660596315,
+      "profile_descriptions": {
+        "Color LCD": 9,
+        "LG HDR 4K": 9
+      },
+      "profile_count_before": 146,
+      "profile_count_after": 146,
+      "profile_hashes_unchanged": true,
+      "display_count_before": 2,
+      "display_count_after": 2,
+      "virtual_count_after": 0,
+      "topology_changed": false,
+      "log_exit": 0
+    }
+  ],
+  "batches": [
+    {
+      "name": "batch-1",
+      "duration_seconds": 23.708248138427734,
+      "cpu_mean": {
+        "WindowServer": 63.471997748716255,
+        "colorsync.displayservices": 5.094953819567825,
+        "colorsyncd": 3.5399933131235652
+      },
+      "xpc_per_second": 0.9279470955233127,
+      "cycles_created": 3,
+      "cycles_with_verified_removal": 3,
+      "helper_exits_verified": true,
+      "finished": true,
+      "cleanup_errors": 0,
+      "profile_hashes_unchanged": true,
+      "virtual_count_after": 0
+    },
+    {
+      "name": "batch-2",
+      "duration_seconds": 24.503916025161743,
+      "cpu_mean": {
+        "WindowServer": 65.65298965605426,
+        "colorsync.displayservices": 12.095952479827348,
+        "colorsyncd": 7.995232635964056
+      },
+      "xpc_per_second": 2.2037293934794064,
+      "cycles_created": 3,
+      "cycles_with_verified_removal": 3,
+      "helper_exits_verified": true,
+      "finished": true,
+      "cleanup_errors": 0,
+      "profile_hashes_unchanged": true,
+      "virtual_count_after": 0
+    }
+  ],
+  "ratings": {
+    "after_first_batch": "No noticeable stutter (user report)",
+    "after_second_batch": "Not supplied",
+    "after_reconnect": "Smooth, no noticeable stutter (user report)"
+  },
+  "limitations": [
+    "Sequential single-machine experiment, not randomized; unrelated system workloads uncontrolled.",
+    "Six cycles reproduced persistent additional ColorSync work, not the historical severe stutter.",
+    "ICC hashes cover matched OCU files, not all ColorSync caches/registry.",
+    "Physical disconnect changes topology and display state together; internal trigger/caller not established."
+  ],
+  "profile_hashes_unchanged_entire_experiment": true,
+  "physical_topology_restored": true,
+  "colorsync_service_pids_unchanged": true,
+  "outcome": "Persistent additional ColorSync work reproduced after six warm cycles; disappeared on LG disconnect and remained near baseline after reconnect. Historical severe stutter not reproduced."
+}

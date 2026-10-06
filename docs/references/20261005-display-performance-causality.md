@@ -2,6 +2,8 @@
 
 日期：2026-10-05。环境：macOS 26.5.1 / arm64，内置屏与 LG 外接屏。用户授权独立 demo 热插拔并接受现有会话暂停。没有接管或关闭主 runtime，没有修改色彩配置、物理显示偏好或重启系统服务。
 
+2026-10-06 已补充[健康基线、六次固定身份热插拔及 LG 断开/接回恢复对照](20261006-display-disconnect-recovery.md)：ICC 不变时复现销毁后的持续额外工作，断开/接回后回到健康水平；没有复现历史严重卡顿强度。以下保留原调查当时的证据和限制。
+
 ## 目前能确认的前因后果
 
 早期 holder (`128117b`) 每次生成随机 serial；后续 `4b4ef3a` 使用 namespace 哈希槽位，`912ce3f` 收敛为跨 namespace 固定 32 槽。旧 `experiments/VirtualDisplay/Runner/main.swift` 的 `--holder-only` 路径仍使用随机 serial，不能拿它默认 20 次循环来做无界压力复现。本次独立 demo 使用固定池三个槽位，只做四次创建。

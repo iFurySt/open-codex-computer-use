@@ -45,3 +45,5 @@ clang -fobjc-arc experiments/DisplayPerformance/ColorProfiles.m -framework Found
 日志单独统计整组 `XPC_DISPLAY_INFO_REQUEST` 与逐屏 profile 调用；两项频率不能互换。拓扑首尾一致也不保证窗口中间没有热插拔，需结合逐屏日志和其他生产者记录判断。
 
 本次脱敏指标见 [初始对照](results-20261005.json) 和 [累积启停/体感对照](results-subjective-20261005.json)，结论及剩余因果缺口见 [调查报告](../../docs/references/20261005-display-performance-causality.md)。
+
+健康基线下的六次有界热插拔及 LG 断开/接回续测见[脱敏恢复指标](results-recovery-20261006.json)与[续测报告](../../docs/references/20261006-display-disconnect-recovery.md)。物理插拔由用户手动完成；只对已有固定身份测试，不删除 profile，不重启系统服务。
