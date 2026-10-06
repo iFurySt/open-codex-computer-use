@@ -12,7 +12,7 @@ public struct VirtualDisplayNotebookOutput: Sendable {
                 frames.append(data)
             } else if let text = content["text"] as? String {
                 if let bytes = text.data(using: .utf8), let object = try? JSONSerialization.jsonObject(with: bytes) { objects.append(object) }
-                else if text.hasPrefix("App=") || text.hasPrefix("Window:") { trees.append(text) }
+                else if text.hasPrefix("AX snapshot ") || text.hasPrefix("App=") || text.hasPrefix("Window:") { trees.append(text) }
                 else { notes.append(text) }
             }
         }

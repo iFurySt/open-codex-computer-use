@@ -198,3 +198,11 @@ The Linux runtime uses AT-SPI2 through the desktop session bus. It must run in a
 ## Safety
 
 Pause and ask the user before actions that affect external systems or sensitive local state, including sending messages, submitting forms, deleting files, approving prompts, uploading files, or interacting with password managers.
+
+## macOS AX contextual diffs
+
+macOS still acquires the full tree, cleans it, then returns a full first observation and contextual changes by default. `+` adds a node, `~` replaces its current display attributes, `- Observed refs` retires refs from the current observation, and `Order` gives the affected parent's current child order. Retain unchanged refs; do not treat an unchanged AX tree as proof of action failure or unchanged pixels.
+
+Use `await app.getAXState({snapshotMode: "full"})` after losing context. Native app tools accept `snapshot_mode: "auto" | "full" | "none"`; `get_app_state` also accepts `base_snapshot_id`. Unknown/expired baselines recover with full output. `OPEN_COMPUTER_USE_AX_SNAPSHOT_MODE=full` restores full native responses. One-shot `snapshot` and GUI notebook outputs are always full.
+
+JS records only AX actually emitted to the model. `emit:false` reads default to full text for code, and screenshots/hidden action read-back do not advance the model baseline. Explicit window selection remains bound to later observations. Old runtimes and Windows/Linux keep their existing interface.

@@ -296,6 +296,19 @@ enum OpenComputerUseSmokeSuite {
         try expect(state.contains("Last drag:"), "drag should update the drag status label")
         try expect(!state.contains("Last drag: none"), "drag should report a captured path")
 
+        print("11. AX contextual diff and hidden capture baseline")
+        let baseline = try client.callTool("get_app_state", arguments: ["app": appName, "snapshot_mode": "full"])
+        let baselineID = String(baseline.split(separator: " ")[2])
+        let unchanged = try client.callTool("get_app_state", arguments: ["app": appName, "snapshot_mode": "auto", "base_snapshot_id": baselineID])
+        try expect(unchanged.contains("mode=diff") && unchanged.contains("AX unchanged"), "unchanged state should be a compact diff")
+        let stableIndex = parseElementIndex(baseline)["fixture-increment"]!.index
+        _ = try client.callTool("click", arguments: ["app": appName, "element_index": stableIndex, "snapshot_mode": "none"])
+        let changed = try client.callTool("get_app_state", arguments: ["app": appName, "snapshot_mode": "auto", "base_snapshot_id": baselineID])
+        try expect(changed.contains("mode=diff") && changed.contains("Counter:"), "hidden action should still be reflected against the explicit observed baseline")
+        try expect(changed.contains("base_snapshot_id=\(baselineID)"), "internal captures must not consume the baseline")
+        let recovered = try client.callTool("get_app_state", arguments: ["app": appName, "snapshot_mode": "auto", "base_snapshot_id": "missing"])
+        try expect(recovered.contains("mode=full") && recovered.contains("baseline unavailable"), "missing baseline should recover with full output")
+
         print("Smoke suite completed.")
     }
 
@@ -348,6 +361,7 @@ enum OpenComputerUseSmokeSuite {
     private static func smokeServerEnvironment() -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         environment["OPEN_COMPUTER_USE_DISABLE_APP_AGENT_PROXY"] = "1"
+        environment["OPEN_COMPUTER_USE_AX_SNAPSHOT_MODE"] = "full"
         return environment
     }
 

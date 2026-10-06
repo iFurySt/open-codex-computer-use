@@ -15,6 +15,7 @@ function mockNative() {
   const native = {
     calls,
     async request(method, params) {
+      if (method === "tools/list") return {tools: []};
       assert.equal(method, "tools/call");
       calls.push(params);
       switch (params.name) {
@@ -52,6 +53,7 @@ test("normalizes native app-list text across macOS, Linux, and Windows", () => {
 test("cua.listApps returns structured apps for the native text protocol", async () => {
   const native = mockNative();
   native.request = async (method, params) => {
+    if (method === "tools/list") return {tools: []};
     assert.equal(method, "tools/call");
     native.calls.push(params);
     return textResult("TextEdit — com.apple.TextEdit [running, last-used=2026-09-22, uses=4]");
@@ -229,7 +231,7 @@ test("virtual display bindings carry session identity through every action", asy
   assert.deepEqual(calls[1].arguments, {session_id: "virtual-1", app: "com.example.App", mode: "adopt", pid: 42, window_id: 123});
   assert.equal(calls[2].arguments.window_id, 123);
   for (const call of calls.slice(1)) assert.equal(call.arguments.session_id, "virtual-1");
-  for (const call of calls.slice(3)) assert.equal(call.arguments.window_id, undefined);
+  for (const call of calls.slice(3)) assert.equal(call.arguments.window_id, call.name === "get_app_state" ? 123 : undefined);
 });
 
 test("unsupported native runtimes cannot silently ignore a virtual session binding", async () => {
@@ -344,4 +346,72 @@ test("candidate lookup is read-only and dedicated whole-window ownership is expl
   assert.deepEqual(calls[0], {name: "get_app_candidates", arguments: {app: "Example"}});
   assert.equal(calls.find(call => call.name === "attach_app_to_virtual_display").arguments.manage_all_windows, undefined);
   assert.deepEqual(calls.at(-1).arguments, {session_id: "owned", app: "com.apple.TextEdit", mode: "launch", new_document: true, manage_all_windows: true});
+});
+
+for (const Session of [PersistentJavaScriptSession, WorkerJavaScriptSession]) {
+  test(`${Session.name}: AX diffs track only emitted observations and retain selected window`, async () => {
+    const calls = [];
+    let sequence = 0;
+    const native = { async request(method, params) {
+      if (method === "tools/list") return {tools: [{name: "create_virtual_display"}, {name: "get_app_state", inputSchema: {properties: {snapshot_mode: {}}}}]};
+      calls.push(params);
+      if (params.name === "get_app_state") {
+        if (params.arguments.snapshot_mode === "none") return textResult("AX output omitted", false, {mimeType: "image/png", data: "iVBORw0KGgo="});
+        return textResult(`AX snapshot test:s${++sequence} mode=full\nApp=Text\n0 window`);
+      }
+      return textResult("ok");
+    } };
+    const session = new Session({native});
+    try {
+      const result = await session.run(`
+        var app = await cua.getApp("Text", {sessionId:"virtual-1", windowId:42});
+        await app.getAXState({emit:false});
+        await app.getScreenshot({emit:false});
+        await app.click(0);
+        await app.getAXState();
+        await app.getAXStateAndScreenshot({snapshotMode:"full"});
+      `);
+      assert.equal(result.isError, false);
+      assert.equal(calls[1].arguments.snapshot_mode, "full");
+      assert.equal(calls[1].arguments.base_snapshot_id, "test:s1");
+      assert.equal(calls[2].arguments.snapshot_mode, "none");
+      assert.equal(calls[3].arguments.snapshot_mode, "none");
+      assert.equal(calls[3].arguments.window_id, undefined);
+      assert.equal(calls[4].arguments.snapshot_mode, "auto");
+      assert.equal(calls[4].arguments.base_snapshot_id, "test:s1");
+      assert.equal(calls[4].arguments.window_id, 42);
+      assert.equal(calls[5].arguments.snapshot_mode, "full");
+      assert.equal(calls[5].arguments.base_snapshot_id, "test:s3");
+      const output = result.content.filter(item => item.type === "text").map(item => item.text).join("\n");
+      assert.ok(!output.includes("AX snapshot test:s2"));
+    } finally { await session.close?.(); }
+  });
+}
+
+test("first AX emit after hidden binding explicitly recovers full baseline", async () => {
+  const calls = []; let sequence = 0;
+  const native = {async request(method, params) {
+    if (method === "tools/list") return {tools: [{name: "get_app_state", inputSchema: {properties: {snapshot_mode: {}}}}]};
+    calls.push(params);
+    return textResult(`AX snapshot test:s${++sequence} mode=full\nApp=Text`);
+  }};
+  const session = new PersistentJavaScriptSession({native});
+  const result = await session.run('var app = await cua.getApp("Text", {emit:false}); await app.getAXState();');
+  assert.equal(result.isError, false);
+  assert.equal(calls[1].arguments.base_snapshot_id, "unpublished");
+});
+
+test("JS reset recovers a full baseline on the existing native connection", async () => {
+  const calls = []; let sequence = 0;
+  const native = {async request(method, params) {
+    if (method === "tools/list") return {tools: [{name: "get_app_state", inputSchema: {properties: {snapshot_mode: {}}}}]};
+    calls.push(params);
+    return textResult(`AX snapshot test:s${++sequence} mode=full\nApp=Text`);
+  }};
+  const session = new PersistentJavaScriptSession({native});
+  await session.run('await cua.getApp("Text");');
+  session.reset();
+  await session.run('await cua.getApp("Text");');
+  assert.equal(calls[1].arguments.base_snapshot_id, "unpublished");
+  assert.equal(calls[1].arguments.snapshot_mode, "auto");
 });

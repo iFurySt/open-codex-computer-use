@@ -135,7 +135,7 @@ func runChecks() throws {
     try ensure(selected.selectedWindowID == window.id, "Typed window selection did not preserve exact identity")
     desktop("after_attach")
     func call(_ name: String, _ extra: [String: Any] = [:]) throws -> ToolCallResult {
-        var arguments: [String: Any] = ["session_id": display.sessionID, "app": app]
+        var arguments: [String: Any] = ["session_id": display.sessionID, "app": app, "snapshot_mode": "full"]
         arguments.merge(extra) { _, new in new }
         return try dispatcher.callTool(name: name, arguments: arguments)
     }
@@ -143,10 +143,29 @@ func runChecks() throws {
     let beforeText = before.primaryText ?? ""
     try ensure(beforeText.contains("Counter 0"), "Real AX counter state unavailable")
     try ensure((before.asDictionary["content"] as? [[String: Any]])?.contains(where: { $0["type"] as? String == "image" }) == true, "Real ScreenCaptureKit window screenshot unavailable")
+    let beforeID = String(beforeText.split(separator: " ")[2])
+    let steady = try call("get_app_state", ["text_limit": "max", "snapshot_mode": "auto", "base_snapshot_id": beforeID])
+    try ensure(steady.primaryText?.contains("mode=diff") == true && steady.primaryText?.contains("AX unchanged") == true,
+               "Real AX unchanged snapshot did not use compact output")
+    report("ax_unchanged_diff_verified", ["full_bytes": beforeText.utf8.count, "unchanged_bytes": steady.primaryText?.utf8.count ?? 0])
     let button = try index(beforeText, matching: "Increment")
     let click = try call("click", ["element_index": button, "click_method": "accessibility"])
     try ensure(click.primaryText?.contains("Counter 1") == true, "AXPress did not change the real UI")
+    let delta = try call("get_app_state", ["text_limit": "max", "snapshot_mode": "auto", "base_snapshot_id": beforeID])
+    try ensure(delta.primaryText?.contains("Counter 1") == true && delta.primaryText?.contains("mode=diff") == true,
+               "Real AX click diff lost the action outcome")
+    if let path = ProcessInfo.processInfo.environment["OPEN_COMPUTER_USE_AX_REAL_REPLAY_OUTPUT"] {
+        let fullAfter = try call("get_app_state", ["text_limit": "max", "snapshot_mode": "full"])
+        let data = try JSONSerialization.data(withJSONObject: ["source": "real AppKit test app AX/SCK in a virtual session", "scenarios": [["name": "real-appkit-counter", "observations": [
+            ["full": beforeText, "auto": beforeText],
+            ["full": beforeText, "auto": steady.primaryText ?? ""],
+            ["full": fullAfter.primaryText ?? "", "auto": delta.primaryText ?? ""]
+        ]]]], options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: URL(fileURLWithPath: path))
+    }
+    report("ax_diff_verified", ["full_bytes": beforeText.utf8.count, "unchanged_bytes": steady.primaryText?.utf8.count ?? 0, "changed_bytes": delta.primaryText?.utf8.count ?? 0])
     report("ax_click_verified")
+    if args.contains("--ax-diff-only") { return }
     desktop("after_click")
     let after = try call("get_app_state", ["text_limit": "max"])
     let textInput = try index(after.primaryText ?? "", matching: "live-input")

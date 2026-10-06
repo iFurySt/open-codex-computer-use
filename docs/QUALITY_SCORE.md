@@ -20,3 +20,7 @@
 | 测试 | B | `swift test` + smoke suite 已覆盖 9 个 tools 的回归，并新增了针对“前台焦点是否被抢占”的手工对比样本沉淀。 | 增加更多普通 app 的录制回归，减少只依赖 fixture 和一次性手工检查。 |
 | 可观测性 | C | 已有 `doctor`、`snapshot`、smoke 输出，以及一组仓库内留档的官方 `computer-use` / 本仓库实现对比样本。 | 补统一日志级别、失败上下文和 release artifact 里的诊断信息，把一次性样本收敛成可重复采集流程。 |
 | 安全 | B | 已明确本地-only、权限边界和 fixture test bridge 的作用域，并将内置 denylist 收缩到密码管理器。 | 增加 session approval 和更清楚的敏感 app policy，避免策略长期硬编码在仓库里。 |
+
+## macOS AX diff 验证边界（2026-10-06）
+
+已实现稳定引用、清洗树 delta、16 版本基线恢复和 JS emit 隔离；重建、重复标识、节点复用、跨客户端、截断与失效引用有离线测试，native headless smoke 验证实际跨进程增量结果。确定性投影重放已用 o200k_base 测量文本 token；真实 AppKit AX/SCK 观察已跑到输入前，系统对话框/登录屏安全门阻止动作验证。商业应用连续轨迹和模型任务成功率对照仍未完成，不提升相关质量等级。

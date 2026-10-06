@@ -31,7 +31,7 @@ extension VirtualDisplayNotebookKernel {
         let registry = VirtualDisplaySessionRegistry.shared
         let calculator = "com.apple.calculator", editor = "com.apple.TextEdit"
         func call(_ name: String, _ args: [String: Any]) throws -> ToolCallResult {
-            var args = args; args["session_id"] = sessionID
+            var args = args; args["session_id"] = sessionID; args["snapshot_mode"] = "full"
             let result = try dispatcher.callTool(name: name, arguments: args)
             if result.isError { throw ComputerUseError.message(result.primaryText ?? "Example tool failed") }
             return result

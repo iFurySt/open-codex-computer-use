@@ -24,7 +24,7 @@ It supports the same core tool surface across macOS, Linux, and Windows:
 5. Capture current UI state with `open-computer-use call get_app_state --args '{"app":"TextEdit"}'`. The default state is usually enough for UI operation.
 6. When the task needs longer semantic text, such as chat history, email bodies, document text, or long form content, call `get_app_state` with `text_limit: 1000` or `text_limit: "max"`.
 7. When visible long pages or lists appear incomplete even after scrolling, call `get_app_state` with a larger `max_tree_nodes` or `max_tree_depth`.
-8. Prefer element-targeted actions using `element_index` from the latest `get_app_state` result.
+8. Prefer element-targeted actions using observed `element_index`. On macOS, state defaults to a full baseline followed by contextual diffs: unchanged refs retain their meaning; discard refs no longer observed. Request `snapshot_mode: "full"` if the baseline has left your context.
 9. For multi-step CLI work, use `open-computer-use call --calls '<json-array>'` so one process can reuse the latest element index mapping.
 10. For agent runtimes that support local MCP servers, configure `open-computer-use mcp` or `ocu mcp` and call the exposed Computer Use tools directly. Read [references/usage.md](references/usage.md).
 11. For direct code-first orchestration, run `ocu capabilities` and then use one-shot `ocu js` or persistent `ocu repl`. Read [references/usage.md](references/usage.md).

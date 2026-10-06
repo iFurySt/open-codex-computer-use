@@ -197,3 +197,7 @@ App-agent Quit 使用 RunLoop 调度 terminate/reply 与 worker 清理：termina
 显示器预留 API `prewarm(configuration:reuseDisplay:)` / `prewarm_virtual_display` 接受 `reuse_display`（JS `reuseDisplay`），默认 true 保持幂等；false 强制创建独立空显示器。GUI Displays + 使用 false，会话创建可选择空闲 display ID 或自动复用。
 
 工作区预览底部提供轻量 App Dock，作为宿主 UI 固定显示，不进入 SCStream 帧或随观看缩放变化。只列出会话中仍有完整位于虚拟屏内的已受管窗口的应用；使用缓存的原生应用图标，点击显示已选窗口（失效时选择另一个受管窗口），右键列出多个窗口。窗口退出或移出屏幕后下一次资源刷新移除对应项，操作期间禁用 Dock。GUI 专用 showManagedWindow 串行验证 session/PID 出生身份/window ID/预期 frame，再执行 AXRaise 并检查与重叠受管窗口的层级。它不调用 application.activate、不发送全局输入；若第三方应用在 Raise 中自行改变系统前台，暂停会话并保留真实状态。Agent tool 的 Raise 禁令和预览只观看边界不变；人工接管输入尚未实现。实际跨应用的焦点保持需要实机确认，不宣称所有应用 Raise 都不抢焦点。
+
+## macOS AX 增量输出
+
+macOS 保持完整 AX 采集，在现有清洗后生成结构化节点并协调稳定整数引用。MCP/app tools 默认 auto：首轮完整，后续输出变化、父容器上下文和焦点；snapshot_mode=full 恢复完整，none 只省略 AX 输出。操作缓存与最近 16 个发布版本隔离，JS 按实际 emit 的 snapshot_id 指定基线，截图/隐藏动作不推进模型基线。CLI snapshot 和 notebook 保持完整展示；预算截断、配置/scope 变化、基线不可用或增量较大时返回完整。Windows/Linux 不变。详见 [macOS AX diff](design-docs/macos-ax-diff.md)。

@@ -462,7 +462,15 @@ func shouldPreferContainingWebRowAXClickCandidate(
 
 public final class ComputerUseService {
     private var snapshotsByApp: [String: AppSnapshot] = [:]
-    public func clearSnapshotCache() { snapshotsByApp.removeAll() }
+    private let axOutput = AXSnapshotOutput()
+    private var axOutputOptions = AXOutputOptions()
+    public func clearSnapshotCache() { snapshotsByApp.removeAll(); axOutput.clear() }
+    func withAXOutputOptions<T>(_ options: AXOutputOptions, _ operation: () throws -> T) rethrows -> T {
+        let previous = axOutputOptions
+        axOutputOptions = options
+        defer { axOutputOptions = previous }
+        return try operation()
+    }
     // Read per call: the app agent applies the caller's OPEN_COMPUTER_USE_* variables
     // for the duration of each request.
     private var actionReadBack: Bool { virtualContext != nil || actionReadBackEnabled(environment: inputEnvironment) }
@@ -536,6 +544,18 @@ public final class ComputerUseService {
         treeLimits: AccessibilityTreeLimits = .defaults
     ) throws -> ToolCallResult {
         snapshotResult(for: try refreshSnapshot(for: query, textLimit: textLimit, treeLimits: treeLimits), style: .fullState)
+    }
+
+    public func getAppState(
+        app query: String,
+        textLimit: SnapshotTextLimit = .defaults,
+        treeLimits: AccessibilityTreeLimits = .defaults,
+        snapshotMode: AXSnapshotMode,
+        baseSnapshotID: String? = nil
+    ) throws -> ToolCallResult {
+        try withAXOutputOptions(.init(mode: snapshotMode, baseSnapshotID: baseSnapshotID)) {
+            snapshotResult(for: try refreshSnapshot(for: query, textLimit: textLimit, treeLimits: treeLimits), style: .fullState)
+        }
     }
 
     public func click(
@@ -925,6 +945,9 @@ public final class ComputerUseService {
     private func currentSnapshot(for query: String) throws -> AppSnapshot {
         if let snapshot = snapshotsByApp[virtualContext?.cacheKey ?? query.lowercased()] {
             try verifyVirtualInput()
+            guard !snapshot.app.runningApplication.isTerminated else {
+                throw ComputerUseError.stateUnavailable("App process ended; run get_app_state again")
+            }
             if let context = virtualContext, let bounds = snapshot.windowBounds,
                !VirtualDisplayWindowAccess.close(bounds, context.window.info.frame) {
                 throw ComputerUseError.stateUnavailable("Window geometry changed; run get_app_state again")
@@ -944,7 +967,7 @@ public final class ComputerUseService {
         recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation
     ) throws -> AppSnapshot {
         let app = try virtualContext?.app ?? AppDiscovery.resolve(query)
-        let snapshot = try SnapshotBuilder.build(
+        let acquired = try SnapshotBuilder.build(
             for: app,
             textLimit: textLimit,
             treeLimits: treeLimits,
@@ -952,6 +975,10 @@ public final class ComputerUseService {
             targetWindow: virtualContext?.window.element,
             targetWindowID: virtualContext?.window.info.id
         )
+
+        let targetScope = "\(virtualContext?.sessionID ?? "desktop"):\(app.pid):\(app.runningApplication.launchDate?.timeIntervalSince1970 ?? 0):\(acquired.targetWindowID ?? 0):\(virtualContext?.layoutVersion ?? 0)"
+        let scope = "\(targetScope):text=\(textLimit.maxCount.map(String.init) ?? "max"):nodes=\(treeLimits.maxNodeCount):depth=\(treeLimits.maxDepth)"
+        let snapshot = axOutput.reconcile(acquired, scope: scope, identityScope: targetScope)
 
         let keys = Set([
             query.lowercased(),
@@ -970,7 +997,7 @@ public final class ComputerUseService {
 
     private func lookupElement(snapshot: AppSnapshot, index: String) throws -> ElementRecord {
         guard let parsedIndex = Int(index), let record = snapshot.elements[parsedIndex] else {
-            throw ComputerUseError.invalidArguments("unknown element_index '\(index)'")
+            throw ComputerUseError.invalidArguments("unknown element_index '\(index)'; reference is stale or not observed, run get_app_state again")
         }
 
         if let context = virtualContext, let element = record.element,
@@ -2064,7 +2091,12 @@ public final class ComputerUseService {
     }
 
     private func snapshotResult(for snapshot: AppSnapshot, style: SnapshotTextStyle) -> ToolCallResult {
-        var content = [ToolResultContentItem.text(snapshot.renderedText(style: style))]
+        var content: [ToolResultContentItem] = []
+        if let text = axOutput.render(snapshot, scope: snapshot.axScope, options: axOutputOptions) {
+            content.append(.text(text))
+        } else {
+            content.append(.text(style == .actionResult ? "ok" : "AX output omitted"))
+        }
         if let screenshotPNGData = snapshot.screenshotPNGData {
             content.append(.pngImage(screenshotPNGData))
         }

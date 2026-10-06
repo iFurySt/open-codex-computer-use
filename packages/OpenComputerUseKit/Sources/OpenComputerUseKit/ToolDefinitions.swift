@@ -33,6 +33,10 @@ public enum ToolDefinitions {
         guard definition.name != "list_apps" else { return definition }
         var schema = definition.inputSchema
         var properties = schema["properties"] as? [String: Any] ?? [:]
+        properties["snapshot_mode"] = stringProperty(description: "AX output: auto (default, full first then contextual diffs), full (recover baseline), or none (omit AX; capture/input checks unchanged)", enumValues: ["auto", "full", "none"])
+        if definition.name == "get_app_state" {
+            properties["base_snapshot_id"] = stringProperty(description: "Snapshot actually received by the caller; unavailable or incompatible baselines recover with full output")
+        }
         properties["session_id"] = stringProperty(description: "Optional macOS virtual display session; enforces background-only input")
         if definition.name == "get_app_state" { properties["window_id"] = positiveIntegerProperty(description: "Select an exact managed window in session_id") }
         schema["properties"] = properties

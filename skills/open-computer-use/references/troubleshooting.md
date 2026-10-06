@@ -101,3 +101,7 @@ If a Linux release reports that `Accessible` has no `is_text` or `is_editable_te
 - Do not enable global pointer fallbacks unless the user asks for low-level diagnostic behavior.
 - Do not interact with password managers or sensitive apps unless the user explicitly requests it.
 - Pause before submitting, sending, deleting, purchasing, or approving anything externally visible.
+
+## macOS output is only changes, or an element reference is stale
+
+Compact AX changes are the default. Unchanged references remain valid in the latest observed tree; refs no longer observed cannot be used. After context loss or an unavailable reference, request `snapshot_mode: "full"` (JS: `getAXState({snapshotMode:"full"})`) and select a current target. A full recovery can also occur after tree/text budget changes, truncated acquisition, window/session/layout changes, or history eviction. `emit:false` and screenshot reads do not establish a model baseline.

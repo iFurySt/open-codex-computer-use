@@ -25,6 +25,7 @@ public final class VirtualDisplayNotebookKernel: @unchecked Sendable {
                 throw ComputerUseError.invalidArguments("Cell session_id must match this notebook's session")
             }
         }
+        arguments["snapshot_mode"] = "full"
         arguments["session_id"] = sessionID
         if arguments["app"] == nil || arguments["app"] as? String == "$app" {
             if let app { arguments["app"] = app }

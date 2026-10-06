@@ -42,7 +42,7 @@ The runtime exposes an asynchronous app-bound API:
 - macOS display reuse: \`await cua.prewarmVirtualDisplay({scale: 1})\`, \`await cua.listIdleVirtualDisplays()\`, \`await cua.releaseVirtualDisplays({displayId?})\`. Prewarm defaults to reuse; pass \`reuseDisplay: false\` to reserve another empty display. Create reuses matching idle displays by default; destroy retains an empty display by default. First creation and final release may move Dock.
 - \`await cua.getVirtualDisplay(sessionId)\`: join an existing macOS session and get its lifecycle controller. Use \`await cua.listVirtualDisplays()\` to discover sessions; each can contain multiple applications.
 - \`await cua.getApp(app, { sessionId, windowId? })\`: join an existing virtual session shown in the OCU GUI. Virtual sessions never activate apps, post global input or use the clipboard; drag is unsupported. Sessions survive client disconnect and turn-ended, but each new turn/resume needs a fresh state.
-- \`await app.getAXState({ emit?, textLimit?, maxTreeNodes?, maxTreeDepth? })\`
+- \`await app.getAXState({ emit?, textLimit?, maxTreeNodes?, maxTreeDepth?, snapshotMode? })\`
 - \`await app.getScreenshot({ emit? })\`
 - \`await app.getAXStateAndScreenshot(options?)\`
 - \`await app.click(elementIndexOrPoint, { mouseButton?, clickCount?, clickMethod? })\`
@@ -52,6 +52,8 @@ The runtime exposes an asynchronous app-bound API:
 - \`await app.pressKey(key)\`
 - \`await app.setValue(elementIndex, value)\`
 - \`await app.performSecondaryAction(elementIndex, action)\`
+
+On macOS, AX observations default to a full baseline followed by contextual diffs. Unchanged refs retain their meaning; removed refs are unavailable. Use \`getAXState({snapshotMode: "full"})\` after losing context. \`emit:false\` reads do not advance the model baseline, and screenshots never consume it.
 
 After actions, call \`getAXState()\` in the same js invocation when the next decision depends on the updated UI. Re-derive element indexes from fresh state after navigation or layout changes. Prefer element indexes over coordinates. Open Computer Use keeps its existing local safety gates, including password-manager denial and explicit authorization for global pointer fallbacks.`;
 
@@ -239,9 +241,36 @@ function optionsToClickArgs(options = {}) {
 export function createCuaApi(native, activeOutput) {
   let docsEmitted = false;
   let virtualCapability;
+  let nativeToolsPromise;
+  let axDiffSupported = false;
+  const publishedAX = new Map();
+  function snapshotID(text) { return /^AX snapshot (\S+) mode=(?:full|diff)\b/u.exec(text)?.[1]; }
+  function bindingKey(app, args) { return JSON.stringify([args.session_id ?? null, app, args.window_id ?? null]); }
+  function axArgs(app, args, options = {}) {
+    if (!axDiffSupported) return {};
+    return {
+      snapshot_mode: options.snapshotMode ?? (options.emit === false ? "full" : "auto"),
+      // An explicit absent baseline prevents a hidden native read from becoming
+      // the model's baseline. The runtime recovers this with a full snapshot.
+      base_snapshot_id: publishedAX.get(bindingKey(app, args)) ?? "unpublished",
+    };
+  }
+  async function publishAX(app, args, text, options = {}) {
+    if (snapshotID(text)) axDiffSupported = true;
+    await emitText(text, options);
+    if (options.emit !== false && snapshotID(text)) publishedAX.set(bindingKey(app, args), snapshotID(text));
+  }
+  async function nativeTools() {
+    nativeToolsPromise ??= native.request("tools/list").then(result => {
+      const tools = result?.tools ?? [];
+      axDiffSupported = Boolean(tools.find(tool => tool.name === "get_app_state")?.inputSchema?.properties?.snapshot_mode);
+      return tools;
+    });
+    return nativeToolsPromise;
+  }
   async function requireVirtualSupport() {
-    virtualCapability ??= native.request("tools/list").then(result => {
-      if (!result?.tools?.some(tool => tool.name === "create_virtual_display")) {
+    virtualCapability ??= nativeTools().then(tools => {
+      if (!tools.some(tool => tool.name === "create_virtual_display")) {
         throw new Error("Virtual display sessions are unavailable in this native runtime; session arguments will not be sent to legacy app tools.");
       }
     });
@@ -289,16 +318,20 @@ export function createCuaApi(native, activeOutput) {
     docsEmitted = true;
   }
   function appBinding(app, sessionArgs = {}) {
-    const appCall = (tool, args) => call(tool, { ...args, ...sessionArgs });
+    const appCall = (tool, args) => {
+      const bindingArgs = { ...sessionArgs };
+      if (tool !== "get_app_state") delete bindingArgs.window_id;
+      return call(tool, { ...(tool !== "get_app_state" && axDiffSupported ? { snapshot_mode: "none" } : {}), ...args, ...bindingArgs });
+    };
     return Object.freeze({
       async getAXState(options = {}) {
-        const result = await appCall("get_app_state", { app, ...optionsToSnapshotArgs(options) });
+        const result = await appCall("get_app_state", { app, ...optionsToSnapshotArgs(options), ...axArgs(app, sessionArgs, options) });
         const text = toolResultText(result);
-        await emitText(text, options);
+        await publishAX(app, sessionArgs, text, options);
         return text;
       },
       async getScreenshot(options = {}) {
-        const result = await appCall("get_app_state", { app, text_limit: 1 });
+        const result = await appCall("get_app_state", { app, text_limit: 1, ...(axDiffSupported ? { snapshot_mode: "none" } : {}) });
         const image = toolResultImages(result)[0];
         if (!image) throw new Error(`Screenshot unavailable for ${app}`);
         const bytes = Buffer.from(image.data, "base64");
@@ -306,10 +339,10 @@ export function createCuaApi(native, activeOutput) {
         return bytes;
       },
       async getAXStateAndScreenshot(options = {}) {
-        const result = await appCall("get_app_state", { app, ...optionsToSnapshotArgs(options) });
+        const result = await appCall("get_app_state", { app, ...optionsToSnapshotArgs(options), ...axArgs(app, sessionArgs, options) });
         const state = toolResultText(result);
         const images = toolResultImages(result);
-        await emitText(state, options);
+        await publishAX(app, sessionArgs, state, options);
         await emitImages(images, options);
         return images[0] ? { state, screenshot: Buffer.from(images[0].data, "base64") } : { state };
       },
@@ -352,15 +385,16 @@ export function createCuaApi(native, activeOutput) {
     async getApp(app, options = {}) {
       if (options.windowId !== undefined && options.sessionId === undefined) throw new Error("windowId requires sessionId");
       await emitDocs();
+      await nativeTools();
       const sessionArgs = {};
       if (options.sessionId !== undefined) {
         await requireVirtualSupport(); sessionArgs.session_id = options.sessionId;
       }
       if (options.windowId !== undefined) sessionArgs.window_id = options.windowId;
-      const result = await call("get_app_state", { app, text_limit: "max", ...sessionArgs });
-      await emitText(toolResultText(result));
+      const result = await call("get_app_state", { app, text_limit: "max", ...sessionArgs, ...axArgs(app, sessionArgs, options) });
+      await publishAX(app, sessionArgs, toolResultText(result), options);
       // window_id chooses a window through get_app_state, not through action tools.
-      const binding = appBinding(app, options.sessionId === undefined ? {} : { session_id: options.sessionId });
+      const binding = appBinding(app, sessionArgs);
       return binding;
     },
     async createVirtualDisplay(options = {}) {

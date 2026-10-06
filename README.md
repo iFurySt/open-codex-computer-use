@@ -213,3 +213,7 @@ Cursor Motion is an open-source cursor motion system for macOS, based on public 
 ## License
 
 [MIT](./LICENSE).
+
+### macOS AX diffs
+
+macOS acquires and cleans the full accessibility tree, then returns a full baseline followed by contextual diffs. Unchanged element references stay stable; removed observation refs are rejected. Use `app.getAXState({snapshotMode: "full"})` or native `snapshot_mode: "full"` after losing context. `OPEN_COMPUTER_USE_AX_SNAPSHOT_MODE=full` restores full native output. Screenshots and virtual-session safety checks remain independent. See [AX diff design and benchmark](docs/design-docs/macos-ax-diff.md).

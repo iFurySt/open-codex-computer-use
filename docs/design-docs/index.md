@@ -11,3 +11,5 @@
 ## 初始文档
 
 - `core-beliefs.md`
+
+- [macos-ax-diff.md](macos-ax-diff.md)：全量采集后清洗树的稳定引用、差异输出与发布基线。

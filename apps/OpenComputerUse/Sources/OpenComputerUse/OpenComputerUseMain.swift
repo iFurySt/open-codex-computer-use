@@ -63,7 +63,7 @@ enum OpenComputerUseMain {
             print(service.listApps().primaryText ?? "")
         case let .snapshot(app, textLimit, treeLimits):
             let service = ComputerUseService()
-            print(try service.getAppState(app: app, textLimit: textLimit, treeLimits: treeLimits).primaryText ?? "")
+            print(try service.getAppState(app: app, textLimit: textLimit, treeLimits: treeLimits, snapshotMode: .full).primaryText ?? "")
         case let .call(invocation):
             if VisualCursorSupport.isEnabled {
                 _ = NSApplication.shared.setActivationPolicy(.accessory)

@@ -117,6 +117,11 @@ public struct AppSnapshot {
 
     let elements: [Int: ElementRecord]
 
+    var axScope: String = ""
+    var cleanNodes: [AXCleanNode] = []
+    var treeTruncated: Bool = false
+    var focusedNodeIndex: Int? = nil
+
     public var renderedText: String {
         renderedText(style: .fullState)
     }
@@ -260,7 +265,10 @@ enum SnapshotBuilder {
             focusedSummary: renderer.focusedSummary,
             focusedElement: focusedElement,
             selectedText: selectedText,
-            elements: renderer.records
+            elements: renderer.records,
+            cleanNodes: renderer.nodes,
+            treeTruncated: renderer.truncated,
+            focusedNodeIndex: renderer.focusedNodeIndex
         )
     }
 
@@ -376,6 +384,8 @@ enum SnapshotBuilder {
 
     private static func buildFixtureSnapshot(app: RunningAppDescriptor, state: FixtureAppState) -> AppSnapshot {
         var lines: [String] = []
+        var nodes: [AXCleanNode] = []
+        var focusedNodeIndex: Int?
 
         var records: [Int: ElementRecord] = [:]
         let focusedIdentifier = state.focusedIdentifier
@@ -386,7 +396,11 @@ enum SnapshotBuilder {
             let valueSegment = element.value.map { " Value: \($0)" } ?? ""
             let actionsSegment = element.actions.isEmpty ? "" : " Secondary Actions: \(element.actions.joined(separator: ", "))"
             let focusSegment = focusedIdentifier == element.identifier ? " (focused)" : ""
-            lines.append("\(String(repeating: "    ", count: element.index == 0 ? 0 : 1))\(element.index) \(element.role)\(titleSegment)\(focusSegment) ID: \(element.identifier)\(valueSegment)\(actionsSegment) Frame: \(element.frame.cgRect.renderedLocalFrame)")
+            let text = "\(element.role)\(titleSegment)\(focusSegment) ID: \(element.identifier)\(valueSegment)\(actionsSegment) Frame: \(element.frame.cgRect.renderedLocalFrame)"
+            let node = AXCleanNode(index: element.index, parent: element.index == 0 ? nil : 0,
+                text: text, indentation: element.index == 0 ? "" : "    ")
+            nodes.append(node)
+            lines.append(node.renderedLine)
 
             let record = ElementRecord(
                 index: element.index,
@@ -401,6 +415,7 @@ enum SnapshotBuilder {
 
             if focusedIdentifier == element.identifier {
                 focusedSummary = "\(element.index) \(element.role)"
+                focusedNodeIndex = element.index
             }
         }
 
@@ -416,7 +431,9 @@ enum SnapshotBuilder {
             focusedSummary: focusedSummary,
             focusedElement: nil,
             selectedText: nil,
-            elements: records
+            elements: records,
+            cleanNodes: nodes,
+            focusedNodeIndex: focusedNodeIndex
         )
     }
 }
@@ -684,13 +701,17 @@ private struct TreeRenderer {
     var records: [Int: ElementRecord] = [:]
     var identifierIndex: [String: String] = [:]
     var focusedSummary: String?
+    var focusedNodeIndex: Int?
+    var nodes: [AXCleanNode] = []
+    var truncated = false
 
     init(context: RenderContext) {
         self.context = context
     }
 
-    mutating func render(_ root: AXUIElement, depth: Int = 0, ancestors: [AXUIElement] = []) {
+    mutating func render(_ root: AXUIElement, depth: Int = 0, ancestors: [AXUIElement] = [], parent: Int? = nil) {
         guard shouldContinueRendering(nextIndex: nextIndex, depth: depth, limits: context.treeLimits) else {
+            truncated = true
             return
         }
 
@@ -796,7 +817,7 @@ private struct TreeRenderer {
             preservesCompactGenericActionTarget: rendersCompactGenericActionTarget
         ) {
             for child in childElements {
-                render(child, depth: depth, ancestors: nextAncestors)
+                render(child, depth: depth, ancestors: nextAncestors, parent: parent)
             }
             return
         }
@@ -845,7 +866,11 @@ private struct TreeRenderer {
         let linePrefix = renderedRoleText.isEmpty ? "\(index)" : "\(index) \(renderedRoleText)"
 
         let lineBody = "\(linePrefix)\(traitsSegment)\(titleSegment)\(rowSummarySegment)\(labelSegment)\(helpSegment)\(urlSegment)\(identifierSegment)\(valueSegment)\(placeholderSegment)\(frameSegment)"
-        lines.append("\(String(repeating: "\t", count: depth))\(lineBody)\(actionsSegment)")
+        let nodeText = "\(renderedRoleText)\(traitsSegment)\(titleSegment)\(rowSummarySegment)\(labelSegment)\(helpSegment)\(urlSegment)\(identifierSegment)\(valueSegment)\(placeholderSegment)\(frameSegment)\(actionsSegment)".trimmingCharacters(in: .whitespaces)
+        nodes.append(AXCleanNode(index: index, parent: parent, text: nodeText,
+            indentation: String(repeating: "\t", count: depth),
+            identityContent: role == kAXRowRole as String ? (title ?? rowTexts.joined(separator: " ")) : nil))
+        lines.append(nodes.last!.renderedLine)
 
         let record = ElementRecord(
             index: index,
@@ -864,19 +889,21 @@ private struct TreeRenderer {
 
         if let focusedElement = context.focusedElement, CFEqual(focusedElement, root) {
             focusedSummary = lineBody
+            focusedNodeIndex = index
         }
 
         if role == kAXRowRole as String, boolValue(of: root, attribute: kAXSelectedAttribute) != true {
             for text in Array(rowTexts.dropFirst()) {
                 lines.append(text)
+                nodes[nodes.count - 1].annotations.append(text)
             }
             return
         }
 
         if rendersSummaryAsChildren, let genericTextSummary {
-            renderSyntheticText(genericTextSummary, representedBy: root, depth: depth + 1)
+            renderSyntheticText(genericTextSummary, representedBy: root, depth: depth + 1, parent: index)
             for image in summaryImageChildren {
-                render(image, depth: depth + 1, ancestors: nextAncestors)
+                render(image, depth: depth + 1, ancestors: nextAncestors, parent: index)
             }
             return
         }
@@ -886,18 +913,21 @@ private struct TreeRenderer {
         }
 
         for child in childElements {
-            render(child, depth: depth + 1, ancestors: nextAncestors)
+            render(child, depth: depth + 1, ancestors: nextAncestors, parent: index)
         }
     }
 
-    private mutating func renderSyntheticText(_ text: String, representedBy element: AXUIElement, depth: Int) {
+    private mutating func renderSyntheticText(_ text: String, representedBy element: AXUIElement, depth: Int, parent: Int) {
         guard shouldContinueRendering(nextIndex: nextIndex, depth: depth, limits: context.treeLimits) else {
+            truncated = true
             return
         }
 
         let index = nextIndex
         nextIndex += 1
-        lines.append("\(String(repeating: "\t", count: depth))\(index) text \(text)")
+        nodes.append(AXCleanNode(index: index, parent: parent, text: "text \(text)",
+            indentation: String(repeating: "\t", count: depth), identityContent: text))
+        lines.append(nodes.last!.renderedLine)
 
         records[index] = ElementRecord(
             index: index,
@@ -2128,7 +2158,7 @@ private func displayIdentifier(_ value: String?) -> String? {
     return value
 }
 
-private func displayWindowTitle(_ value: String?, appName: String) -> String {
+func displayWindowTitle(_ value: String?, appName: String) -> String {
     guard let value, !value.isEmpty else {
         return appName
     }
@@ -2140,7 +2170,7 @@ private func displayWindowTitle(_ value: String?, appName: String) -> String {
     return value
 }
 
-private func quoted(_ value: String) -> String {
+func quoted(_ value: String) -> String {
     "\"\(value)\""
 }
 

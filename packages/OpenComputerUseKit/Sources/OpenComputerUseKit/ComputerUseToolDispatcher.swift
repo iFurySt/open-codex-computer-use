@@ -54,6 +54,23 @@ public final class ComputerUseToolDispatcher {
     }
 
     public func callTool(name: String, arguments: [String: Any]) throws -> ToolCallResult {
+        let rawMode = arguments["snapshot_mode"]
+        let mode: AXSnapshotMode?
+        if let rawMode {
+            guard let string = rawMode as? String, let parsed = AXSnapshotMode(rawValue: string) else {
+                throw ComputerUseError.invalidArguments("snapshot_mode must be auto, full, or none")
+            }
+            mode = parsed
+        } else { mode = nil }
+        guard arguments["base_snapshot_id"] == nil || arguments["base_snapshot_id"] is String else {
+            throw ComputerUseError.invalidArguments("base_snapshot_id must be a string")
+        }
+        return try service.withAXOutputOptions(.init(mode: mode, baseSnapshotID: arguments["base_snapshot_id"] as? String)) {
+            try callToolImpl(name: name, arguments: arguments)
+        }
+    }
+
+    private func callToolImpl(name: String, arguments: [String: Any]) throws -> ToolCallResult {
         let registry = VirtualDisplaySessionRegistry.shared
         func result(_ state: VirtualDisplayState) throws -> ToolCallResult {
             .text(String(decoding: try JSONSerialization.data(withJSONObject: state.dictionary, options: [.sortedKeys]), as: UTF8.self))
