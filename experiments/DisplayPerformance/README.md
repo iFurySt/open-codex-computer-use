@@ -49,3 +49,5 @@ clang -fobjc-arc experiments/DisplayPerformance/ColorProfiles.m -framework Found
 健康基线下的六次有界热插拔及 LG 断开/接回续测见[脱敏恢复指标](results-recovery-20261006.json)与[续测报告](../../docs/references/20261006-display-disconnect-recovery.md)。物理插拔由用户手动完成；只对已有固定身份测试，不删除 profile，不重启系统服务。
 
 同日扩展为十组各三次、每组后被动观察 30 秒的[30 次累积记录](results-thirty-20261006.json)，另有停止后约 90 秒恢复窗口；[完整解释](../../docs/references/20261006-thirty-display-cycles.md)。原始窗口由 `cycles.run_batch` 与 `run.Experiment.phase` 编排采集，不提高单批次上限、不使用随机 serial。
+
+当前分支重新编译并签名的同一 helper/bridge 二进制，分别在内置屏与 LG 条件各运行 30 次，见[内置屏数据](results-builtin-current-source-20261006.json)、[LG 数据](results-lg-current-source-20261006.json)及[同构建控制变量报告](../../docs/references/20261006-current-source-display-controls.md)。两个数据集包含相同构建/源码 SHA-256；不是对整个 GUI/registry 的端到端验证。
