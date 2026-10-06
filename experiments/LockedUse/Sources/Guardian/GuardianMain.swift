@@ -246,13 +246,13 @@ enum GuardianError: Error { case message(String) }
     if !persistent { _ = HeartbeatPipe.send(82, to: STDOUT_FILENO) } // R requires root registration in broker mode
     while true {
         let now = ProcessInfo.processInfo.systemUptime
-        if !stopping { shield?.updateCountdown(now: now) }
         let bytes = pipe.drain(allowed: [72, 76]) // H heartbeat, L guardian saw lock
         if bytes.contains(72), !stopping, now - lastHeartbeat < 1.5 { lastHeartbeat = now }
         if pipe.failed { stop("parentPipeFailed") }
         else if now - lastHeartbeat >= 1.5 { stop("parentHeartbeatExpired") }
         if stopping { shield?.cancelNativeClick() }
         let current = LockedUseSession.current()
+        shield?.updateStatus(now: now, session: current, stopping: stopping)
         let same = current.userID == initial.userID && current.auditSessionID == initial.auditSessionID
         let protected = shield?.healthy ?? true
         if !protected { stop(shield?.healthFailure ?? "protectionUnavailable") }

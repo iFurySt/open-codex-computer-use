@@ -255,3 +255,8 @@ LockScreenInteractor 在完整扫描唯一密码框、空写成功、可写且�
 用户指出首轮遮罩不足 5 秒。核对首轮 --fast 将 hold_seconds 设为 0：authorizing 到双方释放约 3.683 秒，active 到观察重锁约 1.745 秒，结束原因 turnEnded，非遮罩失效。为控制器补充 protectedHoldStarted / protectedHoldEnded，实际等待采用 monotonic 计时；没有更改 Root 截止、遮罩或输入策略。
 
 随后不使用 --fast、指定 --hold-seconds 5 的同账号 legacy-only 复测通过：12.659s active，13.799s AX counter 增加且 SCK 图像变化；13.815s 开始停留，18.817s 结束，实际 5.002 秒；18.834s turnEnded 重锁，19.108s 确认锁定，19.203s 双保护释放，22.703s 普通手动解锁后自有隔离项验证 / 清理通过。authorizing 至双方释放约 7.780 秒，无报告覆盖故障 / guardLost。两轮完整流程均通过，但仍不能替代生产验收；物理显示器持续覆盖及剩余故障 / Data Protection Keychain 等验证需继续，生产关闭，未合并。
+
+
+### 遮罩文字跳变修正
+
+用户现场观察认证倒计时 / 使用倒计时反复跳变。代码确认主 Guardian 的 startup 倒计时在 hasObservedUnlock 后仍每秒更新，与 active 标签互相覆盖；watchdog 又未离开 startup 标签。新增两套遮罩共用的纯显示状态 LockedUseShieldStatus：等待认证（同一 Root startup deadline）→ 正在操作 → 正在锁屏，阶段只前进，只有文字改变时绘制。操作阶段显示稳定提示，不再展示与固定 5 秒测试停留无关的 300 秒上限。此显示状态不授予 GUI 权限、不改变 Broker / 输入 / coverage 策略。新增两项回归覆盖解锁后旧 locked 样本 / 认证截止不能覆盖 active 文案、停止后不回退和主 / watchdog 同输入一致，均通过；真实部署复测待完成。

@@ -52,7 +52,7 @@ final class DisplayGuardian: NSObject {
     private var clickAllowance: LockedUseClickAllowance?
     private var returnAllowance: LockedUseReturnAllowance?
     private var validationConfirmation = false
-    private var displayedStartupRemaining: Int?
+    private var shieldStatus = LockedUseShieldStatus()
     private var hasObservedUnlock = false
     private var brokerReportInFlight = false
     private var lastBrokerReport: TimeInterval = 0
@@ -292,8 +292,10 @@ final class DisplayGuardian: NSObject {
 
     private func displayTopology() -> String { shields.displayTopology() }
     private func coverDisplays() throws {
-        try shields.coverDisplays(message: brokerBootstrap == nil ? "Open Computer Use · 测试中\n移动鼠标或按键将重新锁屏"
-            : "Open Computer Use 正在使用电脑\n移动鼠标或按键可返回锁屏")
+        let message = brokerBootstrap == nil ? "Open Computer Use · 测试中\n移动鼠标或按键将重新锁屏"
+            : shieldStatus.update(now: ProcessInfo.processInfo.systemUptime,
+                startupDeadline: brokerBootstrap?.startupDeadline, unlocked: false, stopping: false)!
+        try shields.coverDisplays(message: message)
         topology = displayTopology()
     }
     private func coverageHealthy() -> Bool { shields.coverageHealthy() }
@@ -320,13 +322,6 @@ final class DisplayGuardian: NSObject {
 
     private func poll() {
         let now = ProcessInfo.processInfo.systemUptime
-        if !stopping, let deadline = brokerBootstrap?.startupDeadline {
-            let remaining = max(0, Int(ceil(deadline - now)))
-            if remaining != displayedStartupRemaining {
-                displayedStartupRemaining = remaining
-                shields.updateMessage("Open Computer Use · 保护中\n等待系统认证：剩余 \(remaining) 秒\n移动鼠标或按键可退出")
-            }
-        }
         if stopping, unlockCancellation.quiesced { unlockWorkPending = false }
         let bytes = watchdogReader?.drain(allowed: [72, 82, 83]) ?? []
         if bytes.contains(83) {
@@ -359,6 +354,11 @@ final class DisplayGuardian: NSObject {
             if watchdogHealthy { execute(try policy.heartbeat(now: now)) }
             let current = LockedUseSession.current()
             if current.state == .unlocked, brokerBootstrap != nil { hasObservedUnlock = true }
+            if brokerBootstrap != nil, let message = shieldStatus.update(now: now,
+                startupDeadline: brokerBootstrap?.startupDeadline,
+                unlocked: hasObservedUnlock, stopping: stopping) {
+                shields.updateMessage(message)
+            }
             let tapHealthy = tap.map { CGEvent.tapIsEnabled(tap: $0) } ?? false
             // Secure input is expected at loginwindow after relock. Prior to
             // stopping it is a coverage gap and must stop the rehearsal.
@@ -388,10 +388,6 @@ final class DisplayGuardian: NSObject {
                 if policy.phase == .shielding, brokerBootstrap == nil {
                     let remaining = max(0, Int(ceil(15 - (now - started))))
                     shields.updateMessage("Open Computer Use · 遮罩期间操作测试\n剩余 \(remaining) 秒\n结束后将锁屏 · 请保持鼠标键盘不动")
-                }
-                if brokerBootstrap != nil, policy.phase == .shielding, hasObservedUnlock {
-                    let remaining = max(0, Int(ceil(LockedUseStateMachine.maximumLease - (now - started))))
-                    shields.updateMessage("Open Computer Use 正在使用电脑\n最长剩余 \(remaining) 秒\n移动鼠标或按键可返回锁屏")
                 }
                 emit("guardianState", details: ["phase": policy.phase.rawValue, "session": current.state.rawValue,
                     "reason": policy.reason?.rawValue ?? "", "inputTapEnabled": tapHealthy,

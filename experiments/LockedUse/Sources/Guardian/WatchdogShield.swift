@@ -14,7 +14,7 @@ final class WatchdogShield {
     private var clickAllowance: LockedUseClickAllowance?
     private var returnAllowance: LockedUseReturnAllowance?
     private let startupDeadline: TimeInterval?
-    private var displayedRemaining: Int?
+    private var shieldStatus = LockedUseShieldStatus()
     private let stop: @MainActor (String) -> Void
 
     init(clickTag: Int64? = nil, returnTag: Int64? = nil, startupDeadline: TimeInterval? = nil, stop: @escaping @MainActor (String) -> Void) throws {
@@ -23,7 +23,9 @@ final class WatchdogShield {
         if let returnTag { returnAllowance = .init(tag: returnTag, sender: getppid(), session: LockedUseSession.current(), now: ProcessInfo.processInfo.systemUptime) }
         if let clickTag { clickAllowance = .init(tag: clickTag, sender: getppid(), now: ProcessInfo.processInfo.systemUptime) }
         NSApplication.shared.setActivationPolicy(.accessory)
-        try surface.coverDisplays(message: "Open Computer Use 正在使用电脑\n移动鼠标或按键可返回锁屏", levelOffset: -1)
+        let message = shieldStatus.update(now: ProcessInfo.processInfo.systemUptime,
+            startupDeadline: startupDeadline, unlocked: false, stopping: false)!
+        try surface.coverDisplays(message: message, levelOffset: -1)
         do {
             displayPower = try DisplayPowerAssertion()
             let context = Unmanaged.passUnretained(self).toOpaque()
@@ -80,12 +82,10 @@ final class WatchdogShield {
         displayPower?.close(); displayPower = nil
     }
     func cancelNativeClick() { clickAllowance?.revoke(); returnAllowance?.revoke() }
-    func updateCountdown(now: TimeInterval) {
-        guard let startupDeadline, startupDeadline.isFinite else { return }
-        let remaining = max(0, Int(ceil(startupDeadline - now)))
-        if remaining != displayedRemaining {
-            displayedRemaining = remaining
-            surface.updateMessage("Open Computer Use · 保护中\n等待系统认证：剩余 \(remaining) 秒\n移动鼠标或按键可退出")
+    func updateStatus(now: TimeInterval, session: LockedUseSession, stopping: Bool) {
+        if let message = shieldStatus.update(now: now, startupDeadline: startupDeadline,
+            unlocked: session.state == .unlocked, stopping: stopping) {
+            surface.updateMessage(message)
         }
     }
 }
