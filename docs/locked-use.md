@@ -282,3 +282,6 @@ Return 独立无遮罩诊断已实测跑通：空写 / 点击后对聚焦的唯�
 
 
 受保护管理员验证 profile 现支持独立 Return 一次性能力：主 / watchdog 两个 session tap 必须各自验证原锁定会话、来源 PID 和随机 tag、固定 keyCode 36、无修饰 / repeat、5 秒有效期与 250ms 成对时限。实际派发前还需唯一密码框焦点、空写与 Apple loginwindow 签名复查。任何硬件接管或停止均撤销；默认生产 profile 仍不签发键盘能力。完整 AX / SCK / 重锁实测待验证。
+
+
+遮罩采用居中 1.5× 不透明面板，为 loginwindow 解锁动画的缩放留出实际黑色覆盖余量；健康检查不容忍任何实际未覆盖边缘，仍严格比较 WindowServer 实际边界与显示器。受保护首轮已进入插件放行，但动画缩小遮罩导致 guardLost，故完整 GUI 验证仍待复测。

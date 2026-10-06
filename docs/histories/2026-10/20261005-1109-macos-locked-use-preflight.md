@@ -231,3 +231,12 @@ python3 scripts/run-locked-use-unshielded-diagnostic.py --confirm-visible-deskto
 用户确认无遮罩通过后要求提交并恢复 Guardian。此前实现与证据已分别提交 b444978 / 48d918f。新增 LockedUseReturnAllowance，通过 Guardian → watchdog 私有继承管道传递独立随机 returnTag，只在 Root 管理员 validation profile 下创建，不与鼠标 clickTag 混用。两套 session tap 分别验证同一原锁定 UID / audit session、Guardian 来源 PID、能力 tag、有效目标 PID、固定 keyCode 36、无重复 / 修饰键、5 秒总有效期和 250ms 匹配 down/up；重放、错序、取消和真实硬件接管均不能重开。watchdog / 主 Guardian 停止会撤销两类输入能力。
 
 LockScreenInteractor 在完整扫描唯一密码框、空写成功、可写且焦点确认、Apple loginwindow 签名 / 会话再次检查后才提交 Return；受保护事件写入来源 / 目标和独立 tag。没有通用键盘放行、没有 PID-only 绕过。无 Return 能力的旧 bootstrap 不获得键盘权限。生产 profile 暂不启用。新增 6 项策略回归覆盖两独立 gate、nonce / 来源错误、其他按键 / 修饰 / repeat、跨会话 / 过期、顺序 / 目标 / 间隔 / 重放、取消与旧 bootstrap。Swift 272 项（1 跳过、0 失败）、Python 报告 17 项与归因 3 项通过；签名组件、ABI、内核身份检查与 Dev app 构建通过。真实受保护完整链待安装复测，未合并。
+
+
+### 受保护首轮：Return / 插件通过，遮罩过渡失败
+
+新验证版安装和普通已解锁真实 AX / SCK preflight 通过。完整 fast / legacy-only 轮两套过滤器均放行鼠标 down/up，Return 派发后 OCU 插件 claim / consume / SetResult 成功。还未确认 active GUI 就遇 watchdog shieldBoundsMismatch：实际 Quartz bounds 在系统解锁动画缩至 2404×1352 且偏移 78,44，未覆盖原 2560×1440。watchdog 正确请求 guardLost 重锁；约 9.594 秒（含 5 秒提示）Root 确认双保护释放，没有循环遮罩。不得把此轮算完整成功，也没有观察到 returnAdmitted 日志，Secure Input 时事件是否经过 session tap 仍须谨慎描述。
+
+修正使用居中 1.5× 实际不透明窗口，使系统 zoom 缩放后仍覆盖屏幕；不是放宽 coverage 判定。保留对 WindowServer 实际 bounds 完整包含 CGDisplayBounds、alpha=1、owner / layer / active topology 的严格要求。新增负坐标 / 不同比例缩放下 overscan 实际覆盖测试及不足覆盖拒绝，Swift 273 项（1 跳过、0 失败）通过。仅更新经 Developer ID 签名的 staged Guardian，保持 root 所有与普通用户不可写，Broker / auth rules 不变，待复测。
+
+用户提供 Native Fixture “not open anymore” 提示。控制器在失败恢复后会关闭 RPC 并终止固定测试 fixture，当前没有发现其相关新 crash report，无法仅凭截图判定为崩溃；Finder 最新状态未见该弹窗。将其作为测试窗口生命周期诊断，未改私钥或认证策略。
