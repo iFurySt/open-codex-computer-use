@@ -242,6 +242,8 @@ enum GuardianError: Error { case message(String) }
     // NSApplication.run(). Publish the first AppKit frame before health/RPC.
     if persistent { _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
     lastHeartbeat = ProcessInfo.processInfo.systemUptime
+    let lockPresentation = LockScreenPresentation(session: initial)
+    var releaseSignalSeen = false
     let brokerLink = bootstrap.map { WatchdogBrokerLink(bootstrap: $0, protected: shield?.healthy == true) }
     if !persistent { _ = HeartbeatPipe.send(82, to: STDOUT_FILENO) } // R requires root registration in broker mode
     while true {
@@ -258,7 +260,10 @@ enum GuardianError: Error { case message(String) }
         if !protected { stop(shield?.healthFailure ?? "protectionUnavailable") }
         brokerLink?.observe(current, protected: protected, stopping: stopping)
         if brokerLink?.ready == true { _ = HeartbeatPipe.send(82, to: STDOUT_FILENO) }
-        if (bytes.contains(76) || brokerLink?.releaseRequested == true), same, current.state == .locked {
+        releaseSignalSeen = releaseSignalSeen || bytes.contains(76) || brokerLink?.releaseRequested == true
+        let releaseRequested = releaseSignalSeen
+        let presentationReady = lockPresentation.ready(session: current, requested: releaseRequested, now: now)
+        if releaseRequested, same, current.state == .locked, presentationReady {
             shield?.close()
             brokerLink?.finish()
             return

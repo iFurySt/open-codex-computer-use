@@ -13,6 +13,7 @@ import uuid
 BOOL = r"(?:true|false)"
 PHASE = r"(?:idle|preparing|authorizing|unlocking|active|relocking|awaitingManualUnlock)"
 PATTERNS = {
+    "LockPresentation": [r"releaseBarrier state=(?:waitingForLock|waitingForCoverage|stabilizing|ready)"],
     "LockUIClickFilter": [r"clickAdmitted filter=(?:main|watchdog) type=(?:down|up)",
                          r"clickFlags raw=[0-9]+ modifiers=[0-9]+",
                          r"clickRejected filter=(?:main|watchdog) reason=(?:type|flags|window|inactive|timing|capability|source|target|sequence)"],

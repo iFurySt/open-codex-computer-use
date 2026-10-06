@@ -70,13 +70,13 @@ public struct LockedUseGuardianPolicy: Sendable {
     public mutating func requireQuiescence() { quiesced = false }
 
     public mutating func poll(session current: LockedUseSession, topology currentTopology: String,
-                              guardsHealthy: Bool, now: TimeInterval) throws -> [Effect] {
+                              guardsHealthy: Bool, lockPresentationReady: Bool = false, now: TimeInterval) throws -> [Effect] {
         try clock(now)
         guard phase != .finished else { return [] }
         let sameSession = current.userID == session.userID && current.auditSessionID == session.auditSessionID
         if phase == .relocking {
             if sameSession, current.state == .locked {
-                if quiesced {
+                if quiesced, lockPresentationReady {
                     phase = .finished
                     return [.releaseShield]
                 }

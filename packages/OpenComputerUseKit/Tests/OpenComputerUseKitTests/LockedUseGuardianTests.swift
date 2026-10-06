@@ -17,11 +17,12 @@ final class LockedUseGuardianTests: XCTestCase {
         XCTAssertEqual(try policy.poll(session: locked, topology: "", guardsHealthy: false, now: 100.1), [])
         XCTAssertEqual(policy.phase, .relocking)
         policy.confirmQuiescence()
+        XCTAssertEqual(try policy.poll(session: locked, topology: "", guardsHealthy: false, now: 100.2), [])
         let other = LockedUseSession(state: .locked, userID: 502, auditSessionID: 11)
         XCTAssertEqual(try policy.poll(session: other, topology: "", guardsHealthy: false, now: 100.5), [.requestRelock])
         XCTAssertEqual(try policy.poll(session: .init(state: .unavailable, userID: nil, auditSessionID: nil),
             topology: "", guardsHealthy: false, now: 101), [.requestRelock])
-        XCTAssertEqual(try policy.poll(session: locked, topology: "", guardsHealthy: false, now: 101.1), [.releaseShield])
+        XCTAssertEqual(try policy.poll(session: locked, topology: "", guardsHealthy: false, lockPresentationReady: true, now: 101.1), [.releaseShield])
         XCTAssertEqual(policy.phase, .finished)
         XCTAssertEqual(policy.stop(.localInput, now: 102), [])
     }
@@ -53,7 +54,7 @@ final class LockedUseGuardianTests: XCTestCase {
         XCTAssertEqual(try policy.poll(session: unlocked, topology: "", guardsHealthy: false,
             now: 121), [.requestRelock])
         policy.confirmQuiescence()
-        XCTAssertEqual(try policy.poll(session: locked, topology: "", guardsHealthy: false,
+        XCTAssertEqual(try policy.poll(session: locked, topology: "", guardsHealthy: false, lockPresentationReady: true,
             now: 122), [.releaseShield])
     }
 
@@ -64,7 +65,7 @@ final class LockedUseGuardianTests: XCTestCase {
         _ = policy.stop(.localInput, now: 100)
         XCTAssertEqual(try policy.poll(session: locked, topology: "", guardsHealthy: false, now: 100.1), [])
         policy.confirmQuiescence()
-        XCTAssertEqual(try policy.poll(session: locked, topology: "", guardsHealthy: false, now: 100.2), [.releaseShield])
+        XCTAssertEqual(try policy.poll(session: locked, topology: "", guardsHealthy: false, lockPresentationReady: true, now: 100.2), [.releaseShield])
     }
 
     func testLeaseExpiresDespiteContinuedHeartbeats() throws {

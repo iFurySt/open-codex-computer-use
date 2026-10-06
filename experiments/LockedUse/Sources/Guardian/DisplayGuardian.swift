@@ -53,6 +53,7 @@ final class DisplayGuardian: NSObject {
     private var returnAllowance: LockedUseReturnAllowance?
     private var validationConfirmation = false
     private var shieldStatus = LockedUseShieldStatus()
+    private lazy var lockPresentation = LockScreenPresentation(session: policy.session)
     private var hasObservedUnlock = false
     private var brokerReportInFlight = false
     private var lastBrokerReport: TimeInterval = 0
@@ -377,7 +378,8 @@ final class DisplayGuardian: NSObject {
                     "topologyUnchanged": displayTopology() == topology, "secureInput": secureInput])
             }
             if policy.phase != .preparing {
-                execute(try policy.poll(session: current, topology: displayTopology(), guardsHealthy: healthy, now: now))
+                execute(try policy.poll(session: current, topology: displayTopology(), guardsHealthy: healthy,
+                    lockPresentationReady: lockPresentation.ready(session: current, requested: policy.phase == .relocking, now: now), now: now))
             }
             if policy.phase != .preparing, policy.phase != .finished {
                 reportToBroker(now: now, session: current, coverage: coverage,
