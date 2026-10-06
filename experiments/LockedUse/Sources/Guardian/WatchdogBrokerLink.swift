@@ -64,10 +64,9 @@ final class WatchdogBrokerLink: @unchecked Sendable {
     func finish() {
         timer?.cancel(); timer = nil
         queue.sync {
-            if let client {
-                _ = try? client.request(.init(operation: .watchdogReleased, leaseID: bootstrap.leaseID))
-                client.close()
-            }
+            client?.close(); client = nil
+            mutex.lock(); let observed = witnessedUnlock; mutex.unlock()
+            _ = GuardReleaseAcknowledgement.send(bootstrap: bootstrap, watchdog: true, observedUnlock: observed)
         }
     }
 }

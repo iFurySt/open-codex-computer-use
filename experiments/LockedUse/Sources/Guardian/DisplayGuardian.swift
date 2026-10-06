@@ -448,13 +448,14 @@ final class DisplayGuardian: NSObject {
                 let localRecovery = policy.localRecoveryReady && LockedUseSession.current().state == .unlocked
                 emit(localRecovery ? "localRecoveryReleased" : "lockConfirmed",
                     details: ["shieldReleased": true, "unlockRequested": false])
-                if let client = brokerClient, let bootstrap = brokerBootstrap {
-                    cleanup(closeBroker: false)
+                if let bootstrap = brokerBootstrap {
+                    let observed = hasObservedUnlock
+                    cleanup()
                     Task { @MainActor in
-                        _ = try? await Task.detached {
-                            try client.request(.init(operation: .guardianReleased, leaseID: bootstrap.leaseID))
+                        let acknowledged = await Task.detached {
+                            GuardReleaseAcknowledgement.send(bootstrap: bootstrap, watchdog: false, observedUnlock: observed)
                         }.value
-                        await Task.detached { client.close() }.value
+                        emit("guardianReleaseAcknowledged", details: ["passed": acknowledged])
                         self.stopApplication()
                     }
                 } else {
@@ -493,7 +494,7 @@ final class DisplayGuardian: NSObject {
 
     private func reportToBroker(now: TimeInterval, session: LockedUseSession, coverage: Bool,
                                 inputHealthy: Bool, watchdogHealthy: Bool) {
-        guard let bootstrap = brokerBootstrap,
+        guard policy.phase != .finished, let bootstrap = brokerBootstrap,
               !brokerReportInFlight, now - lastBrokerReport >= 0.1 else { return }
         brokerReportInFlight = true
         lastBrokerReport = now
@@ -521,6 +522,7 @@ final class DisplayGuardian: NSObject {
                     brokerClient = recovered; client = recovered
                 }
                 let reply = try await Task.detached { try client.request(message) }.value
+                guard policy.phase != .finished else { return }
                 guard reply.result != .denied else { throw GuardianError.message("Broker denied Guardian report") }
                 for effect in reply.effects {
                     switch effect {
@@ -534,6 +536,7 @@ final class DisplayGuardian: NSObject {
                     }
                 }
             } catch {
+                guard policy.phase != .finished else { return }
                 stop(.parentDisconnected)
                 if let failed = brokerClient { Task.detached { failed.close() } }
                 brokerClient = nil

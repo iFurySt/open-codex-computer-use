@@ -315,3 +315,5 @@ overscan 修正版首次完整实测通过：Return → loginwindow 认证 → �
 ```sh
 python3 scripts/run-locked-use-native-validation.py --confirm-lock-test --legacy-only --hold-seconds 5 --wait-for-manual-unlock --keep-fixture
 ```
+
+退出 ACK 由 main / watchdog 在各自真实撤罩后，经同一签名与 audit-token 的恢复连接提交，最多 3 次并检查回复；不以窗口进程死亡冒充 ACK。周期报告的 IPC 失败不再跳过 terminal 确认。控制器最多等待 8 秒观测 Root 的双 ACK，此等待不生成许可或代替呈现屏障。演示的 `--keep-fixture` 目标采用独立进程 session 和空 stdin，因此 runner 结束不带走原有计数窗口；已实测脚本退出后只读 AX 仍见 `Counter: 1`。

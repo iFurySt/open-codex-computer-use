@@ -84,7 +84,7 @@ def wait_for(guardian, state, timeout=15):
     raise TimeoutError("Did not observe original session " + state)
 
 
-def wait_for_release(rpc, timeout=3):
+def wait_for_release(rpc, timeout=8):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if rpc.call("ocu/locked-use/protection-released", timeout=min(2, deadline-time.monotonic()))["passed"]: return
@@ -177,7 +177,11 @@ def main():
             assert rpc.call("ocu/locked-use/keychain/cleanup")["passed"]
             completed = True
             return
-        fixture = subprocess.Popen([str(fixture_binary), "--external-fixture"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # A retained demo must survive the runner's process-group cleanup,
+        # without inheriting its input stream. It remains the same AX target.
+        fixture = subprocess.Popen([str(fixture_binary), "--external-fixture"],
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL, start_new_session=args.keep_fixture)
         rpc.call("tools/call", {"name": "get_app_state", "arguments": {"app": "dev.opencomputeruse.locked-use.fixture.dev"}})
         if args.unlocked_fixture_test:
             assert rpc.call("ocu/locked-use/validate-unlocked")["passed"]

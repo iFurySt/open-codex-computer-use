@@ -13,6 +13,7 @@ import uuid
 BOOL = r"(?:true|false)"
 PHASE = r"(?:idle|preparing|authorizing|unlocking|active|relocking|awaitingManualUnlock)"
 PATTERNS = {
+    "GuardRelease": [r"release(?:Acknowledged|Retry) role=(?:main|watchdog) attempt=[1-3]"],
     "GuardianPreparation": [rf"preparing elapsedMilliseconds=[0-9]+ watchdogReady={BOOL} coverage=(?:none|topologyChanged|shieldNotVisible|shieldNotInWindowServer|shieldOwnerMismatch|shieldAlphaMismatch|shieldLayerMismatch|shieldBoundsUnavailable|activeDisplayUncovered|activeDisplayCountUnavailable|activeDisplayListUnavailable|windowListUnavailable|shieldBoundsMismatch expected=[0-9.,{{}} -]+ actual=[0-9.,{{}} -]+)"],
     "LockPresentation": [r"releaseBarrier state=(?:waitingForLock|waitingForCoverage|stabilizing|ready)"],
     "LockUIClickFilter": [r"clickAdmitted filter=(?:main|watchdog) type=(?:down|up)",
