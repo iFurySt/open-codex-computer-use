@@ -29,6 +29,10 @@ PATTERNS = {
                       r"AXTrigger clickTap=(?:hid|session)",
                       rf"AXTrigger passwordConfirmSupported={BOOL} status=-?[0-9]+",
                       r"AXTrigger passwordConfirm status=-?[0-9]+ authenticationEvidence=false",
+                      r"AXTrigger passwordConfirmTimeout milliseconds=[0-9]+ status=-?[0-9]+",
+                      r"AXTrigger passwordConfirmElapsed milliseconds=[0-9]+ status=-?[0-9]+",
+                      r"AXTrigger passwordConfirmDispatching=true",
+                      r"AXTrigger passwordConfirmSkipped=deadline",
                       rf"AXTrigger annotatedClickQueued={BOOL}", r"AXTrigger annotatedClickTargetAvailable=false",
                       r"AXTrigger annotatedClickWindowAvailable=false", r"AXTrigger annotatedClickWindowMatches=[0-9]+",
                       rf"AXTrigger sessionClickQueued={BOOL}", r"AXTrigger sessionClickTargetAvailable=false",
@@ -51,6 +55,8 @@ PATTERNS = {
 }
 PATTERNS["Watchdog"].extend([r"stopping reason=shieldBoundsMismatch expected=[0-9.,{} -]+ actual=[0-9.,{} -]+", r"stopping reason=(?:topologyChanged|shieldNotVisible|shieldNotInWindowServer|shieldLayerMismatch|hardwareMonitorUnhealthy|inputTapDisabled|parentDisconnected)"])
 PATTERNS["UnlockTrigger"].append(r"lockUIState=(?:candidateFound|candidateUnavailable|unknown) authenticationEvidence=false")
+PATTERNS["Broker"].append(rf"guardLostEvidence guardianAgeMilliseconds=[0-9]+ watchdogAgeMilliseconds=[0-9]+ watchdogProtected={BOOL}")
+PATTERNS["UnlockTrigger"].extend([r"AXProbe passwordUI enabledButtons=[0-9]+ disabledButtons=[0-9]+ unknownButtons=[0-9]+", rf"AXProbe passwordFocused={BOOL} status=-?[0-9]+"])
 
 # Normalize markers into enums; never retain the surrounding user/context text.
 SYSTEM_MARKERS = {

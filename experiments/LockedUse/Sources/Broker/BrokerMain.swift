@@ -116,6 +116,7 @@ private final class BrokerServer: @unchecked Sendable {
                 defer {
                     if previousPhase != self.coordinator.phase {
                         self.logger.notice("phase=\(self.coordinator.phase.rawValue, privacy: .public) stopReason=\(self.coordinator.stopReason?.rawValue ?? "none", privacy: .public)")
+                        self.logProtectionLoss()
                     }
                 }
                 let now = ProcessInfo.processInfo.systemUptime
@@ -265,6 +266,7 @@ private final class BrokerServer: @unchecked Sendable {
                 }
                 if previousPhase != coordinator.phase {
                     logger.notice("phase=\(self.coordinator.phase.rawValue, privacy: .public) stopReason=\(self.coordinator.stopReason?.rawValue ?? "none", privacy: .public)")
+                    logProtectionLoss()
                 }
                 if request.operation == .pluginClaim, reply.result != .denied {
                     logger.notice("permitIssued maximumLifetimeSeconds=5")
@@ -293,6 +295,12 @@ private final class BrokerServer: @unchecked Sendable {
             }
             flush(connection)
         } catch { close(connection) }
+    }
+
+    private func logProtectionLoss() {
+        guard coordinator.stopReason == .guardLost else { return }
+        let evidence = coordinator.protectionDiagnostics(now: ProcessInfo.processInfo.systemUptime)
+        logger.notice("guardLostEvidence guardianAgeMilliseconds=\(Int(evidence.guardianAge * 1000), privacy: .public) watchdogAgeMilliseconds=\(Int(evidence.watchdogAge * 1000), privacy: .public) watchdogProtected=\(evidence.watchdogProtected, privacy: .public)")
     }
 
     private func persistRecovery() throws {

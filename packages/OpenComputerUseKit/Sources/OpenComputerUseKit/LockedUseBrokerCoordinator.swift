@@ -82,6 +82,10 @@ public struct LockedUseBrokerCoordinator: Sendable {
     public var recordedWatchdog: Context? { watchdogContext }
     public var recordedOwner: Context? { ownerContext }
     public var isFullyReleased: Bool { guardianContext == nil && watchdogContext == nil }
+    /// Metadata only, for distinguishing unhealthy evidence from stale IPC.
+    public func protectionDiagnostics(now: TimeInterval) -> (guardianAge: TimeInterval, watchdogAge: TimeInterval, watchdogProtected: Bool) {
+        (max(0, now - lastReport), max(0, now - watchdogLastReport), watchdogProtected)
+    }
 
     public func recoveryRecord(clientToken: Data) -> LockedUseRecoveryRecord? {
         guard let leaseID, let ownerContext, phase != .idle || !isFullyReleased else { return nil }

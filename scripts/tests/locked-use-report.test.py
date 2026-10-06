@@ -40,12 +40,23 @@ class ReportTests(unittest.TestCase):
 
     def testConfirmationAndAllWatchdogStopReasonsRemainVisible(self):
         for message in ['AXTrigger passwordConfirmSupported=true status=0',
-                        'AXTrigger passwordConfirm status=0 authenticationEvidence=false']:
+                        'AXTrigger passwordConfirm status=0 authenticationEvidence=false',
+                        'AXTrigger passwordConfirmTimeout milliseconds=2000 status=0',
+                        'AXTrigger passwordConfirmElapsed milliseconds=80 status=-25204',
+                        'AXTrigger passwordConfirmDispatching=true',
+                        'AXTrigger passwordConfirmSkipped=deadline',
+                        'AXProbe passwordUI enabledButtons=1 disabledButtons=1 unknownButtons=0',
+                        'AXProbe passwordFocused=true status=0']:
             self.assertEqual(len(report.curate([self.entry(message)], 0)), 1)
             self.assertEqual(report.curate([self.entry(message + ' secret=private')], 0), [])
         for reason in ['filterEvent', 'hardwareActivity', 'parentHeartbeatExpired',
                        'shieldNotVisible', 'parentDisconnected']:
             self.assertEqual(len(report.curate([self.entry('stopping reason=' + reason, 'Watchdog')], 0)), 1)
+
+    def testProtectionAgeEvidenceRejectsExtraFields(self):
+        message = 'guardLostEvidence guardianAgeMilliseconds=20 watchdogAgeMilliseconds=1501 watchdogProtected=true'
+        self.assertEqual(len(report.curate([self.entry(message, 'Broker')], 0)), 1)
+        self.assertEqual(report.curate([self.entry(message + ' user=private', 'Broker')], 0), [])
 
     def testMalformedLogsAreDiscarded(self):
         self.assertEqual(report.curate({"unexpected": "object"}, 0), [])

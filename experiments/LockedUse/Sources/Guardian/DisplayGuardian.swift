@@ -384,7 +384,7 @@ final class DisplayGuardian: NSObject {
                     let remaining = max(0, Int(ceil(15 - (now - started))))
                     shields.updateMessage("Open Computer Use · 遮罩期间操作测试\n剩余 \(remaining) 秒\n结束后将锁屏 · 请保持鼠标键盘不动")
                 }
-                if brokerBootstrap != nil, policy.phase == .shielding {
+                if brokerBootstrap != nil, policy.phase == .shielding, hasObservedUnlock {
                     let remaining = max(0, Int(ceil(LockedUseStateMachine.maximumLease - (now - started))))
                     shields.updateMessage("Open Computer Use 正在使用电脑\n最长剩余 \(remaining) 秒\n移动鼠标或按键可返回锁屏")
                 }

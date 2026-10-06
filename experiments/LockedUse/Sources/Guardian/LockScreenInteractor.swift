@@ -34,7 +34,7 @@ enum LockScreenInteractor {
             guard current == session else { return false }
             attempt += 1
             logger.notice("AXPublication attempt=\(attempt, privacy: .public)")
-            if probe(session: session, cancellation: cancellation, logger: logger, clickTag: clickTag, validationConfirmation: validationConfirmation, confirmationAttempted: &confirmationAttempted) {
+            if probe(session: session, cancellation: cancellation, logger: logger, clickTag: clickTag, validationConfirmation: validationConfirmation, confirmationAttempted: &confirmationAttempted, requestDeadline: deadline) {
                 // The fallback tile can reveal the real password field only
                 // after click delivery. Re-query, never reuse a stale element
                 // or spend another input capability. Stay within the same limit.
@@ -44,7 +44,7 @@ enum LockScreenInteractor {
                     Thread.sleep(forTimeInterval: 0.15)
                     logger.notice("AXPublication followup=true")
                     if probe(session: session, cancellation: cancellation, logger: logger,
-                        clickTag: nil, passwordOnly: true, validationConfirmation: validationConfirmation, confirmationAttempted: &confirmationAttempted) { break }
+                        clickTag: nil, passwordOnly: true, validationConfirmation: validationConfirmation, confirmationAttempted: &confirmationAttempted, requestDeadline: deadline) { break }
                 }
                 break
             }
@@ -55,7 +55,7 @@ enum LockScreenInteractor {
     }
 
     private static func probe(session: LockedUseSession, cancellation: UnlockCancellation, logger: Logger,
-        clickTag: Int64?, passwordOnly: Bool = false, validationConfirmation: Bool = false, confirmationAttempted: inout Bool) -> Bool {
+        clickTag: Int64?, passwordOnly: Bool = false, validationConfirmation: Bool = false, confirmationAttempted: inout Bool, requestDeadline: TimeInterval) -> Bool {
         guard cancellation.allowsRequest(), LockedUseSession.current() == session, AXIsProcessTrusted() else { return false }
         let processes = NSWorkspace.shared.runningApplications.filter {
             $0.localizedName == "loginwindow" || $0.bundleIdentifier == "com.apple.loginwindow"
@@ -79,6 +79,7 @@ enum LockScreenInteractor {
         let deadline = ProcessInfo.processInfo.systemUptime + 0.75
         var visited: [AXUIElement] = []
         var primary: [AXUIElement] = [], fallback: [AXUIElement] = []
+        var enabledButtons = 0, disabledButtons = 0, unknownButtons = 0
         var complete = true
         func visit(_ element: AXUIElement, depth: Int) {
             guard depth <= 8 else { complete = false; return }
@@ -87,6 +88,15 @@ enum LockScreenInteractor {
                   cancellation.allowsRequest() else { complete = false; return }
             visited.append(element)
             AXUIElementSetMessagingTimeout(element, 0.05)
+            var role: CFTypeRef?
+            if AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role) == .success,
+               role as? String == kAXButtonRole {
+                var enabled: CFTypeRef?
+                if AXUIElementCopyAttributeValue(element, kAXEnabledAttribute as CFString, &enabled) == .success,
+                   let flag = enabled as? Bool {
+                    if flag { enabledButtons += 1 } else { disabledButtons += 1 }
+                } else { unknownButtons += 1 }
+            }
             var identifier: CFTypeRef?
             _ = AXUIElementCopyAttributeValue(element, kAXIdentifierAttribute as CFString, &identifier)
             if identifier as? String == "UserPasswordTextField" { primary.append(element) }
@@ -116,6 +126,10 @@ enum LockScreenInteractor {
         }
         logger.notice("AXTrigger emptyValueWrite status=\(result?.rawValue ?? -1, privacy: .public)")
         if primary.count == 1 {
+            logger.notice("AXProbe passwordUI enabledButtons=\(enabledButtons, privacy: .public) disabledButtons=\(disabledButtons, privacy: .public) unknownButtons=\(unknownButtons, privacy: .public)")
+            var focused: CFTypeRef?
+            let focusStatus = AXUIElementCopyAttributeValue(candidates[0], kAXFocusedAttribute as CFString, &focused)
+            logger.notice("AXProbe passwordFocused=\((focused as? Bool) == true, privacy: .public) status=\(focusStatus.rawValue, privacy: .public)")
             // Validation experiment: ask the real field which actions it
             // supports before attempting one confirmation of the empty value.
             // Do not infer support from writability or synthesize a global key.
@@ -128,7 +142,25 @@ enum LockScreenInteractor {
                 confirmationAttempted = true
                 let confirm = cancellation.performProbe {
                     guard LockedUseSession.current() == session, trusted() else { return AXError.cannotComplete }
-                    return AXUIElementPerformAction(candidates[0], kAXConfirmAction as CFString)
+                    // The traversal timeout belongs to reads. An action may
+                    // need longer to reply; never exceed the original request
+                    // deadline and never retry an ambiguously completed action.
+                    let remaining = requestDeadline - ProcessInfo.processInfo.systemUptime
+                    guard remaining >= 0.1 else {
+                        logger.notice("AXTrigger passwordConfirmSkipped=deadline")
+                        return AXError.cannotComplete
+                    }
+                    let timeout = Float(min(2, remaining))
+                    let configured = AXUIElementSetMessagingTimeout(candidates[0], timeout)
+                    logger.notice("AXTrigger passwordConfirmTimeout milliseconds=\(Int(timeout * 1000), privacy: .public) status=\(configured.rawValue, privacy: .public)")
+                    guard configured == .success else { return configured }
+                    defer { _ = AXUIElementSetMessagingTimeout(candidates[0], 0.05) }
+                    logger.notice("AXTrigger passwordConfirmDispatching=true")
+                    let began = ProcessInfo.processInfo.systemUptime
+                    let actionResult = AXUIElementPerformAction(candidates[0], kAXConfirmAction as CFString)
+                    let elapsed = Int((ProcessInfo.processInfo.systemUptime - began) * 1000)
+                    logger.notice("AXTrigger passwordConfirmElapsed milliseconds=\(elapsed, privacy: .public) status=\(actionResult.rawValue, privacy: .public)")
+                    return actionResult
                 }
                 logger.notice("AXTrigger passwordConfirm status=\(confirm?.rawValue ?? -1, privacy: .public) authenticationEvidence=false")
             }

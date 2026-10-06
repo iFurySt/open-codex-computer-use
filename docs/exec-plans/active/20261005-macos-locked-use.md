@@ -168,3 +168,9 @@ Apple DTS 确认过 screensaver authorization plugin 的 Data Protection Keychai
 - HID 实测已完成：明确 clickTap=hid，双 session 过滤器放行同一对 down/up；点击后先短暂 AX 发布不完整，再出现唯一真实密码框，空写成功且声明支持 AXConfirm，但单次确认返回 cannotComplete (-25204)。20 秒截止内无观察到的 right 求值 / 机制 / 许可 / 自动解锁；失败后约 0.22 秒收到双保护释放 ACK，用户随后正常手动解锁才触发 remote 机制。不能宣布 HID 活动假设成立，或仅凭此轮失败排除所有 HID 路径。完整 Swift 261 项（1 跳过、0 失败）、报告 15 项通过；签名 / ABI / 内核身份正反例和 app 构建通过。未合并，生产关闭。
 
 - 本轮 HID 实验卸载完成，只读复核 screensaver 原认证规则已恢复。
+
+- 确认超时修正：扫描给候选 AX 对象设置的 50ms 消息超时会被后续 action 沿用。Apple AXUIElementPerformAction 文档明确 cannotComplete 可能源自超时 / 模态处理，但不能仅据错误码确认因果或动作未执行。session 轮先前已执行同一确认并返回成功，不是 HID 轮首次加入。验证版为单次确认独立设置最多 2 秒、裁剪到原 3 秒 UI 请求截止的超时，结束恢复扫描超时；记录配置结果、实际调用开始、调用耗时与结果。不自动重试，避免无法确认是否执行时重复提交。Root 总 20 秒截止、取消 / 排空与双保护不变。待实测比较。
+
+- 超时分离首次实测：2 秒动作超时配置成功，AXConfirm 实际 37ms 返回 success；之后仍未观察到 right 求值 / 机制 / 许可。因此不能确认上一轮 -25204 唯一源自 50ms，也不能以确认返回成功推出认证已提交。本轮总起始约 18.9 秒出现 guardLost，主 Guardian 私有状态持续报告遮罩 / tap / watchdog 健康，收到 root stopRequested 后退出；失败后约 0.25 秒确认双保护释放、正常手动解锁。新增 Broker 两类报告 age / watchdogProtected 固定诊断，进一步区分 IPC 陈旧与真实遮罩不健康；新增只读按钮 enabled 计数与密码框焦点布尔，明确没有收集标题、标识字符串或值。修正等待期间每秒常规 300 秒 active 标签覆盖 20 秒启动倒计时的问题，只有观察到解锁后显示 active 标签。确认只有一次，无模糊结果重试。系统验证版已卸载并恢复原规则，下一诊断版待复测。
+
+- 第二轮 2 秒确认实测：真实密码框 focused=true，扫描按钮 enabled=2 / disabled=0 / unknown=0；AXConfirm 34ms 返回 success，无观察到的认证求值 / 许可。约启动 14 秒 guardLost 的 Broker 固定证据显示 guardian report age≈1570ms / watchdog report age≈1577ms，watchdogProtected=true；本地 Guardian 仍持续健康。不能将本轮归因为动作超时或 UI 未聚焦，Root 失联新鲜度仍待定位。双保护释放与正常手动解锁完成，卸载恢复原认证规则。按用户新要求，暂停受保护复测，下一步独立无遮罩 / 无 watchdog 解锁诊断；不得假造生产 guardsReady、不得执行 GUI 应用动作或签发生产验证记录。
