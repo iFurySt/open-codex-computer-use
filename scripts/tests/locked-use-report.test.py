@@ -38,6 +38,15 @@ class ReportTests(unittest.TestCase):
         for message in ["brokerTaskVerification status=1", "pluginConsume replied=1 allowed=1", "resultDelivered allowed=1 status=0"]:
             self.assertEqual(len(report.curate([self.entry(message, "AuthorizationMechanism")], 0)), 1)
 
+    def testConfirmationAndAllWatchdogStopReasonsRemainVisible(self):
+        for message in ['AXTrigger passwordConfirmSupported=true status=0',
+                        'AXTrigger passwordConfirm status=0 authenticationEvidence=false']:
+            self.assertEqual(len(report.curate([self.entry(message)], 0)), 1)
+            self.assertEqual(report.curate([self.entry(message + ' secret=private')], 0), [])
+        for reason in ['filterEvent', 'hardwareActivity', 'parentHeartbeatExpired',
+                       'shieldNotVisible', 'parentDisconnected']:
+            self.assertEqual(len(report.curate([self.entry('stopping reason=' + reason, 'Watchdog')], 0)), 1)
+
     def testMalformedLogsAreDiscarded(self):
         self.assertEqual(report.curate({"unexpected": "object"}, 0), [])
         self.assertEqual(report.curate([None, {"processImagePath": 3}, {"timestamp": []}], 0), [])

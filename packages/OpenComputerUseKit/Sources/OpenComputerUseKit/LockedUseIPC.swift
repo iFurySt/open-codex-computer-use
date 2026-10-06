@@ -48,14 +48,16 @@ public struct LockedUseIPCReply: Codable, Sendable {
     public let guardsReleased: Bool?
     public let recoveryProbePrepared: Bool?
     public let startupDeadline: TimeInterval?
+    public let validationConfirmation: Bool?
 
     public init(id: UUID, result: Result, phase: LockedUseStateMachine.Phase,
-                leaseID: UUID? = nil, token: Data? = nil, effects: [String] = [], detail: String? = nil, guardsReleased: Bool? = nil, recoveryProbePrepared: Bool? = nil, startupDeadline: TimeInterval? = nil) {
+                leaseID: UUID? = nil, token: Data? = nil, effects: [String] = [], detail: String? = nil, guardsReleased: Bool? = nil, recoveryProbePrepared: Bool? = nil, startupDeadline: TimeInterval? = nil, validationConfirmation: Bool? = nil) {
         version = 1; self.id = id; self.result = result; self.phase = phase
         self.leaseID = leaseID; self.token = token; self.effects = effects; self.detail = detail
         self.guardsReleased = guardsReleased
         self.recoveryProbePrepared = recoveryProbePrepared
         self.startupDeadline = startupDeadline
+        self.validationConfirmation = validationConfirmation
     }
 }
 

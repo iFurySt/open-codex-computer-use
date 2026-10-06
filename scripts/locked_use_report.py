@@ -26,6 +26,8 @@ PATTERNS = {
                       rf"AXProbe writable={BOOL} status=-?[0-9]+", r"AXProbe fixedValueWrite status=-?[0-9]+",
                       r"AXPublication attempt=[0-9]+", r"AXTrigger emptyValueWrite status=-?[0-9]+",
                       r"AXPublication followup=true",
+                      rf"AXTrigger passwordConfirmSupported={BOOL} status=-?[0-9]+",
+                      r"AXTrigger passwordConfirm status=-?[0-9]+ authenticationEvidence=false",
                       rf"AXTrigger annotatedClickQueued={BOOL}", r"AXTrigger annotatedClickTargetAvailable=false",
                       r"AXTrigger annotatedClickWindowAvailable=false", r"AXTrigger annotatedClickWindowMatches=[0-9]+",
                       rf"AXTrigger sessionClickQueued={BOOL}", r"AXTrigger sessionClickTargetAvailable=false",
@@ -45,8 +47,8 @@ PATTERNS = {
                          "fixtureChanged counterIncremented=true imageChanged=true",
                          rf"isolatedKeychainVerified dataProtectionIncluded={BOOL}"],
     "WatchdogBroker": ["registered"],
-    "Watchdog": [r"stopping reason=shieldBoundsMismatch expected=[0-9.,{} -]+ actual=[0-9.,{} -]+", r"stopping reason=(?:topologyChanged|shieldNotVisible|shieldNotInWindowServer|shieldLayerMismatch|hardwareMonitorUnhealthy|inputTapDisabled|parentDisconnected)"],
 }
+PATTERNS["Watchdog"].extend([r"stopping reason=shieldBoundsMismatch expected=[0-9.,{} -]+ actual=[0-9.,{} -]+", r"stopping reason=(?:topologyChanged|shieldNotVisible|shieldNotInWindowServer|shieldLayerMismatch|hardwareMonitorUnhealthy|inputTapDisabled|parentDisconnected)"])
 PATTERNS["UnlockTrigger"].append(r"lockUIState=(?:candidateFound|candidateUnavailable|unknown) authenticationEvidence=false")
 
 # Normalize markers into enums; never retain the surrounding user/context text.

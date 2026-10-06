@@ -157,3 +157,8 @@ root Broker 增加 boot-bound crash journal，回复授权前 fsync，不保存 
 
 - 2026-10-06：会话点击经过双过滤器放行已实测（down/up 均有 main / watchdog 记录），flags=0x20000000，四个点击修饰键为零；仍未见机制，约 8.6 秒后双保护退出 ACK / 正常手动解锁通过。参考进一步静态复核定位 CGEventSetWindowLocation 与 mouse subtype=3；本项目补齐编码，并在原 3 秒唤醒预算内有界重新扫描点击后出现的密码字段，不二次点击。
 - 结合用户的待命建议，显式验证 profile 改为 20 秒总等待，双保护准备仍限于 8 秒；插件首次 claim 才签发最多 5 秒许可，截止裁剪到本轮起始 deadline。Root 的绝对 uptime 截止经 IPC 与继承管道传给 agent 和双遮罩，统一倒计时，agent 只增加既有 2 秒 RPC 排空余量。默认 profile 不变。新增晚到 claim、20 秒过期不可重启、待命时本地输入撤销回归；Swift 260 项（1 跳过、0 失败）、报告 14 / controller 1 项通过，签名组件 / ABI / 内核身份正反例与 app 构建通过。系统安装等待管理员认证；新的 20 秒 / 编码路径尚未实测，生产关闭，未合并。
+
+- 2026-10-06：20 秒窗口 / 私有窗口坐标编码实测：双过滤器放行 down/up，点击约 200ms 后重新扫描出现唯一 UserPasswordTextField，可写且空写成功；启动约 20 秒后 unlockTimeout，未观察到机制 / 许可。双方释放 ACK 约失败后 0.15 秒，随后 Touch ID 手动解锁触发真正的 right 求值与 remote 机制；此时 Broker 已 awaitingManualUnlock 并正确拒绝，不算自动解锁。修复测试控制器复用旧常驻 agent 的问题，每轮采用新独立 namespace。当前瓶颈是可交互密码 UI 到授权链之间，非 5 秒许可提前过期或 guardLost。
+- 下一验证版仅管理员验证 profile 在唯一真实密码字段支持 AXConfirm 且空写成功时尝试一次确认；Root hello 显式传递开关，默认与旧协议关闭，未知动作不盲试，不合成全局 Return。新增固定布尔 / OSStatus 日志；同时修复报告 PATTERNS 重复 Watchdog 键覆盖导致部分退出原因丢失。待签名构建与实际测试，不作为成功证据。
+
+- 确认实验离线验证：原完整 Swift 260 项（1 跳过、0 失败）通过；新增验证 profile / Guardian 身份 / 旧协议开关回归后 coordinator 10 项通过。报告 15 项与控制器 1 项通过，签名组件、插件 ABI、内核身份正反例和 app 构建通过。旧系统验证版已卸载并恢复原规则，新版正在安装；实际 AXConfirm 结果仍待验证。

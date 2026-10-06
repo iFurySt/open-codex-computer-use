@@ -55,3 +55,6 @@
 后续验证版本改用参考一致的 session stage，不再绕过两个会话过滤器。Guardian 通过继承私有管道向 watchdog 传递独立随机标记；两个过滤器各只接受一次短时、有序、同目标 / 窗口 / 坐标的 mouse down/up，且要求 Guardian 来源与无 Shift / Control / Option / Command 点击修饰键。PID 本身不能放行，真实硬件活动保持独立接管。这是事件传递实验，不是认证许可或解锁成功证据。纯策略的错误标记、错误来源、过期、重复、目标改变和撤销回归通过；真实过滤与认证效果仍需分开判定。
 
 2026-10-06 时限与编码补充：socket 长期存活只证明 Broker 常驻，不能推出许可始终有效；本项目 Broker 同样常驻，但本轮 lease 有界。显式验证 profile 改为最多 20 秒保护待命（准备仍 8 秒），首次 claim 才签发最多 5 秒许可并裁剪到原截止，硬件接管立即撤销。参考 mouseEvent 在 0x1007144c8 调用 0x10022c4cc，即 WindowServerSPI.setWindowLocation；之前仅有全球 / 屏幕坐标还缺窗口内坐标。同时参考设置 field 7 subtype=3。已复用现有 CGEventSetWindowLocation 编码器并加入该 subtype，不能把这段私有鼠标编码称为发起认证 API。待实测验证点击后 AX / 认证的变化。
+
+- 2026-10-06：20 秒窗口 / 私有窗口坐标编码实测：双过滤器放行 down/up，点击约 200ms 后重新扫描出现唯一 UserPasswordTextField，可写且空写成功；启动约 20 秒后 unlockTimeout，未观察到机制 / 许可。双方释放 ACK 约失败后 0.15 秒，随后 Touch ID 手动解锁触发真正的 right 求值与 remote 机制；此时 Broker 已 awaitingManualUnlock 并正确拒绝，不算自动解锁。修复测试控制器复用旧常驻 agent 的问题，每轮采用新独立 namespace。当前瓶颈是可交互密码 UI 到授权链之间，非 5 秒许可提前过期或 guardLost。
+- 下一验证版仅管理员验证 profile 在唯一真实密码字段支持 AXConfirm 且空写成功时尝试一次确认；Root hello 显式传递开关，默认与旧协议关闭，未知动作不盲试，不合成全局 Return。新增固定布尔 / OSStatus 日志；同时修复报告 PATTERNS 重复 Watchdog 键覆盖导致部分退出原因丢失。待签名构建与实际测试，不作为成功证据。

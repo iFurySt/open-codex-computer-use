@@ -43,6 +43,20 @@ final class LockedUseBrokerCoordinatorTests: XCTestCase {
         XCTAssertNil(status.leaseID)
     }
 
+    func testConfirmationExperimentRequiresValidationProfileAndGuardianIdentity() throws {
+        for validation in [false, true] {
+            var broker = LockedUseBrokerCoordinator(enabled: true, backendValidated: true, validationMode: validation)
+            let begin = try broker.handle(.init(operation: .begin, session: locked), context: agent, now: 1)
+            XCTAssertEqual(begin.validationConfirmation, false)
+            let hello = try broker.handle(.init(operation: .guardianHello, leaseID: begin.leaseID, token: begin.token), context: guardian, now: 1.1)
+            XCTAssertEqual(hello.validationConfirmation, validation)
+            let status = try broker.handle(.init(operation: .status), context: agent, now: 1.2)
+            XCTAssertEqual(status.validationConfirmation, false)
+        }
+        let old = LockedUseIPCReply(id: UUID(), result: .waiting, phase: .authorizing)
+        XCTAssertNil(try JSONDecoder().decode(LockedUseIPCReply.self, from: JSONEncoder().encode(old)).validationConfirmation)
+    }
+
     func testConsumedAllowAndOriginalLockCannotReleaseGuards() throws {
         var broker = LockedUseBrokerCoordinator(enabled: true, backendValidated: true)
         let lease = try prepare(&broker)

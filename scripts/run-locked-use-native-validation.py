@@ -13,13 +13,16 @@ import select
 import subprocess
 import sys
 import time
+import uuid
 from locked_use_report import LiveAuthenticationTrace, write_report
 
 
 class RPC:
     def __init__(self, binary):
         environment = dict(os.environ)
-        environment["OPEN_COMPUTER_USE_AGENT_SOCKET_NAMESPACE"] = "locked-use-native-validation"
+        # A previous test agent may survive a rebuild at the same bundle path.
+        # A fresh namespace ensures this run executes the freshly signed code.
+        environment["OPEN_COMPUTER_USE_AGENT_SOCKET_NAMESPACE"] = "locked-use-native-validation-" + uuid.uuid4().hex
         environment["OPEN_COMPUTER_USE_VISUAL_CURSOR"] = "0"
         self.process = subprocess.Popen([str(binary), "mcp"], env=environment,
                                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,

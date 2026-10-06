@@ -12,7 +12,7 @@ enum LockScreenInteractor {
     /// Wake once, await complete AX publication and clear the selected field.
     /// This observes readiness, not authentication. The mechanism claim starts
     /// the short permit; the original session must separately become unlocked.
-    static func wake(session: LockedUseSession, cancellation: UnlockCancellation, ui: LockUIObservation, clickTag: Int64? = nil) -> Bool {
+    static func wake(session: LockedUseSession, cancellation: UnlockCancellation, ui: LockUIObservation, clickTag: Int64? = nil, validationConfirmation: Bool = false) -> Bool {
         guard cancellation.allowsRequest(), session.state == .locked,
               LockedUseSession.current() == session else { return false }
         var activity: IOPMAssertionID = 0
@@ -25,6 +25,7 @@ enum LockScreenInteractor {
         let began = ProcessInfo.processInfo.systemUptime
         let deadline = began + 3
         var attempt = 0
+        var confirmationAttempted = false
         while ProcessInfo.processInfo.systemUptime < deadline {
             guard cancellation.allowsRequest() else { return false }
             let current = LockedUseSession.current()
@@ -33,7 +34,7 @@ enum LockScreenInteractor {
             guard current == session else { return false }
             attempt += 1
             logger.notice("AXPublication attempt=\(attempt, privacy: .public)")
-            if probe(session: session, cancellation: cancellation, logger: logger, clickTag: clickTag) {
+            if probe(session: session, cancellation: cancellation, logger: logger, clickTag: clickTag, validationConfirmation: validationConfirmation, confirmationAttempted: &confirmationAttempted) {
                 // The fallback tile can reveal the real password field only
                 // after click delivery. Re-query, never reuse a stale element
                 // or spend another input capability. Stay within the same limit.
@@ -43,7 +44,7 @@ enum LockScreenInteractor {
                     Thread.sleep(forTimeInterval: 0.15)
                     logger.notice("AXPublication followup=true")
                     if probe(session: session, cancellation: cancellation, logger: logger,
-                        clickTag: nil, passwordOnly: true) { break }
+                        clickTag: nil, passwordOnly: true, validationConfirmation: validationConfirmation, confirmationAttempted: &confirmationAttempted) { break }
                 }
                 break
             }
@@ -54,7 +55,7 @@ enum LockScreenInteractor {
     }
 
     private static func probe(session: LockedUseSession, cancellation: UnlockCancellation, logger: Logger,
-        clickTag: Int64?, passwordOnly: Bool = false) -> Bool {
+        clickTag: Int64?, passwordOnly: Bool = false, validationConfirmation: Bool = false, confirmationAttempted: inout Bool) -> Bool {
         guard cancellation.allowsRequest(), LockedUseSession.current() == session, AXIsProcessTrusted() else { return false }
         let processes = NSWorkspace.shared.runningApplications.filter {
             $0.localizedName == "loginwindow" || $0.bundleIdentifier == "com.apple.loginwindow"
@@ -114,6 +115,24 @@ enum LockScreenInteractor {
             AXUIElementSetAttributeValue(candidates[0], kAXValueAttribute as CFString, "" as CFString)
         }
         logger.notice("AXTrigger emptyValueWrite status=\(result?.rawValue ?? -1, privacy: .public)")
+        if primary.count == 1 {
+            // Validation experiment: ask the real field which actions it
+            // supports before attempting one confirmation of the empty value.
+            // Do not infer support from writability or synthesize a global key.
+            var actions: CFArray?
+            let actionStatus = AXUIElementCopyActionNames(candidates[0], &actions)
+            let supportsConfirm = actionStatus == .success &&
+                (actions as? [String] ?? []).contains(kAXConfirmAction)
+            logger.notice("AXTrigger passwordConfirmSupported=\(supportsConfirm, privacy: .public) status=\(actionStatus.rawValue, privacy: .public)")
+            if validationConfirmation, !confirmationAttempted, supportsConfirm, result == .success {
+                confirmationAttempted = true
+                let confirm = cancellation.performProbe {
+                    guard LockedUseSession.current() == session, trusted() else { return AXError.cannotComplete }
+                    return AXUIElementPerformAction(candidates[0], kAXConfirmAction as CFString)
+                }
+                logger.notice("AXTrigger passwordConfirm status=\(confirm?.rawValue ?? -1, privacy: .public) authenticationEvidence=false")
+            }
+        }
         // One window-bound session-stage click, admitted by both independent
         // filters through the inherited one-use capability. No PID-only bypass.
         guard primary.isEmpty, let clickTag else { return true }

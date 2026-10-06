@@ -50,6 +50,7 @@ final class DisplayGuardian: NSObject {
     private var brokerClient: LockedUseIPCClient?
     private var watchdogBootstrap: LockedUseGuardianBootstrap?
     private var clickAllowance: LockedUseClickAllowance?
+    private var validationConfirmation = false
     private var displayedStartupRemaining: Int?
     private var hasObservedUnlock = false
     private var brokerReportInFlight = false
@@ -92,6 +93,7 @@ final class DisplayGuardian: NSObject {
                 try observer.start()
                 let hello = try client.request(.init(operation: .guardianHello, leaseID: bootstrap.leaseID, token: bootstrap.token))
                 guard hello.result != .denied, let token = hello.token else { throw GuardianError.message("Broker rejected Guardian identity/challenge") }
+                validationConfirmation = hello.validationConfirmation == true
                 let clickTag = Int64.random(in: 1...Int64.max)
                 clickAllowance = .init(tag: clickTag, sender: getpid(), now: ProcessInfo.processInfo.systemUptime)
                 watchdogBootstrap = try .init(leaseID: bootstrap.leaseID, token: token, clickTag: clickTag,
@@ -526,9 +528,10 @@ final class DisplayGuardian: NSObject {
         let cancellation = unlockCancellation
         let ui = lockUIObservation
         let clickTag = watchdogBootstrap?.clickTag
+        let validationConfirmation = self.validationConfirmation
         emit("unlockRequestStarting", details: ["lockedSessionObserved": true])
         Task { @MainActor in
-            let accepted = await Task.detached { LockScreenInteractor.wake(session: session, cancellation: cancellation, ui: ui, clickTag: clickTag) }.value
+            let accepted = await Task.detached { LockScreenInteractor.wake(session: session, cancellation: cancellation, ui: ui, clickTag: clickTag, validationConfirmation: validationConfirmation) }.value
             unlockWorkPending = false
             emit("unlockRequestReturned", details: ["displayWakeAccepted": accepted,
                 "session": LockedUseSession.current().state.rawValue])
