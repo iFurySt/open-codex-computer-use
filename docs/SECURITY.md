@@ -49,7 +49,7 @@
 - 生产 backend 在完整实测证据缺失时关闭；只有管理员显式安装的验证 profile 能运行实验事务。用户环境和请求 metadata 不能开启生产自动解锁。
 - 签名 Root Broker 从内核 audit token 认证原生 CLI / app agent / Guardian / Apple helper，批准绑定 UID、角色、signer 和 Team ID。SCM_RIGHTS 原客户端端点也要验证；许可绑定会话、连接与一次性 attempt，不能从请求指定任意 requirement。
 - 安装器只添加自己的 OR branch，保留原密码 fallback；备份完整语义规则并在回滚前检查当前策略没有第三方变更。独立 deny-only probe 与实际验证 profile 分离。
-- 解锁入口仅在双保护准备后做一次公开电源活动声明。电源 API 成功不算授权成功，插件显式 SetResult 和真实同会话 unlocked 观察缺一不可。锁屏 UI 稳定后，只按已签名 loginwindow 的 AXIdentifier 递归匹配（深度 ≤8），对唯一候选写入固定常量 `AXValue` 作为探测；不读字段值、不输入密码、不选择账户、不执行 AXConfirm 或模拟 Return。取消后禁止迟到写入，实际在途写入必须排空。
+- 解锁入口仅在双保护准备后做一次公开电源活动声明，并在现有短期限内等待完整 AX 发布。电源 API 成功不算授权成功，插件显式 SetResult 和真实同会话 unlocked 观察缺一不可。锁屏 UI 稳定后，只按已签名 loginwindow 的 AXIdentifier 递归匹配（深度 ≤8），对唯一候选写入空字符串，然后对唯一 FocusedUser 尝试一次 AXPress 作为认证入口实验；不读字段值、不输入密码、不执行 AXConfirm 或模拟 Return。取消后禁止迟到写入，实际在途写入必须排空。
 - 认证策略观察在独立队列完成。待定 / 过期 / 失败状态拒绝签发许可；恢复协议不能被同步 authd 查询堵塞。最大 2 秒新鲜度是明确的观察窗口，不等同于每个消息都完成同步策略读取。
 - 两个保护进程各持有遮罩、输入过滤和硬件活动检测；只有撤销许可、排空动作 / 解锁事务并观测同会话锁定后才释放。停止 deadline 只结束自身 automation agent，不能提前杀保护或按时间撤罩。
 - 人工 recovery-only 入口只对验证 profile 开放，在准备双保护后、签发许可前结束事务。准备失败的快速收束不能冒充双保护完整通过。

@@ -45,3 +45,5 @@
 [Apple Security 公开源码](https://github.com/apple-oss-distributions/Security/blob/main/OSX/libsecurity_keychain/lib/SecKeychain.cpp) 区分 SecKeychainLogin 的 login / stash 路径与 SecKeychainResetLogin 的重设路径。公开代码说明登录关联的 Keychain 处理存在，但不是当前 macOS loginwindow 的完整源码，不能据此断言每次屏幕解锁如何选择分支。
 
 [Apple Support](https://support.apple.com/guide/keychain-access/kyca2429/mac) 说明用户登录密码与 login Keychain 密码及重设的关系；其上下文是登录 / 密码变更，不能直接外推为插件 Allow 会重设。当前应验证的是 GUI 解锁后 Keychain 是否保持可用，而不是把它当作实现所需的凭据环节。本轮仅资料核对，未执行认证 / 锁屏 / Keychain API。
+
+2026-10-06 更新：用户要求在当前账户持续迭代；验证路径已改为 3 秒 AX 完整发布重试、唯一候选空字符串写入、一次 FocusedUser AXPress，替代固定 AXValue 探针。没有加入 Return / 全局事件；不以 AX 返回成功算认证开始。此前固定探针边界是历史实现，不再代表当前验证版本。实测结果见执行计划。

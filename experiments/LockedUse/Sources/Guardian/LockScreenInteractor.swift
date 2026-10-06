@@ -9,9 +9,9 @@ import IOKit.pwr_mgt
 typealias UnlockCancellation = LockedUseUnlockCancellation
 
 enum LockScreenInteractor {
-    /// Wake the protected lock UI once. Power-management success is not an
-    /// authentication submission or unlock; the Broker's plugin and original
-    /// session observation must establish those independently.
+    /// Wake once, await a complete AX publication, clear the selected field and
+    /// request one semantic press. Neither native return code proves an unlock;
+    /// the Broker's plugin and original session must establish it independently.
     static func wake(session: LockedUseSession, cancellation: UnlockCancellation, ui: LockUIObservation) -> Bool {
         guard cancellation.allowsRequest(), session.state == .locked,
               LockedUseSession.current() == session else { return false }
@@ -23,27 +23,30 @@ enum LockScreenInteractor {
         logger.notice("displayWakeReturned status=\(status, privacy: .public) authenticationRequested=false")
         guard status == kIOReturnSuccess else { return false }
         let began = ProcessInfo.processInfo.systemUptime
-        while ProcessInfo.processInfo.systemUptime - began < 3 {
+        let deadline = began + 3
+        var attempt = 0
+        while ProcessInfo.processInfo.systemUptime < deadline {
             guard cancellation.allowsRequest() else { return false }
             let current = LockedUseSession.current()
             if current.userID == session.userID, current.auditSessionID == session.auditSessionID,
                current.state == .unlocked { return true }
             guard current == session else { return false }
-            if ui.settled(since: began) { break }
-            Thread.sleep(forTimeInterval: 0.05)
+            attempt += 1
+            logger.notice("AXPublication attempt=\(attempt, privacy: .public)")
+            if probe(session: session, cancellation: cancellation, logger: logger) { break }
+            Thread.sleep(forTimeInterval: 0.1)
         }
         logger.notice("lockUISettled elapsed=\(ProcessInfo.processInfo.systemUptime - began, privacy: .public) notificationObserved=\(ui.observed, privacy: .public)")
-        probe(session: session, cancellation: cancellation, logger: logger)
         return cancellation.allowsRequest()
     }
 
-    private static func probe(session: LockedUseSession, cancellation: UnlockCancellation, logger: Logger) {
-        guard cancellation.allowsRequest(), LockedUseSession.current() == session, AXIsProcessTrusted() else { return }
+    private static func probe(session: LockedUseSession, cancellation: UnlockCancellation, logger: Logger) -> Bool {
+        guard cancellation.allowsRequest(), LockedUseSession.current() == session, AXIsProcessTrusted() else { return false }
         let processes = NSWorkspace.shared.runningApplications.filter {
             $0.localizedName == "loginwindow" || $0.bundleIdentifier == "com.apple.loginwindow"
         }
         guard processes.count == 1, let process = processes.first else {
-            logger.notice("AXProbe processUnavailable=true"); return
+            logger.notice("AXProbe processUnavailable=true"); return false
         }
         func trusted() -> Bool {
             var code: SecCode?
@@ -56,7 +59,7 @@ enum LockScreenInteractor {
                     [], &requirement) == errSecSuccess, let requirement else { return false }
             return SecCodeCheckValidity(code, [], requirement) == errSecSuccess
         }
-        guard trusted() else { logger.notice("AXProbe processSignatureRejected=true"); return }
+        guard trusted() else { logger.notice("AXProbe processSignatureRejected=true"); return false }
         let root = AXUIElementCreateApplication(process.processIdentifier)
         let deadline = ProcessInfo.processInfo.systemUptime + 0.75
         var visited: [AXUIElement] = []
@@ -86,17 +89,26 @@ enum LockScreenInteractor {
         let uiState = complete && candidates.count == 1 ? "candidateFound" : complete ? "candidateUnavailable" : "unknown"
         logger.notice("lockUIState=\(uiState, privacy: .public) authenticationEvidence=false")
         guard complete, candidates.count == 1, cancellation.allowsRequest(),
-              LockedUseSession.current() == session, trusted() else { return }
+              LockedUseSession.current() == session, trusted() else { return false }
         var settable: DarwinBoolean = false
         let availability = AXUIElementIsAttributeSettable(candidates[0], kAXValueAttribute as CFString, &settable)
         logger.notice("AXProbe writable=\(settable.boolValue, privacy: .public) status=\(availability.rawValue, privacy: .public)")
-        // The fixed write itself is the writability probe. The preflight
-        // is diagnostic only: loginwindow may report a non-settable fallback.
-        guard cancellation.allowsRequest(), LockedUseSession.current() == session else { return }
+        // Clear only the unique identifier-selected field; never read its value.
+        // A successful write does not prove authentication has started.
+        guard cancellation.allowsRequest(), LockedUseSession.current() == session else { return false }
         let result = cancellation.performProbe {
-            AXUIElementSetAttributeValue(candidates[0], kAXValueAttribute as CFString, "AXValue" as CFString)
+            AXUIElementSetAttributeValue(candidates[0], kAXValueAttribute as CFString, "" as CFString)
         }
-        logger.notice("AXProbe fixedValueWrite status=\(result?.rawValue ?? -1, privacy: .public)")
+        logger.notice("AXTrigger emptyValueWrite status=\(result?.rawValue ?? -1, privacy: .public)")
+        guard result == .success, fallback.count == 1, cancellation.allowsRequest(),
+              LockedUseSession.current() == session, trusted() else { return true }
+        // One supported semantic action first; do not synthesize Return or
+        // treat the action's return code as a successful session unlock.
+        let pressed = cancellation.performProbe {
+            AXUIElementPerformAction(fallback[0], kAXPressAction as CFString)
+        }
+        logger.notice("AXTrigger focusedUserPress status=\(pressed?.rawValue ?? -1, privacy: .public) authenticationEvidence=false")
+        return true
     }
 }
 

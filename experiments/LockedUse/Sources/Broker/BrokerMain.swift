@@ -326,6 +326,15 @@ private final class BrokerServer: @unchecked Sendable {
 
     private func verifyOriginalClient(_ connection: BrokerConnection) throws {
         guard !connection.clientInvalidated, let previous = connection.clientIdentity else { throw BrokerError.message("client unavailable") }
+        // A retained SCM_RIGHTS descriptor can outlive its originating client.
+        // Reject EOF/dead peers before asking Security.framework to resolve a
+        // stale audit token. Live peers still require full signature verification.
+        guard kill(previous.processID, 0) == 0 || errno == EPERM else { throw BrokerError.message("client exited") }
+        var byte: UInt8 = 0
+        let peeked = recv(connection.clientDescriptor, &byte, 1, MSG_PEEK | MSG_DONTWAIT)
+        guard peeked > 0 || (peeked < 0 && [EAGAIN, EWOULDBLOCK, EINTR].contains(errno)) else {
+            throw BrokerError.message("client disconnected")
+        }
         let client = try approvals.verifiedPeer(socket: connection.clientDescriptor, role: .client)
         guard client.auditToken == previous.auditToken,
               client.codeDirectoryHash == previous.codeDirectoryHash else { throw BrokerError.message("client changed") }

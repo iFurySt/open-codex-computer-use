@@ -19,6 +19,8 @@ PATTERNS = {
                       rf"lockUISettled elapsed=[0-9.]+ notificationObserved={BOOL}",
                       rf"AXProbe nodes=[0-9]+ primaryMatches=[0-9]+ fallbackMatches=[0-9]+ complete={BOOL}",
                       rf"AXProbe writable={BOOL} status=-?[0-9]+", r"AXProbe fixedValueWrite status=-?[0-9]+",
+                      r"AXPublication attempt=[0-9]+", r"AXTrigger emptyValueWrite status=-?[0-9]+",
+                      r"AXTrigger focusedUserPress status=-?[0-9]+ authenticationEvidence=false",
                       r"AXProbe process(?:Unavailable|SignatureRejected)=true"],
     "AuthorizationMechanism": [r"brokerTaskVerification status=-?[0-9]+", r"brokerConnect connected=[01]", r"pluginClaim replied=[01] authorizing=[01] denied=[01]", r"pluginConsume replied=[01] allowed=[01]", "mechanismInvoked", "brokerVerified", r"resultDelivered allowed=[01] status=-?[0-9]+",
                                r"brokerVerification guest=-?[0-9]+ requirement=-?[0-9]+ validity=-?[0-9]+ static=-?[0-9]+ info=-?[0-9]+"],

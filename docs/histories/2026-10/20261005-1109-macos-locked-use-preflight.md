@@ -142,3 +142,5 @@ root Broker 增加 boot-bound crash journal，回复授权前 fsync，不保存 
 - 2026-10-05：用户要求按官方 API 复核 Keychain 风险。纠正此前错误归因：上游 #40226 是插件介入后的会话级访问失败，明确排除文件损坏并称重启恢复，没有空输入或重设证据。SetResult 只定义授权结果；Apple 公开 Security 源码区分登录处理与显式重设，不能当作当前 loginwindow 完整调用链。同步修正文档，将隔离环境明确为开发建议而非 API 要求；本轮无代码或系统认证变更。
 
 - 2026-10-05：用户批准当前账户短测试，重新打包 / 管理员安装后运行 wake-only 基线，未加入空输入 / 点击 / Return，不创建 Keychain 测试项、不执行 GUI 动作。双保护成功准备；5 秒 authorizing 窗口内未观察到 screensaver right 求值或机制调用，AX 扫描只有根节点且不完整，未写固定值；unlockTimeout 后锁屏观测至双方释放约 7.9 秒。后续 Touch ID 人工登录出现 right 求值、签名验证通过、过期 claim 拒绝 / SetResult(Deny) 成功、原系统 right 成功。约 27 秒确认会话正常解锁；并无自动解锁成功证据。测试后成功卸载 / 恢复原策略，保护和 Broker 退出。采集过程中实时 / 历史日志重复阶段，修复 authorizing 重复开窗并新增回归；Python 报告 11 项、rehearsal 5 项通过。后续仍需定位 AX 发布时序并验证真正的认证入口，生产关闭，未合并。
+
+- 2026-10-06：用户要求在当前账户持续实测迭代，不再重复未修改基线。验证入口改为 3 秒内重试完整 AXIdentifier 扫描，找到唯一候选后写空字符串，再尝试一次 FocusedUser AXPress；保留签名、同会话、取消 / 在途排空和 5 秒许可，不读取字段、不发送 Return。首轮在 preparing 因 physicalInput 收束，锁定观测后约 1.6 秒确认双保护释放；认证动作尚未执行，正常手动解锁通过。复测 readiness 在锁屏前因 Broker RPC 超时拒绝，未再次锁屏。补充原客户端死亡 / socket EOF 检查，先拒绝失效 SCM_RIGHTS 连接再签名重验；原因尚待重装实测确认。签名组件 / app 构建与 ABI / 内核身份正反例通过，Swift 251 项（1 跳过、0 失败）、Python 报告 11 项通过。正在等待系统管理员卸载认证；不得将本轮计为自动解锁或新认证入口验证成功。

@@ -243,6 +243,8 @@ xcrun swiftc -framework Security -framework CoreGraphics experiments/LockedUse/S
 python3 scripts/run-locked-use-native-validation.py --observe-auth-only --observe-seconds 5
 ```
 
-该入口不需要安装验证 profile，不锁屏、不请求认证、不创建租约。空输入 / 合成点击候选尚未实现认证提交，建议先在隔离环境检验 Keychain 可用状态（报告未证明重设），详见 [认证时序复核](references/macos-locked-use-auth-transaction-timing-review.md)。
+该入口不需要安装验证 profile，不锁屏、不请求认证、不创建租约。当前验证实现已加入有界 AX 发布重试、唯一字段空字符串写入和一次 FocusedUser AXPress；合成点击候选尚未实现，建议先在隔离环境检验 Keychain 可用状态（报告未证明重设），详见 [认证时序复核](references/macos-locked-use-auth-transaction-timing-review.md)。
 
 `--confirm-wake-test` / `--confirm-recovery-test` 配合 `--wait-for-manual-unlock` 时，双方释放后继续最多 60 秒只读观察正常手动登录，不保留遮罩、不启动 GUI 验证。实时与历史日志可能重复报告同一阶段，重复 authorizing 不创建新许可窗口。
+
+原始客户端的 SCM_RIGHTS socket 在身份复核前先检查进程退出与 EOF；断开立即拒绝，健康连接仍完整重验内核身份和签名。此检查不替代签名验证，也不保证所有 Security.framework 查询都有界；恢复后的 readiness 必须实际通过才启动下一次锁屏。
