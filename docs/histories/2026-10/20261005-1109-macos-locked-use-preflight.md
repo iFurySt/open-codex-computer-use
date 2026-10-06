@@ -206,3 +206,21 @@ python3 scripts/run-locked-use-unshielded-diagnostic.py --confirm-visible-deskto
 仅独立无遮罩诊断改为固定 keyCode 36 的单对 HID down/up，替代 AXConfirm，未加入保护路径。要求同一原锁定会话、完整扫描唯一密码框、空写成功且可写 / focused、Apple loginwindow 签名有效、无 Shift / Control / Option / Command，签名检查后再校验焦点与会话 / 请求截止。私有事件源，无修饰键、重复或文字载荷，派发按下后立即释放，即使期间取消也释放；不重试。Root 20 秒诊断窗口及首次 claim 才发一次性许可不变，观察实际解锁后立即重锁。受保护输入过滤器没有键盘许可，不能直接推广该实验。
 
 新增固定枚举日志 secureReturnObserved / localAuthenticationBegan / loginwindowRightsRequested 与 Return dispatch / queued 标记，不保存 surrounding 账户 / 认证上下文。Swift 编译通过，报告回归 17 项、诊断归因 3 项通过。Developer ID 签名两次返回 errSecInternalComponent，新制品未部署 / 未实测；等待用户恢复系统构建签名私钥访问。旧已签名 components 未替换，生产关闭，尚未合并。
+
+
+### 签名与已安装机制回溯
+
+主 checkout 仅只读核对：Dev App 严格 deep 校验通过、Hardened Runtime、既有签名时间为本地 12:19；不是新的签名成功证据。worktree 最后成功组件签名约 12:42，新 Guardian 首次观察到签名失败约 16:55，中间没有连续签名探测，不能断言故障发生于某一次解锁。隔离 /usr/bin/true 副本（未执行）同一 Developer ID 签名也失败，最新重试仍失败，因此不局限于 Guardian 构建内容或一次偶发错误。
+
+当前 system.login.screensaver OR 首分支和 remote evaluate-mechanisms 仍指向 OCU；安装插件 strict 签名有效、SHA256 与本 worktree 制品一致，安装 Broker 二进制与本地制品一致且运行，未观察到当前被替换。历史 authd 日志本地 15:18 调用了 OCU mechanism，15:30 / 15:31 则调用 CodexComputerUseAuthorizationPlugin；15:31 后 loginwindow SecKeychainLogin 返回 -25293。这证明历史机制确有差异，不证明当前仍被顶掉，也不能仅据日志确定何人或何时改过 policy。钥匙串状态 flags=7 与签名认证失败并存，未更改权限、信任、搜索链或钥匙串数据。需分开验证图形会话认证状态与签名环境，禁止把空值认证导致的普通 keychain login 失败直接判为钥匙串损坏。
+
+
+### 密码解锁恢复签名与 Return 首轮通过
+
+用户用账户密码正常解锁后，同一 Developer ID 签名命令立即通过严格校验，未修改证书、私钥 ACL、信任、钥匙串搜索链或数据。这支持先前签名认证拒绝与会话认证状态有关，但仍不能将变化唯一归因到 OCU / Codex 某个插件。签名通过的新 UI 探针替换本地 components，未替换系统安装插件。
+
+首次新探针诊断在 beginUnshieldedDiagnostic 被 Root 拒绝、未发 Return。只读回溯证实本地 15:30:12 installationPolicyInvalidated；Broker 对认证策略变化永久关闭该 service epoch 的 accepting，恢复相同规则不能自动重新授权。校验当前规则、安装插件 / Broker 与本地制品一致、无活跃保护后，经 macOS 管理员认证仅 kickstart 验证 Broker，未改规则或削弱策略失效时的关闭行为。
+
+随后无遮罩复测出现完整自动链：FocusedUser 空写 → 单次 HID 点击 → 唯一密码框空写、focused=true → Return 单对派发 → loginPressed / authBegan / loginwindow rights request → OCU mechanism claim / 一次性 permit consume / SetResult allowed → 原会话实际 unlocked → 立即请求且确认 locked → Root idle。原生诊断起始约 8.358s，观察解锁约 9.692s，结束 / 重锁确认约 10.137s（相对控制器开始，含 5 秒初始提示）。报告内无 Touch ID match；未访问应用 GUI、SCK 或 Keychain。不能视为完整生产验收，报告仍 productionEvidenceEligible=false，自动归因没有因缺失 Touch ID 就签发证书。用户现场观察仍待补充。
+
+下一步是为受保护主 / watchdog 过滤器增加严格的一次性 Return 能力，保留硬件接管 / 重锁、原会话及焦点校验，再验证遮罩期间应用操作和故障恢复。本轮 Return 尚未启用到受保护路径；生产关闭，未合并 awesome-extension。

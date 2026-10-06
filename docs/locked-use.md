@@ -276,3 +276,6 @@ python3 scripts/run-locked-use-unshielded-diagnostic.py --confirm-visible-deskto
 
 
 独立无遮罩诊断现用固定 Return HID 按下 / 松开替代 AXConfirm，要求唯一且已聚焦、可写的密码框及签名 / 原锁定会话再次校验，只发送一次。该键盘实验尚未实测，不在受保护解锁路径启用；保护过滤器当前没有键盘许可。派发成功仅表示排队，必须另外观察 loginwindow 提交、插件许可与原会话实际解锁。
+
+
+Return 独立无遮罩诊断已实测跑通：空写 / 点击后对聚焦的唯一密码框发送单对 Return，loginwindow 提交认证、OCU 插件消费许可、原会话解锁后立即重锁，报告中无 Touch ID match。它仅证明本轮无保护的解锁 / 重锁链，不替代受保护 GUI / 捕获 / 故障验收。认证规则一度变更后 Broker 会持续关闭该进程周期的解锁接受能力；恢复规则本身不能重开，须完整复核后经管理员重启服务。
