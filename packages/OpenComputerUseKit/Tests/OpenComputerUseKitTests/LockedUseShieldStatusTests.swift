@@ -2,7 +2,7 @@ import XCTest
 @testable import OpenComputerUseKit
 
 final class LockedUseShieldStatusTests: XCTestCase {
-    func testAuthenticationNeverReplacesActiveOrRelockingText() {
+    func testAuthenticationNeverReplacesActiveAndExitFreezesText() {
         var status = LockedUseShieldStatus()
         XCTAssertTrue(status.update(now: 1, startupDeadline: 20, unlocked: false, stopping: false)!.contains("剩余 19 秒"))
         let active = status.update(now: 2, startupDeadline: 20, unlocked: true, stopping: false)!
@@ -10,7 +10,7 @@ final class LockedUseShieldStatusTests: XCTestCase {
         for now in 3...23 {
             XCTAssertNil(status.update(now: Double(now), startupDeadline: 20, unlocked: false, stopping: false))
         }
-        XCTAssertTrue(status.update(now: 24, startupDeadline: 20, unlocked: false, stopping: true)!.contains("正在锁屏"))
+        XCTAssertNil(status.update(now: 24, startupDeadline: 20, unlocked: false, stopping: true))
         XCTAssertNil(status.update(now: 25, startupDeadline: 20, unlocked: true, stopping: false))
     }
     func testBothShieldsUseSameTextAndDeadline() {

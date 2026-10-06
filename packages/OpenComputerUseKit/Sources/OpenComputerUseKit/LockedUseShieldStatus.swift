@@ -11,12 +11,13 @@ public struct LockedUseShieldStatus: Sendable {
     /// authentication countdown again while the relock barrier drains.
     public mutating func update(now: TimeInterval, startupDeadline: TimeInterval?,
                                 unlocked: Bool, stopping: Bool) -> String? {
-        observedUnlock = observedUnlock || unlocked
         self.stopping = self.stopping || stopping
+        // Freeze the last rendered frame while both processes drain. A new
+        // label layout just before either window closes creates a visible pop.
+        guard !self.stopping else { return nil }
+        observedUnlock = observedUnlock || unlocked
         let detail: String
-        if self.stopping {
-            detail = "正在锁屏，请稍候"
-        } else if observedUnlock {
+        if observedUnlock {
             detail = "正在操作，完成后将锁屏"
         } else if let deadline = startupDeadline, deadline.isFinite, now.isFinite {
             let remaining = max(0, min(20, ceil(deadline - now)))
