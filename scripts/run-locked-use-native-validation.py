@@ -58,7 +58,9 @@ class RPC:
         raise TimeoutError("Native validation response timed out")
 
     def close(self):
-        if self.process.stdin and not self.process.stdin.closed: self.process.stdin.close()
+        if self.process.stdin and not self.process.stdin.closed:
+            try: self.process.stdin.close()
+            except BrokenPipeError: pass
         try: self.process.wait(timeout=5)
         except subprocess.TimeoutExpired: self.process.terminate()
 

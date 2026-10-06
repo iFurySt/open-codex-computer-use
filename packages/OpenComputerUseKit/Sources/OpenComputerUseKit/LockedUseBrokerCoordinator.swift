@@ -167,7 +167,7 @@ public struct LockedUseBrokerCoordinator: Sendable {
                         guard guards.healthy, let owner else { throw Failure.denied }
                         recoveryProbePrepared = true
                         try apply(machine.end(owner: owner, reason: .operationFailed))
-                    } else { try apply(machine.guardsPrepared(guards, now: now)) }
+                    } else { try apply(machine.guardsPrepared(guards, now: now, deferPermitUntilClaim: true)) }
                 }
             }
             else { try apply(machine.heartbeat(guards, now: now)) }
@@ -225,8 +225,10 @@ public struct LockedUseBrokerCoordinator: Sendable {
             return reply(message, context: context)
         case .pluginClaim:
             guard context.role == .plugin, sameAuditSession(context), phase == .authorizing,
-                  pluginID == nil, let issued else { throw Failure.denied }
+                  pluginID == nil, observedSession?.state == .locked else { throw Failure.denied }
             try freshGuards(now: now)
+            if issued == nil { try apply(machine.authorizationRequested(now: now)) }
+            guard let issued else { throw Failure.denied }
             pluginID = context.id
             return reply(message, context: context, token: issued.nonce)
         case .pluginConsume:

@@ -88,6 +88,24 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(windows[0]['startedAt'], 1)
         self.assertEqual(windows[0]['endedAt'], 6)
 
+    def testTriggerLogsNeverRetainFieldContentsOrClickCoordinates(self):
+        for message in ['AXTrigger emptyValueWrite status=0',
+                        'AXTrigger focusedUserPress status=-25206 authenticationEvidence=false',
+                        'AXTrigger targetedClickQueued=true authenticationEvidence=false',
+                        'AXTrigger annotatedClickQueued=true']:
+            self.assertEqual(len(report.curate([self.entry(message)], 0)), 1)
+            self.assertEqual(report.curate([self.entry(message+' value=private')], 0), [])
+            self.assertEqual(report.curate([self.entry(message+' x=123 y=456')], 0), [])
+
+    def testProtectedWaitingDoesNotImplyPermitIssued(self):
+        events = [{'elapsedSeconds': 1, 'category': 'Broker', 'message': 'phase=authorizing stopReason=none'},
+                  {'elapsedSeconds': 4, 'category': 'Broker', 'message': 'permitIssued maximumLifetimeSeconds=5'},
+                  {'elapsedSeconds': 5, 'category': 'Broker', 'message': 'phase=relocking stopReason=unlockTimeout'}]
+        window = report.authentication_windows(events)[0]
+        self.assertEqual(window['startedAt'], 1)
+        self.assertEqual(window['permitIssuedObservedAt'], 4)
+        self.assertIsNone(report.authentication_windows([events[0], events[2]])[0]['permitIssuedObservedAt'])
+
     def testUnavailableStreamRemainsDiagnosticOnly(self):
         trace = report.LiveAuthenticationTrace(0)
         with patch.object(report.subprocess, 'Popen', side_effect=OSError): trace.start()

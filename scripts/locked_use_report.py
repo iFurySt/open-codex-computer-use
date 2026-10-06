@@ -14,13 +14,17 @@ BOOL = r"(?:true|false)"
 PHASE = r"(?:idle|preparing|authorizing|unlocking|active|relocking|awaitingManualUnlock)"
 PATTERNS = {
     "Broker": [rf"pluginDecision operation=(?:pluginClaim|pluginConsume|pluginFinished) result=(?:ok|waiting|denied|authorized|active|relock|release) phase={PHASE} sessionMatches={BOOL} auditUserMatches={BOOL}", rf"phase={PHASE}(?: stopReason=[A-Za-z]+)?", rf"denied operation=[A-Za-z]+ sessionMatches={BOOL} auditUserMatches={BOOL}",
-               r"peerRejected endpoint=(?:agent|guardian|plugin|observer|admin)", "installationPolicyInvalidated"],
+               r"peerRejected endpoint=(?:agent|guardian|plugin|observer|admin)", "installationPolicyInvalidated", r"observerStage=(?:accepting|authenticated|readStarted|verified|handling|handled|persisting|persisted)", r"permitIssued maximumLifetimeSeconds=5"],
     "UnlockTrigger": [r"displayWakeReturned status=-?[0-9]+ authenticationRequested=false",
                       rf"lockUISettled elapsed=[0-9.]+ notificationObserved={BOOL}",
                       rf"AXProbe nodes=[0-9]+ primaryMatches=[0-9]+ fallbackMatches=[0-9]+ complete={BOOL}",
                       rf"AXProbe writable={BOOL} status=-?[0-9]+", r"AXProbe fixedValueWrite status=-?[0-9]+",
                       r"AXPublication attempt=[0-9]+", r"AXTrigger emptyValueWrite status=-?[0-9]+",
+                      rf"AXTrigger annotatedClickQueued={BOOL}", r"AXTrigger annotatedClickTargetAvailable=false",
+                      r"AXTrigger annotatedClickWindowAvailable=false", r"AXTrigger annotatedClickWindowMatches=[0-9]+",
                       r"AXTrigger focusedUserPress status=-?[0-9]+ authenticationEvidence=false",
+                      rf"AXTrigger targetedClickQueued={BOOL} authenticationEvidence=false",
+                      r"AXTrigger clickGeometryAvailable=false", rf"AXTrigger returnQueued={BOOL} authenticationEvidence=false",
                       r"AXProbe process(?:Unavailable|SignatureRejected)=true"],
     "AuthorizationMechanism": [r"brokerTaskVerification status=-?[0-9]+", r"brokerConnect connected=[01]", r"pluginClaim replied=[01] authorizing=[01] denied=[01]", r"pluginConsume replied=[01] allowed=[01]", "mechanismInvoked", "brokerVerified", r"resultDelivered allowed=[01] status=-?[0-9]+",
                                r"brokerVerification guest=-?[0-9]+ requirement=-?[0-9]+ validity=-?[0-9]+ static=-?[0-9]+ info=-?[0-9]+"],
@@ -101,7 +105,7 @@ def authentication_windows(events):
             # slightly different timestamps. A repeated phase is not a new lease.
             if current: continue
             current = {"startedAt": event["elapsedSeconds"], "endedAt": None,
-                       "rightEvaluationObserved": False, "mechanismObserved": False,
+                       "permitIssuedObservedAt": None, "rightEvaluationObserved": False, "mechanismObserved": False,
                        "allowObserved": False, "localAuthenticationObserved": False}
             windows.append(current)
         elif event["category"] == "Broker" and message.split(" ")[0] in {
@@ -109,6 +113,8 @@ def authentication_windows(events):
             current["endedAt"] = event["elapsedSeconds"]
             current = None
         if current:
+            if event["category"] == "Broker" and message == "permitIssued maximumLifetimeSeconds=5":
+                if current["permitIssuedObservedAt"] is None: current["permitIssuedObservedAt"] = event["elapsedSeconds"]
             if event["category"] == "SystemAuthorization" and message in {
                 "systemRightEvaluationObserved", "systemRightSucceeded", "systemRightFailed"}:
                 current["rightEvaluationObserved"] = True

@@ -127,17 +127,30 @@ public struct LockedUseStateMachine: Sendable {
         return [.prepareGuards]
     }
 
-    public mutating func guardsPrepared(_ evidence: Guards, now: TimeInterval) throws -> [Effect] {
+    public mutating func guardsPrepared(_ evidence: Guards, now: TimeInterval, deferPermitUntilClaim: Bool = false) throws -> [Effect] {
         try checkClock(now)
         guard phase == .preparing, let owner else { throw Failure.invalidTransition }
         guard now - startedAt < Self.unlockTimeout else { return stop(.unlockTimeout) }
         guard evidence.healthy else { return stop(.guardLost) }
         guards = evidence
         lastHeartbeatAt = now
+        phase = .authorizing
+        if deferPermitUntilClaim { return [.requestUnlock] }
         let issued = Permit(id: UUID(), owner: owner, deadline: now + Self.permitLifetime)
         permit = issued
-        phase = .authorizing
         return [.issuePermit(issued), .requestUnlock]
+    }
+
+    /// Only an authenticated mechanism claim can convert protected waiting into
+    /// a permit. The overall startup deadline is never restarted or extended.
+    public mutating func authorizationRequested(now: TimeInterval) throws -> [Effect] {
+        try checkClock(now)
+        guard phase == .authorizing, permit == nil, !permitConsumed, let owner,
+              guards?.healthy == true, now - lastHeartbeatAt < Self.heartbeatTimeout,
+              now - startedAt < Self.unlockTimeout else { throw Failure.invalidTransition }
+        let issued = Permit(id: UUID(), owner: owner, deadline: min(now + Self.permitLifetime, startedAt + Self.unlockTimeout))
+        permit = issued
+        return [.issuePermit(issued)]
     }
 
     /// Called only by the authenticated Broker when the plugin consumes a permit.

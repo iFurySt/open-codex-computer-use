@@ -67,7 +67,9 @@ final class LockedUseConnection: @unchecked Sendable {
         }
         mutex.lock(); broker = connection; self.lease = lease; let disconnected = clientDisconnected; mutex.unlock()
         if recoveryProbe { mutex.lock(); recoveryProbeStarted = true; mutex.unlock() }
-        recoveryDeadline.arm(after: 8)
+        // Root expires startup at eight seconds. Allow its existing two-second
+        // RPC budget to deliver stop/drain before the independent agent exit.
+        recoveryDeadline.arm(after: LockedUseStateMachine.unlockTimeout + 2)
         do {
             guard !disconnected else { throw ComputerUseError.stateUnavailable("Computer Use client disconnected during lease acquisition.") }
             let child = Process()

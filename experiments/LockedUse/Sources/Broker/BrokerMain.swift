@@ -153,7 +153,9 @@ private final class BrokerServer: @unchecked Sendable {
             do {
                 try LockedUseIPCSocket.configure(client)
                 guard fcntl(client, F_SETFL, O_NONBLOCK) == 0 else { throw BrokerError.message("client socket unavailable") }
+                if endpoint == .observer { logger.notice("observerStage=accepting") }
                 let identity = try authenticate(fd: client, endpoint: endpoint)
+                if endpoint == .observer { logger.notice("observerStage=authenticated") }
                 let role: LockedUseBrokerCoordinator.Role = endpoint == .agent ? .agent : endpoint == .guardian ? .guardian : (endpoint == .observer || endpoint == .admin) ? .observer : .plugin
                 let old = [coordinator.recordedOwner, coordinator.recordedGuardian, coordinator.recordedWatchdog]
                     .compactMap { $0 }.first { $0.role == role && $0.auditToken == identity.auditToken && $0.codeHash == identity.codeDirectoryHash }
@@ -218,7 +220,9 @@ private final class BrokerServer: @unchecked Sendable {
         if count < 0, [EAGAIN, EWOULDBLOCK, EINTR].contains(errno) { return }
         guard count > 0 else { close(connection); return }
         do {
+            if connection.endpoint == .observer { logger.notice("observerStage=readStarted") }
             let current = try authenticate(fd: connection.fd, endpoint: connection.endpoint)
+            if connection.endpoint == .observer { logger.notice("observerStage=verified") }
             guard current.auditToken == connection.identity.auditToken,
                   current.codeDirectoryHash == connection.identity.codeDirectoryHash else { throw BrokerError.message("peer changed") }
             for frame in try connection.decoder.append(Data(bytes.prefix(count))) {
@@ -239,7 +243,9 @@ private final class BrokerServer: @unchecked Sendable {
                             throw error
                         }
                     }
+                    if connection.endpoint == .observer { logger.notice("observerStage=handling") }
                     reply = try coordinator.handle(request, context: connection.context, now: ProcessInfo.processInfo.systemUptime)
+                    if connection.endpoint == .observer { logger.notice("observerStage=handled") }
                 } catch {
                     reply = .init(id: request.id, result: .denied, phase: coordinator.phase,
                         detail: "Request denied by Broker policy")
@@ -247,13 +253,18 @@ private final class BrokerServer: @unchecked Sendable {
                 if previousPhase != coordinator.phase {
                     logger.notice("phase=\(self.coordinator.phase.rawValue, privacy: .public) stopReason=\(self.coordinator.stopReason?.rawValue ?? "none", privacy: .public)")
                 }
+                if request.operation == .pluginClaim, reply.result != .denied {
+                    logger.notice("permitIssued maximumLifetimeSeconds=5")
+                }
                 if [.pluginClaim, .pluginConsume, .pluginFinished].contains(request.operation) {
                     logger.notice("pluginDecision operation=\(request.operation.rawValue, privacy: .public) result=\(reply.result.rawValue, privacy: .public) phase=\(self.coordinator.phase.rawValue, privacy: .public) sessionMatches=\(connection.context.auditSessionID == self.coordinator.owner?.auditSessionID, privacy: .public) auditUserMatches=\(connection.identity.auditUserID == self.coordinator.owner?.userID, privacy: .public)")
                 }
                 if reply.result == .denied { logger.notice("denied operation=\(request.operation.rawValue, privacy: .public) sessionMatches=\(connection.context.auditSessionID == self.coordinator.owner?.auditSessionID, privacy: .public) auditUserMatches=\(connection.identity.auditUserID == self.coordinator.owner?.userID, privacy: .public)") }
                 // Persist before exposing a consumed authorization or active
                 // GUI lease. No permit nonce is ever saved or restored.
+                if connection.endpoint == .observer { logger.notice("observerStage=persisting") }
                 try persistRecovery()
+                if connection.endpoint == .observer { logger.notice("observerStage=persisted") }
                 if reply.result != .denied, request.operation == .validationPassed, let leaseID = request.leaseID {
                     let team = try LockedUseSigningIdentity.current().teamIdentifier!
                     validationReport = .init(leaseID: leaseID, evidence: try LockedUseComponentValidation.current(team: team), ownerToken: connection.identity.auditToken)

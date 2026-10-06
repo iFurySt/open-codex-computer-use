@@ -9,9 +9,9 @@ import IOKit.pwr_mgt
 typealias UnlockCancellation = LockedUseUnlockCancellation
 
 enum LockScreenInteractor {
-    /// Wake once, await a complete AX publication, clear the selected field and
-    /// request one semantic press. Neither native return code proves an unlock;
-    /// the Broker's plugin and original session must establish it independently.
+    /// Wake once, await complete AX publication and clear the selected field.
+    /// This observes readiness, not authentication. The mechanism claim starts
+    /// the short permit; the original session must separately become unlocked.
     static func wake(session: LockedUseSession, cancellation: UnlockCancellation, ui: LockUIObservation) -> Bool {
         guard cancellation.allowsRequest(), session.state == .locked,
               LockedUseSession.current() == session else { return false }
@@ -100,16 +100,76 @@ enum LockScreenInteractor {
             AXUIElementSetAttributeValue(candidates[0], kAXValueAttribute as CFString, "" as CFString)
         }
         logger.notice("AXTrigger emptyValueWrite status=\(result?.rawValue ?? -1, privacy: .public)")
-        guard result == .success, fallback.count == 1, cancellation.allowsRequest(),
-              LockedUseSession.current() == session, trusted() else { return true }
-        // One supported semantic action first; do not synthesize Return or
-        // treat the action's return code as a successful session unlock.
-        let pressed = cancellation.performProbe {
-            AXUIElementPerformAction(fallback[0], kAXPressAction as CFString)
+        // One window-bound click at the annotated application delivery stage.
+        // The session-stage filters and hardware takeover monitors stay enabled;
+        // there is no PID-based exemption for events entering those filters.
+        var positionValue: CFTypeRef?, sizeValue: CFTypeRef?
+        guard result == .success,
+              AXUIElementCopyAttributeValue(candidates[0], kAXPositionAttribute as CFString, &positionValue) == .success,
+              AXUIElementCopyAttributeValue(candidates[0], kAXSizeAttribute as CFString, &sizeValue) == .success,
+              let positionValue, let sizeValue,
+              CFGetTypeID(positionValue) == AXValueGetTypeID(), CFGetTypeID(sizeValue) == AXValueGetTypeID() else { return true }
+        var position = CGPoint.zero, size = CGSize.zero
+        guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),
+              AXValueGetValue(sizeValue as! AXValue, .cgSize, &size),
+              [position.x, position.y, size.width, size.height].allSatisfy({ $0.isFinite }),
+              size.width > 0, size.height > 0 else { return true }
+        let point = CGPoint(x: position.x + size.width / 2, y: position.y + size.height / 2)
+        var axWindow: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(candidates[0], kAXWindowAttribute as CFString, &axWindow) == .success,
+              let axWindow, CFGetTypeID(axWindow) == AXUIElementGetTypeID() else {
+            logger.notice("AXTrigger annotatedClickWindowAvailable=false"); return true
         }
-        logger.notice("AXTrigger focusedUserPress status=\(pressed?.rawValue ?? -1, privacy: .public) authenticationEvidence=false")
+        let windowElement = axWindow as! AXUIElement
+        var windowPositionValue: CFTypeRef?, windowSizeValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(windowElement, kAXPositionAttribute as CFString, &windowPositionValue) == .success,
+              AXUIElementCopyAttributeValue(windowElement, kAXSizeAttribute as CFString, &windowSizeValue) == .success,
+              let windowPositionValue, let windowSizeValue,
+              CFGetTypeID(windowPositionValue) == AXValueGetTypeID(), CFGetTypeID(windowSizeValue) == AXValueGetTypeID() else {
+            logger.notice("AXTrigger annotatedClickWindowAvailable=false"); return true
+        }
+        var windowPosition = CGPoint.zero, windowSize = CGSize.zero
+        guard AXValueGetValue(windowPositionValue as! AXValue, .cgPoint, &windowPosition),
+              AXValueGetValue(windowSizeValue as! AXValue, .cgSize, &windowSize),
+              [windowPosition.x, windowPosition.y, windowSize.width, windowSize.height].allSatisfy({ $0.isFinite }),
+              windowSize.width > 0, windowSize.height > 0 else { return true }
+        let axFrame = CGRect(origin: windowPosition, size: windowSize)
+        let windows = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? []
+        let targets = windows.filter { info in
+            guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == process.processIdentifier,
+                  let bounds = info[kCGWindowBounds as String] as? NSDictionary,
+                  let frame = CGRect(dictionaryRepresentation: bounds) else { return false }
+            return frame.contains(point) && abs(frame.minX - axFrame.minX) <= 1 &&
+                abs(frame.minY - axFrame.minY) <= 1 && abs(frame.width - axFrame.width) <= 1 &&
+                abs(frame.height - axFrame.height) <= 1
+        }
+        logger.notice("AXTrigger annotatedClickWindowMatches=\(targets.count, privacy: .public)")
+        guard targets.count == 1,
+              let windowID = targets[0][kCGWindowNumber as String] as? NSNumber,
+              let source = CGEventSource(stateID: .privateState),
+              let down = CGEvent(mouseEventSource: source, mouseType: .leftMouseDown,
+                  mouseCursorPosition: point, mouseButton: .left),
+              let up = CGEvent(mouseEventSource: source, mouseType: .leftMouseUp,
+                  mouseCursorPosition: point, mouseButton: .left) else {
+            logger.notice("AXTrigger annotatedClickTargetAvailable=false"); return true
+        }
+        for event in [down, up] {
+            event.flags = []
+            event.setIntegerValueField(.eventTargetUnixProcessID, value: Int64(process.processIdentifier))
+            event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: windowID.int64Value)
+            event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: windowID.int64Value)
+            event.setIntegerValueField(.mouseEventClickState, value: 1)
+        }
+        let queued = cancellation.performProbe {
+            guard LockedUseSession.current() == session, trusted() else { return false }
+            down.post(tap: .cgAnnotatedSessionEventTap)
+            up.post(tap: .cgAnnotatedSessionEventTap)
+            return true
+        } ?? false
+        logger.notice("AXTrigger annotatedClickQueued=\(queued, privacy: .public)")
         return true
     }
+
 }
 
 /// Notifications are UI timing hints, never authentication/session evidence.

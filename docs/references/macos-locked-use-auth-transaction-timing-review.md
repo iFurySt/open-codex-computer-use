@@ -16,7 +16,7 @@
 - unlock 查找 FocusedUser 后调度的 async descriptor `0x1010d7300` 指向 helper `0x1001e35ec`。helper 在 `0x1001e3b64` 调用 `SynthesizedEvent.click(...)`，随后 `0x1001e3cd4` 转入 `SynthesizedEvent.send(delay:)`。因此这个版本的可达路径包含合成点击；CGEventPost 零导入不能证明完整调用链没有事件发送。
 - 尚未确认 Return 提交、该点击的实际认证效果或 Keychain 行为。不能从这些静态证据直接宣布已经找到完整自动解锁方案，也不能泛化到其他 build。
 
-大体积二进制 / 反汇编留在私有忽略目录，不提交供应商二进制、原始系统日志或账户数据。本项目当前实现仍使用固定 AXValue 观察性探测；未改成空输入 / 点击 / Return 认证，也未加入私有解锁 SPI。
+大体积二进制 / 反汇编留在私有忽略目录，不提交供应商二进制、原始系统日志或账户数据。固定 AXValue 探针是历史实现，当前版本见末尾更新；没有加入私有解锁 SPI。
 
 ## 本轮实现与测试
 
@@ -47,3 +47,7 @@
 [Apple Support](https://support.apple.com/guide/keychain-access/kyca2429/mac) 说明用户登录密码与 login Keychain 密码及重设的关系；其上下文是登录 / 密码变更，不能直接外推为插件 Allow 会重设。当前应验证的是 GUI 解锁后 Keychain 是否保持可用，而不是把它当作实现所需的凭据环节。本轮仅资料核对，未执行认证 / 锁屏 / Keychain API。
 
 2026-10-06 更新：用户要求在当前账户持续迭代；验证路径已改为 3 秒 AX 完整发布重试、唯一候选空字符串写入、一次 FocusedUser AXPress，替代固定 AXValue 探针。没有加入 Return / 全局事件；不以 AX 返回成功算认证开始。此前固定探针边界是历史实现，不再代表当前验证版本。实测结果见执行计划。
+
+2026-10-06 后续复核：参考 build 的 send 路径在 0x1007150cc 调用 0x10021875c（CGEventAPI.post(_:tap:)），传入 tap=1，封装经缓存函数指针发送事件。这支持会话级合成点击路径，CGEventPost 零导入不能排除动态发送；仍不证明认证效果。我们之前的 postToPid 点击 / Return 均没有观察到机制调用，已撤回。验证实验改用公开 annotated application stage、显式目标 PID / 窗口字段、唯一有效几何的一次点击；保留两级会话过滤和硬件监测。此路由与参考 tap=1 不同，尚待实测，不能声称照搬或保证成功。[Apple 的 stage 定义](https://developer.apple.com/documentation/coregraphics/cgeventtaplocation/cgannotatedsessioneventtap) 和 [post API](https://developer.apple.com/documentation/coregraphics/cgevent/post(tap:)) 只说明投递位置，不保证锁屏认证被触发。
+
+许可模型改为保护待命 → 首次合法插件 claim → 签发 / 消费许可；保留原 8 秒启动截止，晚签发不会延长测试锁屏。待命实测完整 AX 树和空写返回成功，但原截止内没有机制，仍无法证明自动解锁。agent 独立上限增加现有 2 秒 RPC 排空余量，控制器修复 BrokenPipeError 掩盖失败与报告丢失。

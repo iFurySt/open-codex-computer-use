@@ -11,6 +11,32 @@ final class LockedUseTests: XCTestCase {
         .init(state: state, userID: uid, auditSessionID: console)
     }
 
+    func testProtectedWaitingHasNoPermitUntilMechanismRequestsAuthorization() throws {
+        var machine = LockedUseStateMachine()
+        _ = try machine.begin(owner: owner, session: session(.locked), prerequisites: ready, now: 100)
+        XCTAssertEqual(try machine.guardsPrepared(guards, now: 100.1, deferPermitUntilClaim: true), [.requestUnlock])
+        XCTAssertNil(machine.permit)
+        XCTAssertThrowsError(try machine.consumePermit(id: UUID(), owner: owner, now: 100.2))
+        for second in 1...6 { _ = try machine.heartbeat(guards, now: 100 + Double(second)) }
+        let effects = try machine.authorizationRequested(now: 106.1)
+        guard case let .issuePermit(permit) = effects.first else { return XCTFail("permit missing") }
+        XCTAssertEqual(permit.deadline, 108, accuracy: 0.001)
+        XCTAssertThrowsError(try machine.authorizationRequested(now: 106.2))
+        // A late claim must not extend the original eight-second startup cap.
+        _ = try machine.heartbeat(guards, now: 107)
+        XCTAssertTrue(try machine.tick(now: 108).contains(.cancelUnlock))
+        XCTAssertEqual(machine.stopReason, .unlockTimeout)
+    }
+
+    func testCancelledProtectedWaitingCannotIssueALatePermit() throws {
+        var machine = LockedUseStateMachine()
+        _ = try machine.begin(owner: owner, session: session(.locked), prerequisites: ready, now: 100)
+        _ = try machine.guardsPrepared(guards, now: 100.1, deferPermitUntilClaim: true)
+        _ = machine.localInput()
+        XCTAssertThrowsError(try machine.authorizationRequested(now: 100.2))
+        XCTAssertNil(machine.permit)
+    }
+
     private func active() throws -> LockedUseStateMachine {
         var machine = LockedUseStateMachine()
         XCTAssertEqual(try machine.begin(owner: owner, session: session(.locked), prerequisites: ready, now: 100), [.prepareGuards])

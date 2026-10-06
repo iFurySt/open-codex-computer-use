@@ -207,7 +207,7 @@ OPEN_COMPUTER_USE_INCLUDE_LOCKED_USE=1 scripts/build-open-computer-use-app.sh de
 
 app bundle 含每次构建唯一的标识，app agent 在启动时固定捕获该标识和启动时间，避免懒初始化把旧进程误判为新构建。MCP 获取租约或验证失败仍返回对应 JSON-RPC id 的错误；不会让调用方一直等待响应。JS reset / timeout / turn-ended 关闭旧 native epoch；旧 Worker 的排队请求被丢弃，下次请求启动新的 native MCP，不重放失败的 GUI 请求。
 
-失败恢复增加独立于 RPC / AppKit 队列的 agent deadline：收到租约后准备最多 8 秒；进入停止 / 清理或 Broker 轮询失败后最多 5 秒，重试只能缩短、不能延长已有期限。期限到达时 agent 结束自身进程，不杀用户应用或保护进程。Broker 仍须通过原进程退出、解锁工作排空和实际锁定证据决定释放双遮罩；这个期限是停止动作的上限，**不等于系统恢复可登录的实测上限**。已观测到原会话锁定时，主 / 备用保护不重复调用锁屏 SPI；等待排空仍保留遮罩。
+失败恢复增加独立于 RPC / AppKit 队列的 agent deadline：收到租约后的独立进程 deadline 为 10 秒（Broker 启动上限 8 秒 + 现有 RPC 排空余量 2 秒），获取租约 / 自动解锁等待仍最多 8 秒；进入停止 / 清理或 Broker 轮询失败后最多 5 秒，重试只能缩短、不能延长已有期限。期限到达时 agent 结束自身进程，不杀用户应用或保护进程。Broker 仍须通过原进程退出、解锁工作排空和实际锁定证据决定释放双遮罩；这个期限是停止动作的上限，**不等于系统恢复可登录的实测上限**。已观测到原会话锁定时，主 / 备用保护不重复调用锁屏 SPI；等待排空仍保留遮罩。
 
 真实实验曾出现 Broker 清理通信超时、保护持续数分钟并干扰用户正常解锁。已安全卸载验证组件并恢复原认证规则；自动解锁没有通过。下一轮锁屏测试之前，必须先验证独立 deadline、进程退出到保护释放的故障链路，以及 Broker 清理通信时延，不能继续用长时间循环锁屏定位问题。`OpenComputerUseGuardian --recovery-deadline-self-test` 只阻塞自己的主线程、用独立计时结束自身进程，预期退出码 70；不调用锁屏、认证或显示遮罩。
 
@@ -237,14 +237,16 @@ xcrun swiftc -framework Security -framework CoreGraphics experiments/LockedUse/S
 共享遮罩采用不激活的 NSPanel（borderless + nonactivatingPanel、关闭 hidesOnDeactivate；主遮罩位于 CGShieldingWindowLevel + 1，备用低一层），避免普通窗口参与登录切换的缩放；实际 WindowServer bounds 与 CGDisplayBounds 均按 Quartz 全局坐标检查完整包含，允许大于屏幕的遮罩；任何未覆盖边缘或无效矩形仍拒绝，layer / owner / alpha / 可见性 / 拓扑检查继续保留，动画时覆盖不合格也必须重锁。
 
 
-锁屏前实时采集认证诊断，私有报告 schema 2 区分 authorizing 许可窗口与之后的手动恢复。日志活动、机制 Allow 和实际自动解锁是不同证据；缺失日志不证明事务或 helper 不存在。采集器最长 150 秒、最多 2000 条固定诊断、单条原始记录最多 64 KiB，不保存原始字段；不可用时不改变保护或授权。仅需正常桌面观察时可执行：
+锁屏前实时采集认证诊断，私有报告 schema 2 区分 authorizing 保护待命阶段与之后的手动恢复；permitIssuedObservedAt 单独记录实际许可签发。日志活动、机制 Allow 和实际自动解锁是不同证据；缺失日志不证明事务或 helper 不存在。采集器最长 150 秒、最多 2000 条固定诊断、单条原始记录最多 64 KiB，不保存原始字段；不可用时不改变保护或授权。仅需正常桌面观察时可执行：
 
 ```sh
 python3 scripts/run-locked-use-native-validation.py --observe-auth-only --observe-seconds 5
 ```
 
-该入口不需要安装验证 profile，不锁屏、不请求认证、不创建租约。当前验证实现已加入有界 AX 发布重试、唯一字段空字符串写入和一次 FocusedUser AXPress；合成点击候选尚未实现，建议先在隔离环境检验 Keychain 可用状态（报告未证明重设），详见 [认证时序复核](references/macos-locked-use-auth-transaction-timing-review.md)。
+该入口不需要安装验证 profile，不锁屏、不请求认证、不创建租约。当前验证实现为有界完整 AX 发布重试、唯一字段空字符串写入和一次窗口限定 annotated-stage 点击；不再执行 AXPress / Return。点击只是一项投递实验，不能据此认定认证事务或自动解锁成功。详见 [认证时序复核](references/macos-locked-use-auth-transaction-timing-review.md)。
 
 `--confirm-wake-test` / `--confirm-recovery-test` 配合 `--wait-for-manual-unlock` 时，双方释放后继续最多 60 秒只读观察正常手动登录，不保留遮罩、不启动 GUI 验证。实时与历史日志可能重复报告同一阶段，重复 authorizing 不创建新许可窗口。
 
 原始客户端的 SCM_RIGHTS socket 在身份复核前先检查进程退出与 EOF；断开立即拒绝，健康连接仍完整重验内核身份和签名。此检查不替代签名验证，也不保证所有 Security.framework 查询都有界；恢复后的 readiness 必须实际通过才启动下一次锁屏。
+
+双保护就绪的 authorizing 现在是保护待命，不等于已有许可。首次合法 pluginClaim 才签发许可，截止取 claim 后 5 秒与原启动截止的较早值；等待最多 8 秒，不因唤醒、AX 探测、重复 claim 或手动登录延长。控制器关闭已退出 native 连接时容忍 BrokenPipeError，仍保存诊断报告。

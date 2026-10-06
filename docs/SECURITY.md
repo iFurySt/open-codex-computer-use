@@ -49,8 +49,8 @@
 - 生产 backend 在完整实测证据缺失时关闭；只有管理员显式安装的验证 profile 能运行实验事务。用户环境和请求 metadata 不能开启生产自动解锁。
 - 签名 Root Broker 从内核 audit token 认证原生 CLI / app agent / Guardian / Apple helper，批准绑定 UID、角色、signer 和 Team ID。SCM_RIGHTS 原客户端端点也要验证；许可绑定会话、连接与一次性 attempt，不能从请求指定任意 requirement。
 - 安装器只添加自己的 OR branch，保留原密码 fallback；备份完整语义规则并在回滚前检查当前策略没有第三方变更。独立 deny-only probe 与实际验证 profile 分离。
-- 解锁入口仅在双保护准备后做一次公开电源活动声明，并在现有短期限内等待完整 AX 发布。电源 API 成功不算授权成功，插件显式 SetResult 和真实同会话 unlocked 观察缺一不可。锁屏 UI 稳定后，只按已签名 loginwindow 的 AXIdentifier 递归匹配（深度 ≤8），对唯一候选写入空字符串，然后对唯一 FocusedUser 尝试一次 AXPress 作为认证入口实验；不读字段值、不输入密码、不执行 AXConfirm 或模拟 Return。取消后禁止迟到写入，实际在途写入必须排空。
-- 认证策略观察在独立队列完成。待定 / 过期 / 失败状态拒绝签发许可；恢复协议不能被同步 authd 查询堵塞。最大 2 秒新鲜度是明确的观察窗口，不等同于每个消息都完成同步策略读取。
+- 解锁入口仅在双保护准备后做一次公开电源活动声明，并在 3 秒内等待完整 AX 发布。只按 Apple 签名 loginwindow 的 AXIdentifier 匹配（深度 ≤8），唯一候选写空字符串，不读取密码。验证版本随后尝试一次窗口限定点击：要求有限 AX 几何、唯一同 PID 的 on-screen 窗口包含目标点，以公开目标 PID / 窗口字段在 annotated application stage 投递鼠标 down/up，不提交 Return。会话输入过滤器不增加 PID 豁免，硬件接管检测保持工作；此路由的实际投递 / 认证效果尚待实测，queued 不是成功证据。取消禁止迟到写入，在途事件必须排空。SetResult 与真实同会话 unlocked 观察缺一不可。
+- 认证策略观察在独立队列完成。双保护就绪后保持有界 authorizing 待命，不预先签发许可；仅在已验证插件首次 claim、原会话仍锁定、策略和双保护新鲜时签发。许可最多 5 秒且不得超过原 8 秒启动截止；取消 / 过期等待不能重启。恢复协议不能被同步 authd 查询堵塞。策略最大 2 秒新鲜度不是每条消息都做同步读取，也不覆盖第三方新规则。
 - 两个保护进程各持有遮罩、输入过滤和硬件活动检测；只有撤销许可、排空动作 / 解锁事务并观测同会话锁定后才释放。停止 deadline 只结束自身 automation agent，不能提前杀保护或按时间撤罩。
 - 人工 recovery-only 入口只对验证 profile 开放，在准备双保护后、签发许可前结束事务。准备失败的快速收束不能冒充双保护完整通过。
 - 当前自动解锁、完整 Keychain、Secure Input、进程 / 服务故障和显示器变化仍未全部通过。两个物理屏幕 preview 和已解锁遮罩下 AX / SCK 的结果不能替代这些门槛。详见 [实验与恢复说明](locked-use.md)。
