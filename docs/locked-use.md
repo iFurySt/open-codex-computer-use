@@ -270,3 +270,6 @@ python3 scripts/run-locked-use-unshielded-diagnostic.py --confirm-visible-deskto
 ```
 
 该入口针对人为配合的单次故障定位，没有完整保护路径的进程崩溃与遮蔽保证。实现回归覆盖生产 profile 拒绝、原 session / role 绑定、跨 audit session / 重复 claim / 许可重放、晚到许可裁剪、5 秒过期 / 20 秒过期 / 取消不可重启、非原会话结束与 GUI / 生产验证拒绝。当前 Swift 266 项（1 跳过、0 失败）通过，真实诊断待安装运行。
+
+
+无遮罩诊断的实际结果：首轮存在 Touch ID 手动认证与许可窗口重叠，不算自动解锁；随后不手动介入的 20 秒复测没有解锁或许可消费。控制器按原生 uptime 记录事件，并标记许可窗口内的 Touch ID match。AXConfirm 返回 success、插件放行和自动解锁必须分别验证，不能相互替代。

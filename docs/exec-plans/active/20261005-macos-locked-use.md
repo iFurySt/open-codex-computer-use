@@ -186,3 +186,12 @@ python3 scripts/run-locked-use-unshielded-diagnostic.py --confirm-visible-deskto
 ```
 
 该入口针对人为配合的单次故障定位，没有完整保护路径的进程崩溃与遮蔽保证。实现回归覆盖生产 profile 拒绝、原 session / role 绑定、跨 audit session / 重复 claim / 许可重放、晚到许可裁剪、5 秒过期 / 20 秒过期 / 取消不可重启、非原会话结束与 GUI / 生产验证拒绝。当前 Swift 266 项（1 跳过、0 失败）通过，真实诊断待安装运行。
+
+
+### 无遮罩实测归因与报告修正
+
+首轮诊断观察到原会话解锁、插件消费许可和重锁，但系统时间线先出现 Touch ID match，约 0.67 秒后才出现 remote mechanism。因此它证明手动认证与待命许可重叠时插件链可完成，不能证明自动解锁；测试后的再次解锁也由用户完成。
+
+修正控制器将原生 stdout 缓冲到进程退出才记录的时间偏差：改为有界逐行读取，以原生 uptime 对齐本轮时间线；修正 trace 清理调用为 finish，确保保存报告。报告增加 authorizing 窗口内 Touch ID 介入标记，拒绝将这类结果当作自动解锁证据；没有该标记也不自动认定为成功。新增 3 项归因回归测试，覆盖窗内 / 窗外 Touch ID 与单独 evaluatePolicy 不能证明人工操作。
+
+第二轮明确不操作鼠标、密码或 Touch ID，无遮罩、无输入过滤、无 watchdog 等满原 20 秒：唯一真实密码框已聚焦，空写成功，单次 AXConfirm 88ms 返回 success，但未观察到认证 right 求值、mechanism、许可消费或原会话解锁。结束后确认原会话锁定、Root 返回 idle。这说明撤掉保护逻辑本身没有解决认证入口；AXConfirm success 不能替代实际解锁证据。生产保持关闭，尚未合并。
