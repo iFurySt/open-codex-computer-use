@@ -162,3 +162,5 @@ root Broker 增加 boot-bound crash journal，回复授权前 fsync，不保存 
 - 下一验证版仅管理员验证 profile 在唯一真实密码字段支持 AXConfirm 且空写成功时尝试一次确认；Root hello 显式传递开关，默认与旧协议关闭，未知动作不盲试，不合成全局 Return。新增固定布尔 / OSStatus 日志；同时修复报告 PATTERNS 重复 Watchdog 键覆盖导致部分退出原因丢失。待签名构建与实际测试，不作为成功证据。
 
 - 确认实验离线验证：原完整 Swift 260 项（1 跳过、0 失败）通过；新增验证 profile / Guardian 身份 / 旧协议开关回归后 coordinator 10 项通过。报告 15 项与控制器 1 项通过，签名组件、插件 ABI、内核身份正反例和 app 构建通过。旧系统验证版已卸载并恢复原规则，新版正在安装；实际 AXConfirm 结果仍待验证。
+
+- 确认实验实测：点击后约 200ms 唯一真实密码框出现；空写成功，字段明确支持 AXConfirm，单次 AXConfirm 返回 success。仍等满原 20 秒截止，没有观察到 right 求值 / 机制 / 许可；失败后约 0.17 秒确认双保护释放，随后用户 Touch ID 解锁才出现 right 求值与 remote 机制。Root 此时正确拒绝过期 claim，普通解锁成功。不可把本轮算作自动解锁；后续关键未知是无用户凭据条件下 loginwindow 如何进入 screensaver right 求值，不再仅延长等待或重复等价 UI 动作。只读检查参考 InstallerTool / service 未找到 screenUnlockMode 字符串（不证明完整实现不存在间接路径），本机该偏好未设置。实验结束已卸载并恢复原认证策略；生产关闭、尚未合并。
