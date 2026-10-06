@@ -281,7 +281,13 @@ python3 scripts/run-locked-use-unshielded-diagnostic.py --confirm-visible-deskto
 Return 独立无遮罩诊断已实测跑通：空写 / 点击后对聚焦的唯一密码框发送单对 Return，loginwindow 提交认证、OCU 插件消费许可、原会话解锁后立即重锁，报告中无 Touch ID match。它仅证明本轮无保护的解锁 / 重锁链，不替代受保护 GUI / 捕获 / 故障验收。认证规则一度变更后 Broker 会持续关闭该进程周期的解锁接受能力；恢复规则本身不能重开，须完整复核后经管理员重启服务。
 
 
-受保护管理员验证 profile 现支持独立 Return 一次性能力：主 / watchdog 两个 session tap 必须各自验证原锁定会话、来源 PID 和随机 tag、固定 keyCode 36、无修饰 / repeat、5 秒有效期与 250ms 成对时限。实际派发前还需唯一密码框焦点、空写与 Apple loginwindow 签名复查。任何硬件接管或停止均撤销；默认生产 profile 仍不签发键盘能力。完整 AX / SCK / 重锁实测待验证。
+受保护管理员验证 profile 现支持独立 Return 一次性能力：主 / watchdog 两个 session tap 必须各自验证原锁定会话、来源 PID 和随机 tag、固定 keyCode 36、无修饰 / repeat、5 秒有效期与 250ms 成对时限。实际派发前还需唯一密码框焦点、空写与 Apple loginwindow 签名复查。任何硬件接管或停止均撤销；默认生产 profile 仍不签发键盘能力。完整 AX / SCK / 重锁已在管理员验证 profile 的 legacy-only 轮通过；不作为生产 promotion 证据。
 
 
-遮罩采用居中 1.5× 不透明面板，为 loginwindow 解锁动画的缩放留出实际黑色覆盖余量；健康检查不容忍任何实际未覆盖边缘，仍严格比较 WindowServer 实际边界与显示器。受保护首轮已进入插件放行，但动画缩小遮罩导致 guardLost，故完整 GUI 验证仍待复测。
+遮罩采用居中 1.5× 不透明面板，为 loginwindow 解锁动画的缩放留出实际黑色覆盖余量；健康检查不容忍任何实际未覆盖边缘，仍严格比较 WindowServer 实际边界与显示器。受保护首轮已进入插件放行，但动画缩小遮罩导致 guardLost，overscan 修正版随后通过真实受保护 GUI / SCK / 重锁闭环，未发生覆盖失败。
+
+
+overscan 修正版首次完整实测通过：Return → loginwindow 认证 → 插件一次性许可 → 原会话实际解锁 → 双保护健康下 AX 修改固定 fixture 且 SCK 图像变化 → 重锁 → 双保护释放。手动正常解锁后的自有隔离 legacy Keychain 项验证 / 清理通过。物理屏幕持续覆盖待现场确认；本轮未覆盖 Data Protection Keychain、Secure Input 硬件接管和组件死亡 / 显示器变化，因此 productionEvidenceEligible=false，生产保持关闭，尚未合并。
+
+
+停留计时复测：--fast 会将停留设为 0，因此首轮双保护就绪至释放约 3.68 秒。使用 --hold-seconds 5 后，AX / SCK 通过再实际停留 5.002 秒，随后 turnEnded 正常重锁和双保护释放；双保护就绪至释放约 7.78 秒。控制器现输出停留开始 / 结束及单调时钟实际耗时；现场观察不应把初始“5 秒后锁屏”提示当作遮罩停留承诺。

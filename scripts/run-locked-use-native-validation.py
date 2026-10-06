@@ -193,7 +193,10 @@ def main():
         result = rpc.call("ocu/locked-use/validate", timeout=28)
         assert result["passed"]
         record("protectedNativeAXSCKKeychainPassed", dataProtectionIncluded=not args.legacy_only)
+        record("protectedHoldStarted", requestedSeconds=args.hold_seconds)
+        hold_started = time.monotonic()
         time.sleep(args.hold_seconds)
+        record("protectedHoldEnded", actualSeconds=round(time.monotonic()-hold_started, 3))
         rpc.notify("notifications/turn-ended")
         wait_for(guardian, "locked", timeout=5)
         record("relockObserved")

@@ -241,3 +241,17 @@ LockScreenInteractor 在完整扫描唯一密码框、空写成功、可写且�
 修正使用居中 1.5× 实际不透明窗口，使系统 zoom 缩放后仍覆盖屏幕；不是放宽 coverage 判定。保留对 WindowServer 实际 bounds 完整包含 CGDisplayBounds、alpha=1、owner / layer / active topology 的严格要求。新增负坐标 / 不同比例缩放下 overscan 实际覆盖测试及不足覆盖拒绝，Swift 273 项（1 跳过、0 失败）通过。仅更新经 Developer ID 签名的 staged Guardian，保持 root 所有与普通用户不可写，Broker / auth rules 不变，待复测。
 
 用户提供 Native Fixture “not open anymore” 提示。控制器在失败恢复后会关闭 RPC 并终止固定测试 fixture，当前没有发现其相关新 crash report，无法仅凭截图判定为崩溃；Finder 最新状态未见该弹窗。将其作为测试窗口生命周期诊断，未改私钥或认证策略。
+
+
+### 受保护完整流程首次通过（overscan 修正版）
+
+更新 staged Guardian 后，同一 fast / legacy-only 真实测试通过：约 11.532s 派发单对 Return，11.534s loginwindow 观察 secure Return，11.539s authBegan，12.555s 首次 claim 签发许可，12.560s consume，12.561s SetResult allowed，12.564s 系统报告解锁，12.815s Root 在双保护健康下进入 active。固定签名 Native Fixture 在 13.421s 捕获 counter=0，14.198s AX 操作验证 counter 增加且 SCK 图像改变；14.560s 确认重锁，14.825s 确认双保护释放。用户随后正常手动解锁，30.859s 自有隔离 legacy Keychain 项验证 / 清理通过。报告无 failureType，没有本轮 guardLost / shieldBoundsMismatch。时间均相对控制器开始，含初始 5 秒提示；实时 / 历史副本不代表重复派发。
+
+本轮首次证明受保护自动解锁 → GUI / SCK 变化 → 重锁 → 双保护释放的实际闭环。没有观察到 returnAdmitted 日志，不能宣称 Secure Input 下两个 session tap 实际接收了该按键；需要继续验证硬件接管。现场两块物理显示器的持续覆盖仍待用户补充。legacy-only 报告 productionEvidenceEligible=false，不覆盖 Data Protection Keychain、崩溃 / 拓扑变化或生产 promotion；默认生产 profile 仍关闭 Return。未合并 awesome-extension。
+
+
+### 5 秒受保护停留复测通过
+
+用户指出首轮遮罩不足 5 秒。核对首轮 --fast 将 hold_seconds 设为 0：authorizing 到双方释放约 3.683 秒，active 到观察重锁约 1.745 秒，结束原因 turnEnded，非遮罩失效。为控制器补充 protectedHoldStarted / protectedHoldEnded，实际等待采用 monotonic 计时；没有更改 Root 截止、遮罩或输入策略。
+
+随后不使用 --fast、指定 --hold-seconds 5 的同账号 legacy-only 复测通过：12.659s active，13.799s AX counter 增加且 SCK 图像变化；13.815s 开始停留，18.817s 结束，实际 5.002 秒；18.834s turnEnded 重锁，19.108s 确认锁定，19.203s 双保护释放，22.703s 普通手动解锁后自有隔离项验证 / 清理通过。authorizing 至双方释放约 7.780 秒，无报告覆盖故障 / guardLost。两轮完整流程均通过，但仍不能替代生产验收；物理显示器持续覆盖及剩余故障 / Data Protection Keychain 等验证需继续，生产关闭，未合并。
