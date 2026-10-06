@@ -314,3 +314,7 @@ WindowServer 元数据并不提供像素或 compositor 原子交接保证；1 �
 - 主 Guardian 仅在 shielding 状态执行运行期心跳；AppKit finishLaunching 在构建保护窗口前完成，避免 run() 的初始化与已发布窗口布局竞争。准备仍受原有 3.5 秒限制，运行期 1.5 秒心跳和原会话保护未放宽。添加仅含耗时 / ready / 几何失败枚举的准备日志及私有报告白名单。
 - 用户移除 virtual display 后，只对两块物理屏幕复测，不将这轮成功外推为虚拟显示器兼容验收。实际链路通过：插件 claim / consume 放行，原会话自动解锁，受保护 AX counter 递增且 SCK 图像改变；实际保持 5.005 秒，确认重锁，约 1.458 秒后双保护释放；手动解锁和隔离测试数据清理完成。
 - 用户确认双屏持续覆盖、撤罩无桌面闪现、手动解锁正常。Guardian 签名构建 / 部署通过，12 项 Guardian 策略测试通过。此次使用 legacy-only，productionEvidenceEligible=false；Data Protection / Secure Input / 故障矩阵仍未完成。
+
+### 录屏后保留 Increment 结果
+
+用户要求手动解锁后继续看到操作计数。验证控制器增加 `--keep-fixture`：仅完整成功并清理结束后保留原生测试窗口，失败仍退出；不保留保护租约或延迟撤罩，计数来自同一实际被点击窗口。录屏后手动退出目标即可。命令帮助与 Python 语法检查通过；本轮不重复发起锁屏。

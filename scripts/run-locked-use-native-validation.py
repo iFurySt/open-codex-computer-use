@@ -102,6 +102,7 @@ def main():
     mode.add_argument("--confirm-recovery-test", action="store_true", help="Lock once and verify both guards drain, without issuing an unlock permit")
     mode.add_argument("--confirm-wake-test", action="store_true", help="Validate protected unlock then immediately relock; no GUI/Keychain operations")
     parser.add_argument("--wait-for-manual-unlock", action="store_true", help="Observe normal user unlock without an interactive continue prompt")
+    parser.add_argument("--keep-fixture", action="store_true", help="After successful validation and cleanup, leave the Increment Counter window open for recording; quit it manually afterward")
     parser.add_argument("--legacy-only", action="store_true", help="Does not produce production validation evidence")
     parser.add_argument("--hold-seconds", type=int, default=15, choices=range(0, 21))
     parser.add_argument("--fast", action="store_true", help="Relock immediately after the fixed AX/SCK validation")
@@ -244,7 +245,13 @@ def main():
             try: rpc.call("ocu/locked-use/keychain/cleanup", timeout=5)
             except Exception: pass
         rpc.close()
-        if fixture is not None: fixture.terminate()
+        if fixture is not None:
+            if completed and args.keep_fixture and fixture.poll() is None:
+                # Retain only the harmless native target after the full cleanup.
+                # This does not retain a lease, permit, shield or agent connection.
+                record("fixtureRetainedForRecording", passed=True)
+            else:
+                fixture.terminate()
         live_events, trace_status = trace.finish()
         report = write_report(root, run_started, events, failure, live_events, trace_status)
         print(json.dumps({"event": "diagnosticReportSaved", "path": str(report)}), flush=True)

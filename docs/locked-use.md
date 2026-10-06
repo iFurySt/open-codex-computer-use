@@ -309,3 +309,9 @@ overscan 修正版首次完整实测通过：Return → loginwindow 认证 → �
 签名 Guardian 的 `--render-shield <output.png>` 在当前主屏壁纸和头像上离屏渲染外观，不创建保护租约、输入 tap 或锁屏请求。输出可能包含用户头像及壁纸，应仅留在忽略的本地构建目录，不上传或纳入版本控制。动态 / 视频壁纸无法解码静态帧时使用备用背景。`--shield-preview` 则对全部显示器执行 15 秒覆盖检查，Esc 可提前结束，无自动解锁 / 锁定动作。
 
 品牌遮罩物理双屏闭环已现场通过：插件一次性放行、原会话自动解锁、遮罩下 AX/SCK 图像变化、保持 5.005 秒、重锁与双保护撤罩、正常手动解锁和隔离数据清理；用户确认无桌面闪现。主进程在创建窗口前完成 AppKit 初始化，只在保护准备完成后运行 live heartbeat，原有覆盖与超时要求保持。额外虚拟屏的窗口偏移曾导致安全中止，本轮由用户移除后不再纳入验收，不能据此宣称虚拟屏兼容。该轮 legacy-only 不生成生产资格。
+
+录屏演示可在完整验证命令上增加 `--keep-fixture`。仅在验证成功、手动解锁及隔离数据清理完成后保留 Increment Counter 原生窗口，便于查看实际计数；Broker 租约、保护窗口和 agent 连接按原流程结束。失败仍关闭测试目标。录屏后请手动退出该测试 app，再启动下一轮，避免多个同 bundle 目标影响 AX 定位。该开关不延长受保护操作时间，也不生成生产资格。
+
+```sh
+python3 scripts/run-locked-use-native-validation.py --confirm-lock-test --legacy-only --hold-seconds 5 --wait-for-manual-unlock --keep-fixture
+```
