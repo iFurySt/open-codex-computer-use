@@ -28,7 +28,7 @@ struct WorkspaceAppDock: View {
                             } label: {
                                 VStack(spacing: 1) {
                                     if let icon = icons[app.pid] {
-                                        Image(nsImage: icon).resizable().scaledToFit().frame(width: 36, height: 36)
+                                        Image(nsImage: icon).renderingMode(.original).resizable().scaledToFit().frame(width: 36, height: 36)
                                     } else {
                                         Image(systemName: "app.dashed").font(.system(size: 30)).frame(width: 36, height: 36)
                                     }
@@ -76,7 +76,7 @@ private struct DockIconButtonStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .background(hovered && enabled ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 12))
-                .opacity(enabled ? (configuration.isPressed ? 0.65 : 1) : 0.45)
+                .scaleEffect(enabled && configuration.isPressed ? 0.96 : 1)
                 .contentShape(Rectangle())
                 .onHover { hovered = $0 }
         }

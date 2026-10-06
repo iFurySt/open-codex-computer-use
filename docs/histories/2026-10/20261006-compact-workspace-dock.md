@@ -12,3 +12,10 @@
 - Kept 36-point native icons, reduced button padding from 4 to 1, item spacing from 4 to 2, outer side padding from 6 to 4 and vertical padding from 5 to 4. Indicator is 3 points with a 1-point gap. Two-item surface is now 86×50 points instead of 104×60; corner radius is 12.
 - No displays/test sessions are created during development, per user instruction. Live screenshot comparison remains user-led; only signed builds and normal App lifecycle checks are run.
 - Developer ID release and dev bundles/helpers built and strictly verified. The currently used own Dev runtime exited through normal cleanup and restarted into the updated Dev build. Existing test session/display ended during normal cleanup; no new display was created. Other worktree runtimes were left alone.
+
+## Follow-up: keep native icon colors
+
+- User observed washed-out Dock icons. The custom button style reduced the entire label to 45% opacity while workspace operations disabled input, and to 65% on press.
+- Removed whole-label opacity; native icons use original rendering and press feedback uses subtle scaling. Busy still disables clicks without fading artwork.
+- This is a visual-only change; no display/test session creation or automatic live interaction is performed.
+- Signed Dev App/helper build and strict verification passed; exact own Dev runtime quit normally and restarted. It held no displays; no display lifecycle or live screenshot comparison was performed.
