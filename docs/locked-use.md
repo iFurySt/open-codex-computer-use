@@ -258,3 +258,15 @@ Root 通过 IPC 返回绝对 uptime 截止，原生 agent 校验其有限且不�
 - HID 单变量实验：用户授权尝试仅将受控 down/up 投递从 session 改到 HID；复用已认证 Root 的验证 profile 开关，生产 / 旧协议保持 session。事件字段、双会话过滤的一次性能力、硬件活动接管、空写 + 单次支持确认、20 秒截止不变。新增固定 clickTap 枚举日志；此改动不保证被系统视作真实硬件或启动认证，待实测。
 
 - 确认超时修正：扫描给候选 AX 对象设置的 50ms 消息超时会被后续 action 沿用。Apple AXUIElementPerformAction 文档明确 cannotComplete 可能源自超时 / 模态处理，但不能仅据错误码确认因果或动作未执行。session 轮先前已执行同一确认并返回成功，不是 HID 轮首次加入。验证版为单次确认独立设置最多 2 秒、裁剪到原 3 秒 UI 请求截止的超时，结束恢复扫描超时；记录配置结果、实际调用开始、调用耗时与结果。不自动重试，避免无法确认是否执行时重复提交。Root 总 20 秒截止、取消 / 排空与双保护不变。待实测比较。
+
+## 无遮罩解锁诊断（仅管理员验证 profile）
+
+用户明确要求拆开解锁与保护问题后，新增独立 `LockedUseUnshieldedDiagnostic`，不复用生产 guardsReady 或 GUI action 状态机。Root 只接受管理员验证 profile 下、已批准签名 UI 探针的原锁定 UID / audit session；诊断总期限 20 秒，插件首次同会话 claim 才签发最多 5 秒且裁剪到原截止的一次性许可。无守护健康 / 心跳条件，也不伪造覆盖证据。断开、认证策略失效、期限到达或许可过期撤销后不能恢复。所有应用 action、生产验证 / promotion 与正常租约入口在诊断活跃时拒绝；重启不恢复任何诊断许可。
+
+签名工具的独立 `--unshielded-unlock-diagnostic --confirm-visible-desktop-test` 入口复用 `LockScreenInteractor`，没有构造 DisplayGuardian、遮罩、输入 tap、硬件 monitor 或 child watchdog。因此桌面若被解锁会实际可见，不能视为生产 Locked Use。它只观察原会话解锁并立即请求 / 确认重锁，最后向 Root 结束诊断；结果与私有报告始终 productionEvidenceEligible=false，不访问应用窗口 / ScreenCaptureKit / Keychain。外部控制器入口为：
+
+```sh
+python3 scripts/run-locked-use-unshielded-diagnostic.py --confirm-visible-desktop-test
+```
+
+该入口针对人为配合的单次故障定位，没有完整保护路径的进程崩溃与遮蔽保证。实现回归覆盖生产 profile 拒绝、原 session / role 绑定、跨 audit session / 重复 claim / 许可重放、晚到许可裁剪、5 秒过期 / 20 秒过期 / 取消不可重启、非原会话结束与 GUI / 生产验证拒绝。当前 Swift 266 项（1 跳过、0 失败）通过，真实诊断待安装运行。

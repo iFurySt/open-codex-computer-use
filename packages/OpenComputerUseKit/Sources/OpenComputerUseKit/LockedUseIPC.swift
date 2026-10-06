@@ -5,7 +5,7 @@ import Foundation
 public struct LockedUseIPCMessage: Codable, Sendable {
     public enum Operation: String, Codable, Sendable {
         case status, disable, validationPassed, validationManual, begin, beginRecoveryProbe, guardianHello, guardianReport, guardianReleased, watchdogHello, watchdogRecoveryHello, watchdogReport, watchdogReleased, ownerRecoveryHello, guardianRecoveryHello, action, end, quiesced
-        case pluginClaim, pluginConsume, pluginFinished
+        case pluginClaim, pluginConsume, pluginFinished, beginUnshieldedDiagnostic, endUnshieldedDiagnostic
     }
     public let version: Int
     public let id: UUID

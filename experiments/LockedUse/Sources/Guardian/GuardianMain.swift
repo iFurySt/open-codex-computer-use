@@ -35,6 +35,8 @@ struct GuardianMain {
                 let fixture = ExternalFixture()
                 fixture.show()
                 withExtendedLifetime(fixture) { app.run() }
+            case ["--unshielded-unlock-diagnostic", "--confirm-visible-desktop-test"]:
+                try runUnshieldedUnlockDiagnostic()
             case ["--broker-guardian"]:
                 let bootstrap = try readGuardianBootstrap()
                 let app = NSApplication.shared

@@ -248,7 +248,7 @@ private final class BrokerServer: @unchecked Sendable {
                 let previousPhase = coordinator.phase
                 let reply: LockedUseIPCReply
                 do {
-                    if [.begin, .beginRecoveryProbe, .pluginClaim, .pluginConsume].contains(request.operation) { try checkInstallationPolicy() }
+                    if [.begin, .beginRecoveryProbe, .beginUnshieldedDiagnostic, .pluginClaim, .pluginConsume].contains(request.operation) { try checkInstallationPolicy() }
                     if connection.endpoint == .agent && [.begin, .beginRecoveryProbe, .action, .validationPassed, .validationManual].contains(request.operation) {
                         do { try verifyOriginalClient(connection) }
                         catch {

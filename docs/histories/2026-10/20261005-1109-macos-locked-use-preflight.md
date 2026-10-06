@@ -176,3 +176,15 @@ root Broker 增加 boot-bound crash journal，回复授权前 fsync，不保存 
 - 超时分离首次实测：2 秒动作超时配置成功，AXConfirm 实际 37ms 返回 success；之后仍未观察到 right 求值 / 机制 / 许可。因此不能确认上一轮 -25204 唯一源自 50ms，也不能以确认返回成功推出认证已提交。本轮总起始约 18.9 秒出现 guardLost，主 Guardian 私有状态持续报告遮罩 / tap / watchdog 健康，收到 root stopRequested 后退出；失败后约 0.25 秒确认双保护释放、正常手动解锁。新增 Broker 两类报告 age / watchdogProtected 固定诊断，进一步区分 IPC 陈旧与真实遮罩不健康；新增只读按钮 enabled 计数与密码框焦点布尔，明确没有收集标题、标识字符串或值。修正等待期间每秒常规 300 秒 active 标签覆盖 20 秒启动倒计时的问题，只有观察到解锁后显示 active 标签。确认只有一次，无模糊结果重试。系统验证版已卸载并恢复原规则，下一诊断版待复测。
 
 - 第二轮 2 秒确认实测：真实密码框 focused=true，扫描按钮 enabled=2 / disabled=0 / unknown=0；AXConfirm 34ms 返回 success，无观察到的认证求值 / 许可。约启动 14 秒 guardLost 的 Broker 固定证据显示 guardian report age≈1570ms / watchdog report age≈1577ms，watchdogProtected=true；本地 Guardian 仍持续健康。不能将本轮归因为动作超时或 UI 未聚焦，Root 失联新鲜度仍待定位。双保护释放与正常手动解锁完成，卸载恢复原认证规则。按用户新要求，暂停受保护复测，下一步独立无遮罩 / 无 watchdog 解锁诊断；不得假造生产 guardsReady、不得执行 GUI 应用动作或签发生产验证记录。
+
+## 无遮罩解锁诊断（仅管理员验证 profile）
+
+用户明确要求拆开解锁与保护问题后，新增独立 `LockedUseUnshieldedDiagnostic`，不复用生产 guardsReady 或 GUI action 状态机。Root 只接受管理员验证 profile 下、已批准签名 UI 探针的原锁定 UID / audit session；诊断总期限 20 秒，插件首次同会话 claim 才签发最多 5 秒且裁剪到原截止的一次性许可。无守护健康 / 心跳条件，也不伪造覆盖证据。断开、认证策略失效、期限到达或许可过期撤销后不能恢复。所有应用 action、生产验证 / promotion 与正常租约入口在诊断活跃时拒绝；重启不恢复任何诊断许可。
+
+签名工具的独立 `--unshielded-unlock-diagnostic --confirm-visible-desktop-test` 入口复用 `LockScreenInteractor`，没有构造 DisplayGuardian、遮罩、输入 tap、硬件 monitor 或 child watchdog。因此桌面若被解锁会实际可见，不能视为生产 Locked Use。它只观察原会话解锁并立即请求 / 确认重锁，最后向 Root 结束诊断；结果与私有报告始终 productionEvidenceEligible=false，不访问应用窗口 / ScreenCaptureKit / Keychain。外部控制器入口为：
+
+```sh
+python3 scripts/run-locked-use-unshielded-diagnostic.py --confirm-visible-desktop-test
+```
+
+该入口针对人为配合的单次故障定位，没有完整保护路径的进程崩溃与遮蔽保证。实现回归覆盖生产 profile 拒绝、原 session / role 绑定、跨 audit session / 重复 claim / 许可重放、晚到许可裁剪、5 秒过期 / 20 秒过期 / 取消不可重启、非原会话结束与 GUI / 生产验证拒绝。当前 Swift 266 项（1 跳过、0 失败）通过，真实诊断待安装运行。

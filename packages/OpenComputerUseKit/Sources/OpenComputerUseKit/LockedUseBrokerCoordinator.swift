@@ -20,6 +20,7 @@ public struct LockedUseBrokerCoordinator: Sendable {
     }
     public enum Failure: Error { case denied, staleEvidence, malformed, unavailable }
     private var accepting = true
+    private var unshieldedDiagnostic: LockedUseUnshieldedDiagnostic?
     private let requiresWatchdog: Bool
     private let bootSessionID: String
     private var recovering = false
@@ -53,7 +54,7 @@ public struct LockedUseBrokerCoordinator: Sendable {
     private let validationMode: Bool
     private var recoveryProbe = false
     private var recoveryProbePrepared = false
-    public var phase: LockedUseStateMachine.Phase { machine.phase }
+    public var phase: LockedUseStateMachine.Phase { unshieldedDiagnostic?.phase ?? machine.phase }
     public var stopReason: LockedUseStateMachine.StopReason? { machine.stopReason }
     public var owner: LockedUseStateMachine.Owner? { machine.owner ?? connectionOwner }
 
@@ -98,7 +99,23 @@ public struct LockedUseBrokerCoordinator: Sendable {
                                 now: TimeInterval) throws -> LockedUseIPCReply {
         _ = try message.validated()
         try tick(now: now)
+        if message.operation == .beginUnshieldedDiagnostic {
+            guard validationMode, accepting, prerequisites.enabled, machine.phase == .idle,
+                  isFullyReleased, unshieldedDiagnostic == nil, let session = message.session else { throw Failure.denied }
+            unshieldedDiagnostic = try .init(owner: context, session: session, now: now)
+            return unshieldedDiagnostic!.reply(message, context: context)
+        }
+        if var diagnostic = unshieldedDiagnostic {
+            if message.operation != .disable {
+                defer { unshieldedDiagnostic = diagnostic.finished ? nil : diagnostic }
+                return try diagnostic.handle(message, context: context, now: now)
+            }
+            guard diagnostic.phase == .awaitingManualUnlock else { throw Failure.denied }
+            unshieldedDiagnostic = nil
+        }
         switch message.operation {
+        case .beginUnshieldedDiagnostic, .endUnshieldedDiagnostic:
+            throw Failure.denied
         case .status:
             // Only the owner may acknowledge a manual unlock, using a native
             // session observation matching its kernel connection identity.
@@ -280,12 +297,14 @@ public struct LockedUseBrokerCoordinator: Sendable {
     /// cleanup channels alive so old queued unlock work can safely drain.
     public mutating func invalidateInstallation() throws {
         accepting = false
+        unshieldedDiagnostic?.cancel()
         if let owner, ![.idle, .relocking, .awaitingManualUnlock].contains(phase) {
             try apply(machine.end(owner: owner, reason: .operationFailed))
         }
     }
 
     public mutating func tick(now: TimeInterval) throws {
+        try unshieldedDiagnostic?.tick(now: now)
         try registry.expire(now: now)
         receiptTime = now
         try apply(machine.tick(now: now))
@@ -296,6 +315,7 @@ public struct LockedUseBrokerCoordinator: Sendable {
     }
 
     public mutating func disconnected(_ context: Context) throws {
+        if context.id == unshieldedDiagnostic?.owner.id { unshieldedDiagnostic?.cancel() }
         registry.revoke(connectionID: context.id)
         if isOwner(context), let owner { try apply(machine.end(owner: owner, reason: .disconnected)) }
         else if isGuardian(context) || isWatchdog(context) || (context.id == pluginID && !everGranted), let owner {
