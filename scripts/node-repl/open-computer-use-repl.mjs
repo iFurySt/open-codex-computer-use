@@ -102,18 +102,39 @@ function normalizeImage(value) {
 export class JsonLinePeer extends EventEmitter {
   constructor({ command, args = [], cwd, env = process.env, child } = {}) {
     super();
-    this.child = child ?? spawn(command, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+    this.options = { command, args, cwd, env };
+    this.injected = Boolean(child);
+    this.disposed = false;
+    this.reopening = null;
+    this.#start(child ?? spawn(command, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] }));
+  }
+
+  #start(child) {
+    this.child = child;
     this.nextId = 1;
     this.pending = new Map();
     this.buffer = "";
     this.stderr = "";
     this.closed = false;
-    this.child.stdout.setEncoding("utf8");
-    this.child.stderr.setEncoding("utf8");
-    this.child.stdout.on("data", chunk => this.#onData(chunk));
-    this.child.stderr.on("data", chunk => { this.stderr = (this.stderr + chunk).slice(-8192); });
-    this.child.on("error", error => this.#close(error));
-    this.child.on("exit", (code, signal) => this.#close(new Error(`native MCP exited (code=${code ?? "null"}, signal=${signal ?? "null"})${this.stderr ? `: ${this.stderr.trim()}` : ""}`)));
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", chunk => { if (this.child === child) this.#onData(chunk); });
+    child.stderr.on("data", chunk => { if (this.child === child) this.stderr = (this.stderr + chunk).slice(-8192); });
+    child.on("error", error => { if (this.child === child) this.#close(error); });
+    child.on("exit", (code, signal) => {
+      if (this.child === child) this.#close(new Error(`native MCP exited (code=${code ?? "null"}, signal=${signal ?? "null"})${this.stderr ? `: ${this.stderr.trim()}` : ""}`));
+    });
+  }
+
+  #reopen() {
+    if (!this.reopening) {
+      this.reopening = (async () => {
+        const { command, args, cwd, env } = this.options;
+        this.#start(spawn(command, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] }));
+        await this.initialize();
+      })().catch(error => { this.endSession(); throw error; }).finally(() => { this.reopening = null; });
+    }
+    return this.reopening;
   }
 
   #onData(chunk) {
@@ -148,11 +169,17 @@ export class JsonLinePeer extends EventEmitter {
   }
 
   request(method, params = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
+    if (this.reopening && method !== "initialize") return this.reopening.then(() => this.request(method, params, timeoutMs));
+    if (this.closed && !this.injected && !this.disposed) return this.#reopen().then(() => this.request(method, params, timeoutMs));
     if (this.closed) return Promise.reject(new Error("native MCP is closed"));
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       const timer = timeoutMs > 0
-        ? setTimeout(() => { this.pending.delete(String(id)); reject(new Error(`native MCP ${method} timed out after ${timeoutMs} ms`)); }, timeoutMs)
+        ? setTimeout(() => {
+          this.pending.delete(String(id));
+          reject(new Error(`native MCP ${method} timed out after ${timeoutMs} ms`));
+          this.endSession();
+        }, timeoutMs)
         : undefined;
       this.pending.set(String(id), { resolve, reject, timer });
       this.child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`, error => {
@@ -178,13 +205,21 @@ export class JsonLinePeer extends EventEmitter {
     return result;
   }
 
-  close() {
+  endSession() {
     if (this.closed) return;
-    this.child.stdin.end();
-    const timer = setTimeout(() => this.child.kill("SIGKILL"), 1_000);
+    const child = this.child;
+    this.#close(new Error("native Computer Use session ended"));
+    child.stdin.end();
+    const timer = setTimeout(() => child.kill("SIGKILL"), 1_000);
     timer.unref();
-    this.child.kill("SIGTERM");
+    child.kill("SIGTERM");
   }
+
+  close() {
+    this.disposed = true;
+    this.endSession();
+  }
+
 }
 
 function toolResultText(result) {
@@ -568,6 +603,7 @@ export class WorkerJavaScriptSession {
     this.nextId = 1;
     this.pending = new Map();
     this.runQueue = Promise.resolve();
+    this.invalidatedWorkers = new WeakSet();
     this.#start();
   }
 
@@ -575,11 +611,18 @@ export class WorkerJavaScriptSession {
     const worker = new Worker(new URL("./open-computer-use-kernel.mjs", import.meta.url));
     this.worker = worker;
     worker.on("message", message => void this.#onMessage(worker, message));
-    worker.on("error", error => this.#failWorker(worker, error));
+    worker.on("error", error => {
+      if (this.worker === worker && !this.invalidatedWorkers.has(worker)) {
+        this.invalidatedWorkers.add(worker);
+        this.native.endSession?.();
+      }
+      this.#failWorker(worker, error);
+    });
     worker.on("exit", code => { if (code !== 0) this.#failWorker(worker, new Error(`JavaScript kernel exited with code ${code}`)); });
   }
 
   async #onMessage(worker, message) {
+    if (this.worker !== worker || this.invalidatedWorkers.has(worker)) return;
     if (message.type === "result") {
       const pending = this.pending.get(message.id);
       if (!pending || pending.worker !== worker) return;
@@ -609,6 +652,8 @@ export class WorkerJavaScriptSession {
 
   async reset() {
     const old = this.worker;
+    this.invalidatedWorkers.add(old);
+    this.native.endSession?.();
     this.#failWorker(old, new Error("JavaScript session reset"));
     await old.terminate();
     if (this.worker === old) this.#start();
@@ -616,6 +661,8 @@ export class WorkerJavaScriptSession {
 
   async close() {
     const old = this.worker;
+    this.invalidatedWorkers.add(old);
+    this.native.endSession?.();
     this.#failWorker(old, new Error("JavaScript session closed"));
     await old.terminate();
   }
@@ -634,6 +681,8 @@ export class WorkerJavaScriptSession {
         const pending = this.pending.get(id);
         if (!pending || pending.worker !== worker) return;
         this.pending.delete(id);
+        this.invalidatedWorkers.add(worker);
+        this.native.endSession?.();
         await worker.terminate();
         if (this.worker === worker) this.#start();
         resolve({ content: [{ type: "text", text: `Error: js execution timed out after ${timeoutMs} ms; session reset` }], isError: true });
@@ -687,7 +736,7 @@ export async function runServer({ command, args }) {
     try { request = JSON.parse(line); } catch { return send({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Invalid JSON-RPC payload" } }); }
     const { id, method, params = {} } = request;
     if (id === undefined) {
-      if (method === "notifications/turn-ended") native.notify(method, params);
+      if (method === "notifications/turn-ended") { native.notify(method, params); native.endSession(); }
       return;
     }
     try {

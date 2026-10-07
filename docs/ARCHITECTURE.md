@@ -135,6 +135,14 @@
 - Linux `click_method=accessibility` 映射到 AT-SPI action，`global` 映射到 AT-SPI mouse synthesis 并要求全局指针环境变量；AT-SPI 没有等价的进程定向 mouse dispatch，因此 `app_post` 和 macOS-only 的 `sky_click` 会在 snapshot lookup 前明确返回 unsupported。`auto` 仍保持 AT-SPI action 优先、mouse synthesis fallback 的现有行为。
 - 当前 Linux 侧仍是功能性第一版：没有 visual cursor overlay、没有 installer/desktop entry，也没有独立 Linux fixture。后续 TODO 记录在 `docs/exec-plans/active/20260422-linux-computer-use-runtime.md`。
 
+## macOS Locked Use 实验
+
+- `locked-use status [--json]` 和 `doctor` 增加只读 session / Input Monitoring / 插件诊断，由 app agent 提供真实 runtime 权限状态。
+- 真实窗口 snapshot、缓存复用与事件投递检查当前控制台 session；锁屏或未知 / 切换用户状态明确拒绝。fixture 不属于真实桌面，继续支持 headless 测试。
+- `LockedUseStateMachine` 是由独立 Broker 串行驱动的纯保护策略，覆盖一次性许可、租约、guardian heartbeat、接管和重锁确认；已接入受管理员验证 profile 限定的 unlock 事务，受保护 legacy 闭环已实测，完整生产证据仍待完成。
+- `experiments/LockedUse` 与独立脚本提供 deny-only Authorization 插件 ABI / 系统加载探针（仅独立 right），完整管理员验证组件另在 screensaver 授权链登记自定义分支并保留系统认证 fallback。独立 `OpenComputerUseGuardian` 测试 app 先用共享的 `DisplayShieldSurface` 做不锁屏 / 不操作的 15 秒品牌遮罩 preview（倒计时仅记录到日志），再用 child watchdog rehearsal 验证输入接管、重锁、遮挡窗口 AX / ScreenCaptureKit 及只读 loginwindow 结构。新增签名 Broker、remote 机制、锁屏 Guardian 和安装入口仍处于验证阶段，生产 profile 缺少实测证据时拒绝自动解锁。
+- `LockedUseNative` 读取 Unix socket 的内核 audit token；`LockedUsePeerIdentity` 验证动态进程签名；`LockedUseClientApprovals` 从 root 所有、不可由普通用户写入的目录加载批准记录；`LockedUsePermitRegistry` 管理绑定会话的一次性 32-byte 许可。Broker IPC 通过 SCM_RIGHTS 验证原生 CLI client 并隔离 agent / guardian / Apple helper / observer / admin 角色；app agent 按连接管理租约与排空。安装入口保留认证 fallback 并登记当前用户的同团队组件。真实 loginwindow / Keychain / 故障验证仍待完成，生产 backend 默认关闭。详细边界见 [Locked Use](locked-use.md)。
+
 ## 关键边界
 
 - 开源版当前不复刻官方闭源实现里的 caller signing、私有 IPC、完整 overlay choreography 和 plugin 自安装逻辑。

@@ -78,3 +78,14 @@ IOKit assertions 随协调器进程退出释放。合盖 helper 在修改 pmset 
 参考：[MirageKit 原始排查](https://github.com/EthanLipnik/MirageKit/blob/main/If-Your-Computer-Feels-Stuttery.md)、[同版本 macOS 的 ColorSync / registry 调查](https://github.com/dripster82/ar_workspace_manager_for_xreal/blob/main/Docs/ColorSync-AirII-investigation.md)。这些是项目观察，不能直接等同本机根因。
 
 实例授权回归覆盖新 PID/bundle/出生时间的 hide 资格、adopt 必需具体 PID/window、未知窗口/modal 的暂停策略、真实运行进程只读候选查询、结构化 reused 错误和 JS 显式整实例参数。默认 launch 两阶段后不自动移动；零闪现以及多窗口真实移动/恢复与 AX 通知效果仍待桌面稳定后的 signed GUI 验收，不把测试策略函数当真实 UI 成功证据。
+
+## macOS Locked Use 预检
+
+- `ocu locked-use status --json`：只读检查当前会话 / runtime 权限 / 安装组件；缺少完整实测证据时生产自动解锁不可用，显式验证 profile 与生产状态分开报告。
+- `swift test --filter LockedUseTests`：许可、租约、超时、显示器变化、本地接管和重锁确认策略回归。
+- `./scripts/build-locked-use-plugin.sh`：构建 deny-only ABI probe 并在普通进程内测试；通过不代表 SecurityAgent 加载成功。
+- `./scripts/build-locked-use-guardian.sh`：构建独立 Guardian / child watchdog；`--diagnose` 与签名构建后的 `--peer-self-test` 为非锁屏诊断。先运行 `python3 scripts/run-locked-use-rehearsal.py --shield-preview` 观察 15 秒倒计时与所有物理屏幕；用户准备好后才运行 `--confirm-lock-test`，验证窗口 AX / SCK 与重锁结果；人工 GUI 测试不进入自动 CI。`python3 scripts/tests/locked-use-rehearsal.test.py` 不启动 GUI / 锁屏，回归 controller 的恢复顺序和 preview 不锁屏边界。
+- 系统插件加载实验和后续真实锁屏测试是独立的人工门槛，不进入常规 CI / smoke，也不在日常账户自动运行。步骤和恢复路径见 [Locked Use](locked-use.md)。
+
+- Root 的认证策略读取使用独立队列；策略待定 / 过期 / 失败时停止新许可，协调队列继续处理恢复。独立 agent deadline 限制准备 / 停止时间，仍须验证真正撤罩和正常手动解锁的耗时。
+- `python3 scripts/run-locked-use-native-validation.py --confirm-recovery-test` 是验证 profile 的人工故障收束入口，不签发解锁许可。必须同时证明两个保护确曾就绪、原会话锁定、动作排空与双方释放 ACK，才报告通过。

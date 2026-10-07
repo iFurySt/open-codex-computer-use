@@ -6,6 +6,7 @@ import OpenComputerUseKit
 private let appAgentCommand = "__open-computer-use-app-agent"
 private let appAgentDisableEnvironmentKey = "OPEN_COMPUTER_USE_DISABLE_APP_AGENT_PROXY"
 private let appAgentProcessStartDate = Date()
+private let appAgentBuildIdentifier = Bundle.main.object(forInfoDictionaryKey: "OpenComputerUseBuildIdentifier") as? String ?? ""
 
 enum MacOSAppAgentProxy {
     static func isAgentInvocation(arguments: [String]) -> Bool {
@@ -18,6 +19,10 @@ enum MacOSAppAgentProxy {
             throw OpenComputerUseCLIError(message: "\(appAgentCommand) requires a socket path")
         }
 
+        // Swift globals initialize lazily. Capture both before the first request
+        // so a later agentInfo call cannot mistake an old process for a rebuild.
+        _ = appAgentProcessStartDate
+        _ = appAgentBuildIdentifier
         try MacOSAppAgentRuntime.run(socketPath: arguments[1])
     }
 
@@ -381,9 +386,12 @@ private final class AppAgentSocketListener: @unchecked Sendable {
 private final class AppAgentConnection: @unchecked Sendable {
     private let fileDescriptor: Int32
     private let server = StdioMCPServer()
+    private let lockedUse: LockedUseConnection
+    private var keychainProbe: LockedUseKeychainProbe?
 
     init(fileDescriptor: Int32) {
         self.fileDescriptor = fileDescriptor
+        lockedUse = LockedUseConnection(clientSocket: fileDescriptor)
     }
 
     func run() {
@@ -391,7 +399,25 @@ private final class AppAgentConnection: @unchecked Sendable {
             close(fileDescriptor)
             return
         }
-        defer { fclose(file) }
+        let monitorQueue = DispatchQueue(label: "ocu.client-disconnect")
+        let monitor = DispatchSource.makeTimerSource(queue: monitorQueue)
+        monitor.schedule(deadline: .now(), repeating: .milliseconds(100))
+        monitor.setEventHandler { [self] in
+            var byte: UInt8 = 0
+            let count = recv(fileDescriptor, &byte, 1, MSG_PEEK | MSG_DONTWAIT)
+            if count == 0 || count < 0 && ![EAGAIN, EWOULDBLOCK, EINTR].contains(errno) {
+                lockedUse.end(disconnecting: true)
+                monitor.cancel()
+            }
+        }
+        monitor.resume()
+        defer {
+            monitor.cancel(); monitorQueue.sync {}
+            lockedUse.end(disconnecting: true)
+            if let probe = keychainProbe { keychainProbe = nil; LockedUseDeferredCleanup.shared.retainIfNeeded(probe) }
+            _ = server.handle(line: "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/turn-ended\"}")
+            fclose(file)
+        }
 
         while let line = readAgentLine(file) {
             let response = handle(requestLine: line)
@@ -420,6 +446,7 @@ private final class AppAgentConnection: @unchecked Sendable {
                     "processStartTime": appAgentProcessStartDate.timeIntervalSince1970,
                     "activeSessionID": VirtualDisplaySessionRegistry.shared.activeSessionID ?? "",
                     "ownedDisplayCount": VirtualDisplaySessionRegistry.shared.ownedDisplayIDs.count,
+                    "buildIdentifier": appAgentBuildIdentifier,
                 ]
             case "terminate":
                 RunLoop.main.perform(inModes: [.common]) {
@@ -429,8 +456,74 @@ private final class AppAgentConnection: @unchecked Sendable {
             case "mcp":
                 let line = request["line"] as? String ?? ""
                 let environment = request["environment"] as? [String: String] ?? [:]
-                let response = AppAgentEnvironment.withOverrides(environment) {
-                    server.handle(line: line)
+                let response: String? = try AppAgentEnvironment.withOverrides(environment) {
+                    let payload = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+                    if payload?["method"] as? String == "notifications/turn-ended" { lockedUse.end() }
+                    if let method = payload?["method"] as? String, method.hasPrefix("ocu/locked-use/keychain/") || ["ocu/locked-use/validate", "ocu/locked-use/validate-unlocked", "ocu/locked-use/validate-recovery", "ocu/locked-use/validate-unlock", "ocu/locked-use/ready", "ocu/locked-use/protection-released"].contains(method) {
+                        var passed = false
+                        switch method {
+                        case "ocu/locked-use/ready":
+                            passed = try lockedUse.observeManualUnlock()
+                        case "ocu/locked-use/protection-released":
+                            passed = try lockedUse.protectionReleased()
+                        case "ocu/locked-use/validate-recovery":
+                            passed = try lockedUse.validateRecovery()
+                        case "ocu/locked-use/validate-unlock":
+                            guard LockedUseSession.current().state == .locked else {
+                                throw ComputerUseError.stateUnavailable("Begin unlock validation in a locked session")
+                            }
+                            // acquire() returns only after Root has observed
+                            // the original session unlocked with fresh guards.
+                            // No application, input, capture or Keychain access.
+                            try lockedUse.perform {
+                                guard LockedUseSession.current().state == .unlocked else {
+                                    throw ComputerUseError.stateUnavailable("Protected session did not remain unlocked")
+                                }
+                            }
+                            passed = true
+                        case "ocu/locked-use/keychain/prepare", "ocu/locked-use/keychain/prepare-legacy":
+                            guard LockedUseSession.current().state == .unlocked, keychainProbe == nil else { throw ComputerUseError.stateUnavailable("Prepare validation items in a normally unlocked session.") }
+                            keychainProbe = try LockedUseKeychainProbe(includeDataProtection: method != "ocu/locked-use/keychain/prepare-legacy"); passed = true
+                        case "ocu/locked-use/keychain/verify":
+                            guard let probe = keychainProbe else { throw ComputerUseError.stateUnavailable("Prepare validation items first.") }
+                            try lockedUse.perform { try probe.verify() }; passed = true
+                        case "ocu/locked-use/validate-unlocked":
+                            guard LockedUseSession.current().state == .unlocked, let probe = keychainProbe else {
+                                throw ComputerUseError.stateUnavailable("Unshielded native fixture preflight requires a normally unlocked session.")
+                            }
+                            try lockedUse.perform { try LockedUseNativeValidation.run(probe: probe) }
+                            passed = true
+                        case "ocu/locked-use/validate":
+                            guard LockedUseSession.current().state == .locked, let probe = keychainProbe else {
+                                throw ComputerUseError.stateUnavailable("Begin fixed native validation from a locked session with prepared isolated Keychain items.")
+                            }
+                            try lockedUse.perform {
+                                try LockedUseNativeValidation.run(probe: probe)
+                                if probe.includesDataProtection { try lockedUse.recordValidation() }
+                            }
+                            passed = true
+                        case "ocu/locked-use/keychain/verify-manual":
+                            guard LockedUseSession.current().state == .unlocked, let probe = keychainProbe else {
+                                throw ComputerUseError.stateUnavailable("Unlock normally before the final isolated Keychain check.")
+                            }
+                            try probe.verify()
+                            if probe.includesDataProtection { try lockedUse.recordValidation(manual: true) }
+                            passed = true
+                        case "ocu/locked-use/keychain/cleanup":
+                            passed = keychainProbe?.cleanup() ?? true
+                            if passed { keychainProbe = nil }
+                        default: throw ComputerUseError.message("Unknown Keychain validation operation.")
+                        }
+                        let result: [String: Any] = ["jsonrpc": "2.0", "id": payload?["id"] ?? NSNull(), "result": ["passed": passed, "existingItemsRead": false, "dataProtectionIncluded": keychainProbe?.includesDataProtection ?? false]]
+                        return String(decoding: try JSONSerialization.data(withJSONObject: result), as: UTF8.self)
+                    }
+                    let parameters = payload?["params"] as? [String: Any]
+                    if payload?["method"] as? String == "tools/call",
+                       let name = parameters?["name"] as? String,
+                       name != "list_apps", ToolDefinitions.all.contains(where: { $0.name == name }) {
+                        return try lockedUse.perform { server.handle(line: line) }
+                    }
+                    return server.handle(line: line)
                 }
                 if let response {
                     return ["response": response]
@@ -439,8 +532,13 @@ private final class AppAgentConnection: @unchecked Sendable {
             case "cli":
                 let arguments = request["arguments"] as? [String] ?? []
                 let environment = request["environment"] as? [String: String] ?? [:]
-                let response = AppAgentEnvironment.withOverrides(environment) {
-                    runCLI(arguments: arguments)
+                let response = try AppAgentEnvironment.withOverrides(environment) {
+                    let command = try parseOpenComputerUseCLI(arguments: arguments)
+                    switch command {
+                    case .snapshot, .call:
+                        return try lockedUse.perform { runCLI(arguments: arguments) }
+                    default: return runCLI(arguments: arguments)
+                    }
                 }
                 return [
                     "stdout": response.stdout,
@@ -452,6 +550,24 @@ private final class AppAgentConnection: @unchecked Sendable {
             }
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+            // Preserve the native RPC id even when lease acquisition fails
+            // before the MCP server runs. The stdio proxy forwards responses,
+            // not the app-agent envelope's error field.
+            if let envelope = try? JSONSerialization.jsonObject(with: Data(requestLine.utf8)) as? [String: Any] {
+                if envelope["kind"] as? String == "mcp",
+                   let line = envelope["line"] as? String,
+                   let rpc = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                   let id = rpc["id"] {
+                    let failure: [String: Any] = ["jsonrpc": "2.0", "id": id,
+                        "error": ["code": -32000, "message": message]]
+                    if let data = try? JSONSerialization.data(withJSONObject: failure) {
+                        return ["response": String(decoding: data, as: UTF8.self)]
+                    }
+                }
+                if envelope["kind"] as? String == "cli" {
+                    return ["stdout": "", "stderr": message + "\n", "exitCode": Int(EXIT_FAILURE)]
+                }
+            }
             return ["error": message]
         }
     }
@@ -477,7 +593,11 @@ private final class AppAgentConnection: @unchecked Sendable {
                         PermissionOnboardingApp.present()
                     }
                 }
-                return CLIProxyResponse(stdout: permissions.summary + "\n", stderr: "", exitCode: EXIT_SUCCESS)
+                return CLIProxyResponse(stdout: permissions.summary + "\n" + LockedUseDiagnostics.current().summary + "\n", stderr: "", exitCode: EXIT_SUCCESS)
+
+            case let .lockedUseStatus(json):
+                let diagnostics = LockedUseDiagnostics.current()
+                return CLIProxyResponse(stdout: (try json ? diagnostics.jsonText() : diagnostics.summary) + "\n", stderr: "", exitCode: EXIT_SUCCESS)
 
             case .listApps:
                 let service = ComputerUseService()
@@ -609,6 +729,18 @@ private final class AppAgentSocketClient: @unchecked Sendable {
         return response
     }
 
+    func waitForDisconnect() -> Bool {
+        let deadline = ProcessInfo.processInfo.systemUptime + 3
+        var byte: UInt8 = 0
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            let count = recv(fileno(file), &byte, 1, MSG_PEEK | MSG_DONTWAIT)
+            if count == 0 { return true }
+            if count < 0, ![EAGAIN, EWOULDBLOCK, EINTR].contains(errno) { return true }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        return false
+    }
+
     func isCurrentAgent(for appURL: URL) throws -> Bool {
         let response = try request(["kind": "agentInfo"])
         let expectedBundleURL = appURL.standardizedFileURL
@@ -616,6 +748,9 @@ private final class AppAgentSocketClient: @unchecked Sendable {
         guard response["bundleURL"] as? String == expectedBundleURL.path else {
             return false
         }
+
+        if let expectedBuild = Bundle(url: expectedBundleURL)?.object(forInfoDictionaryKey: "OpenComputerUseBuildIdentifier") as? String,
+           !expectedBuild.isEmpty, response["buildIdentifier"] as? String != expectedBuild { return false }
 
         guard let processStartTime = response["processStartTime"] as? TimeInterval else {
             return false

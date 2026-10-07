@@ -11,6 +11,9 @@ let package = Package(
         .executable(name: "VirtualDisplayHost", targets: ["VirtualDisplayHost"]),
         .executable(name: "VirtualDisplayRunner", targets: ["VirtualDisplayRunner"]),
         .executable(name: "VirtualDisplayTestApp", targets: ["VirtualDisplayTestApp"]),
+        .executable(name: "OpenComputerUseLockedUseInstaller", targets: ["OpenComputerUseLockedUseInstaller"]),
+        .executable(name: "OpenComputerUseLockedUseBroker", targets: ["OpenComputerUseLockedUseBroker"]),
+        .executable(name: "OpenComputerUseGuardian", targets: ["OpenComputerUseGuardian"]),
         .library(
             name: "OpenComputerUseKit",
             targets: ["OpenComputerUseKit"]
@@ -42,7 +45,29 @@ let package = Package(
         .executableTarget(name: "VirtualDisplayRunner", dependencies: ["OpenComputerUseKit"], path: "experiments/VirtualDisplay/Runner"),
         .executableTarget(name: "VirtualDisplayTestApp", path: "experiments/VirtualDisplay/TestApp"),
         .target(
+            name: "LockedUseNative",
+            path: "packages/LockedUseNative",
+            publicHeadersPath: "include",
+            linkerSettings: [.linkedLibrary("bsm")]
+        ),
+        .executableTarget(
+            name: "OpenComputerUseLockedUseInstaller",
+            dependencies: ["OpenComputerUseKit", "LockedUseNative"],
+            path: "experiments/LockedUse/Sources/Installer"
+        ),
+        .executableTarget(
+            name: "OpenComputerUseLockedUseBroker",
+            dependencies: ["OpenComputerUseKit", "LockedUseNative"],
+            path: "experiments/LockedUse/Sources/Broker"
+        ),
+        .executableTarget(
+            name: "OpenComputerUseGuardian",
+            dependencies: ["OpenComputerUseKit"],
+            path: "experiments/LockedUse/Sources/Guardian"
+        ),
+        .target(
             name: "OpenComputerUseKit",
+            dependencies: ["LockedUseNative"],
             path: "packages/OpenComputerUseKit/Sources/OpenComputerUseKit",
             exclude: ["Resources/README.md"],
             resources: [.copy("Resources/cursor-chat.png"), .copy("Resources/OBU-LICENSE.txt")]

@@ -104,6 +104,7 @@ enum InputSimulation {
     }
 
     static func scrollTargeted(at point: CGPoint, direction: String, pages: Double, pid: pid_t, isolateModifiers: Bool = false) throws {
+        try requireUsableComputerUseSession()
         guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2, wheel1: wheel1(direction: direction, pages: pages), wheel2: wheel2(direction: direction, pages: pages), wheel3: 0) else {
             throw ComputerUseError.message("Failed to create scroll event.")
         }
@@ -115,6 +116,7 @@ enum InputSimulation {
     }
 
     static func scrollGlobally(at point: CGPoint, direction: String, pages: Double) throws {
+        try requireUsableComputerUseSession()
         guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2, wheel1: wheel1(direction: direction, pages: pages), wheel2: wheel2(direction: direction, pages: pages), wheel3: 0) else {
             throw ComputerUseError.message("Failed to create scroll event.")
         }
@@ -173,6 +175,7 @@ enum InputSimulation {
     static func typeText(_ text: String, pid: pid_t, isolateModifiers: Bool = false, beforeChunk: (() throws -> Void)? = nil) throws {
         for chunk in keyboardUnicodeChunks(for: text) {
             try beforeChunk?()
+            try requireUsableComputerUseSession()
             var mutableChunk = chunk
             guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true),
                   let up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false) else {
@@ -218,6 +221,7 @@ enum InputSimulation {
     }
 
     static func pressKey(_ specification: String, pid: pid_t) throws {
+        try requireUsableComputerUseSession()
         let parsed = try KeyPressParser.parse(specification)
         var activeFlags: CGEventFlags = []
 
@@ -255,6 +259,7 @@ enum InputSimulation {
     }
 
     private static func postMouseEvent(type: CGEventType, source: CGEventSource?, point: CGPoint, button: CGMouseButton, clickState: Int, delta: CGSize? = nil, eventNumber: Int64? = nil) throws {
+        try requireUsableComputerUseSession()
         guard let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: point, mouseButton: button) else {
             throw ComputerUseError.message("Failed to create mouse event \(type.rawValue).")
         }
@@ -308,6 +313,7 @@ enum InputSimulation {
     }
 
     private static func postMouseEventToPid(type: CGEventType, source: CGEventSource, point: CGPoint, button: CGMouseButton, clickState: Int, pid: pid_t, isolateModifiers: Bool = false) throws {
+        try requireUsableComputerUseSession()
         guard let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: point, mouseButton: button) else {
             throw ComputerUseError.message("Failed to create mouse event \(type.rawValue).")
         }
