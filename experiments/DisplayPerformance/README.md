@@ -76,3 +76,13 @@ python3 -B experiments/DisplayPerformance/minimal.py --probe /tmp/ocu-display-pe
 ```
 
 控制器每次仅一个进程/一轮，分别测基线、descriptor、init、可选 apply 和退出后的被动窗口。合计 ColorSync 基线超过 20% 时拒绝启动、阶段超过 25% 时停止后续阶段；ICC 数量增长或物理拓扑变化同样中止。记录 ICC 内容变化但不修改系统文件。保持已预热的同一身份，两个条件用同一二进制；建议用既有 Developer ID 配置签名并严格验证。创建锁保护到该身份上线或进程退出，未上线的 init 阶段可能使其他创建请求暂时等待/超时，需协调测试窗口。已有异常基线只能用于增量对照，不能宣传为干净环境下的独立根因定位。
+
+## 最小 demo 的显式 30 次累积对照
+
+`minimal_cycles.py` 直接启动同一独立 `MinimalDisplay` 二进制，不把旧生产 helper 误当作最小 demo。`--cycles` 必须显式指定，限制 1–30；压力测试需调用方明确要求并协调电脑使用窗口。
+
+```sh
+python3 -B experiments/DisplayPerformance/minimal_cycles.py --probe /tmp/ocu-display-performance-probe --helper /tmp/ocu-minimal-display --output /tmp/ocu-minimal-thirty --slot 28 --cycles 30
+```
+
+两段 30 秒无热插拔基线，十组三次（每次在线四秒、移除后两秒），每组三次后 30 秒纯物理屏检查点，最后三段 30 秒静置。和默认最小单轮入口不同，此显式压力入口不使用 25% CPU 停止阈值，否则无法观察用户要求的累积曲线；身份冲突、ICC 数量/内容或物理拓扑变化、进程失败及清理错误仍中止。每轮验证上线、退出与 CG 移除，仅清理自己的进程。测量需区分在线峰值和移除后水平，CPU 上升不自动等同于可感知卡顿。已有高负载基线只能测增量，不替代健康/内置屏对照。原始报告保留本地，提交脱敏指标。

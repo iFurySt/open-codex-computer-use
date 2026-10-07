@@ -28,3 +28,5 @@
   - LG 条件的对象析构、提前释放与色度候选对照；明确固定身份/复用的作用及未解决的 ColorSync 内部触发边界。
 - `20261006-minimal-colorsync-reproducer.md`
   - 不链接 OCU 的单文件私有显示器 demo，以及 descriptor/init/apply/退出阶段的增量对照。
+- `20261007-minimal-display-thirty-cycles.md`
+  - 最小独立 demo 30 次后纯物理屏负载累积、用户卡顿反馈与资源清理检查。
