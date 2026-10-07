@@ -1,0 +1,203 @@
+{
+  "date": "2026-10-07",
+  "binary_sha256": "bb24414125b169af6c69c817692cd0cc7a31ab69f298520757a16d9f16ae296d",
+  "source_sha256": "2868a40ea9122dce1971da88afe715fc94ca57fbaa943c5b39490290618f5fac",
+  "same_binary_as_previous_minimal_demo": true,
+  "source_head": "9c8c43be6e2d585362f025803136da753d12313a",
+  "conditions": "macOS 26.5.1 arm64, built-in + LG, pre-existing elevated baseline",
+  "phases": [
+    {
+      "stage": "baseline",
+      "seconds": 21.036351203918457,
+      "cpu": {
+        "WindowServer": {
+          "mean": 40.41339769083728,
+          "median": 39.189279019046936,
+          "max": 54.10976285334327,
+          "p95": 50.80615072033279
+        },
+        "colorsync.displayservices": {
+          "mean": 9.745963579336504,
+          "median": 9.08941265341615,
+          "max": 15.274641636897387,
+          "p95": 14.372520311804438
+        },
+        "colorsyncd": {
+          "mean": 5.990589489371502,
+          "median": 5.742560406477737,
+          "max": 8.623512187065234,
+          "p95": 8.591985920776487
+        }
+      },
+      "display_info_requests_per_second": 2.5194483342780307,
+      "display_info_requests": 53,
+      "icc_before": 146,
+      "icc_after": 146,
+      "icc_content_changes": 0,
+      "online_displays_before": 2,
+      "online_displays_after": 2
+    },
+    {
+      "stage": "descriptor",
+      "seconds": 20.972335815429688,
+      "cpu": {
+        "WindowServer": {
+          "mean": 44.31939489564851,
+          "median": 41.523770174008284,
+          "max": 85.06965436434533,
+          "p95": 50.915875341340445
+        },
+        "colorsync.displayservices": {
+          "mean": 10.034709727296093,
+          "median": 10.051053194980266,
+          "max": 16.16784954672823,
+          "p95": 15.251326984133225
+        },
+        "colorsyncd": {
+          "mean": 6.116514075474791,
+          "median": 6.214251640985529,
+          "max": 10.461549706670887,
+          "p95": 9.532079365083264
+        }
+      },
+      "display_info_requests_per_second": 2.5748204909188668,
+      "display_info_requests": 54,
+      "icc_before": 146,
+      "icc_after": 146,
+      "icc_content_changes": 0,
+      "online_displays_before": 2,
+      "online_displays_after": 2
+    },
+    {
+      "stage": "init",
+      "seconds": 20.93570899963379,
+      "cpu": {
+        "WindowServer": {
+          "mean": 39.31194362228789,
+          "median": 38.9131858840235,
+          "max": 47.78311243703433,
+          "p95": 42.11999677338598
+        },
+        "colorsync.displayservices": {
+          "mean": 9.801292587445529,
+          "median": 10.494389333858608,
+          "max": 15.31636246295447,
+          "p95": 15.262738499301213
+        },
+        "colorsyncd": {
+          "mean": 6.024231886726592,
+          "median": 6.668469082306238,
+          "max": 9.572726539346544,
+          "p95": 9.549228277996688
+        }
+      },
+      "display_info_requests_per_second": 2.579325113897245,
+      "display_info_requests": 54,
+      "icc_before": 146,
+      "icc_after": 146,
+      "icc_content_changes": 0,
+      "online_displays_before": 2,
+      "online_displays_after": 2
+    },
+    {
+      "stage": "apply",
+      "seconds": 20.968390226364136,
+      "cpu": {
+        "WindowServer": {
+          "mean": 41.76605006560388,
+          "median": 39.35796382468489,
+          "max": 81.79066052020626,
+          "p95": 43.22056951992843
+        },
+        "colorsync.displayservices": {
+          "mean": 16.484599133302584,
+          "median": 16.25614012064898,
+          "max": 27.720482594150695,
+          "p95": 26.84859252483446
+        },
+        "colorsyncd": {
+          "mean": 15.664730231119872,
+          "median": 10.502901248091284,
+          "max": 51.96112550748481,
+          "p95": 47.03272679966972
+        }
+      },
+      "display_info_requests_per_second": 2.813759156667052,
+      "display_info_requests": 59,
+      "icc_before": 146,
+      "icc_after": 146,
+      "icc_content_changes": 0,
+      "online_displays_before": 3,
+      "online_displays_after": 3
+    },
+    {
+      "stage": "after-demo-exit",
+      "seconds": 20.963236808776855,
+      "cpu": {
+        "WindowServer": {
+          "mean": 38.557633411280236,
+          "median": 38.178455823021665,
+          "max": 42.36389746902538,
+          "p95": 42.293369170979936
+        },
+        "colorsync.displayservices": {
+          "mean": 11.463363095847617,
+          "median": 11.450231109207017,
+          "max": 20.990796609196664,
+          "p95": 18.34697755072872
+        },
+        "colorsyncd": {
+          "mean": 6.9730548429233155,
+          "median": 7.6108221167364745,
+          "max": 12.403652541794086,
+          "p95": 10.621934371465278
+        }
+      },
+      "display_info_requests_per_second": 2.9575585376224884,
+      "display_info_requests": 62,
+      "icc_before": 146,
+      "icc_after": 146,
+      "icc_content_changes": 0,
+      "online_displays_before": 2,
+      "online_displays_after": 2
+    },
+    {
+      "stage": "stable-after-demo-exit",
+      "seconds": 20.96121859550476,
+      "cpu": {
+        "WindowServer": {
+          "mean": 39.22037525704252,
+          "median": 38.88257951637616,
+          "max": 42.604799013829265,
+          "p95": 42.306897343321005
+        },
+        "colorsync.displayservices": {
+          "mean": 11.661324997146439,
+          "median": 11.434375627711145,
+          "max": 23.145986404640826,
+          "p95": 18.087611858384204
+        },
+        "colorsyncd": {
+          "mean": 7.11995114195942,
+          "median": 6.686639026504334,
+          "max": 13.50182540270715,
+          "p95": 11.423754857983827
+        }
+      },
+      "display_info_requests_per_second": 3.0055504508459574,
+      "display_info_requests": 63,
+      "icc_before": 146,
+      "icc_after": 146,
+      "icc_content_changes": 0,
+      "online_displays_before": 2,
+      "online_displays_after": 2
+    }
+  ],
+  "cleanup": [
+    {
+      "exit": 0,
+      "removal_verified": true
+    }
+  ],
+  "stop_reason": "Combined ColorSync above 25%; stop"
+}

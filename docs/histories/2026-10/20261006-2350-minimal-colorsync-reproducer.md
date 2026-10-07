@@ -23,3 +23,6 @@ Separate private display creation/activation from runtime, capture, layout and i
 - `experiments/DisplayPerformance/results-minimal-20261006.json`
 - `docs/references/20261006-minimal-colorsync-reproducer.md`
 - `docs/exec-plans/completed/20261006-minimal-colorsync-reproducer.md`
+
+### 2026-10-07 follow-up
+User asked to actually rerun the minimal demo and verify ColorSync CPU increases. Same binary verified by SHA-256; one applied cycle, safe guard cleanup, two post-exit passive windows. Before apply ~15.83% CPU / 2.579 requests/s, after removal ~18.44–18.78% / 2.958–3.006. All 146 ICC hashes stable; exit/removal confirmed, no formal App changes. Saved sanitized metrics and appended reference; internal root remains unresolved.
