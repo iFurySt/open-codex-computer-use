@@ -86,3 +86,27 @@ python3 -B experiments/DisplayPerformance/minimal_cycles.py --probe /tmp/ocu-dis
 ```
 
 两段 30 秒无热插拔基线，十组三次（每次在线四秒、移除后两秒），每组三次后 30 秒纯物理屏检查点，最后三段 30 秒静置。和默认最小单轮入口不同，此显式压力入口不使用 25% CPU 停止阈值，否则无法观察用户要求的累积曲线；身份冲突、ICC 数量/内容或物理拓扑变化、进程失败及清理错误仍中止。每轮验证上线、退出与 CG 移除，仅清理自己的进程。测量需区分在线峰值和移除后水平，CPU 上升不自动等同于可感知卡顿。已有高负载基线只能测增量，不替代健康/内置屏对照。原始报告保留本地，提交脱敏指标。
+
+## queue、初始化调用与保持在线对照
+
+`build_minimal_variant.py` 在仓库外构建 `global`（只换 Chromium 使用的全局 high-priority queue）与 `typed`（只把 display/mode 初始化改成有 init-family 类型声明的消息调用）候选；原 71 行源码不变，构建锚点改变时拒绝补丁。传 `--sign` 使用既有证书并严格验证。候选不是生产修复。
+
+`held.py` 仅创建一次、应用一次模式，保持在线 1–3 个 20 秒窗口，再正常退出检查并测量。默认合计 ColorSync 基线 >12% 不创建、在线 >25% 停止；ICC 内容/数量或物理拓扑变化、自己的显示器丢失也中止。
+
+```sh
+python3 -B experiments/DisplayPerformance/build_minimal_variant.py --variant global --output /tmp/ocu-minimal-variants
+python3 -B experiments/DisplayPerformance/held.py --probe /tmp/ocu-display-performance-probe --helper /tmp/ocu-minimal-variants/global/MinimalDisplay --output /tmp/ocu-global-held --slot 28
+python3 -B experiments/DisplayPerformance/held.py --probe /tmp/ocu-display-performance-probe --helper /tmp/ocu-minimal-display --output /tmp/ocu-serial-held --slot 28 --windows 3
+```
+
+`CoreGraphicsProbe.m` 是额外的公共 CG 枚举探针，避免旧 Swift probe 的 SCK/Metal 链接初始化成为观测混淆。只输出在线 ID/vendor/serial/main/frame，UUID 为 null，**没有权限检测字段**；仅用于生命周期/保持/静置测试，不用于 `observe` 捕获模式。
+
+```sh
+clang -fobjc-arc -O0 -Wall -Wextra -framework Foundation -framework CoreGraphics experiments/DisplayPerformance/CoreGraphicsProbe.m -o /tmp/ocu-cg-probe
+```
+
+`periodicity.py` 读取本地 ndjson，提取显示信息请求时间，在 4.8–5.3 秒区间搜索重复周期，再按 20ms 相位间隔分组（处理循环首尾）。只保存计数/周期，不保存绝对时间或机器标识；建议使用约 45 秒的稳定窗口。这个有目标区间的分析不是通用周期发现器，时序相位不等同于实际 timer 数量，不识别客户端 PID。
+
+```sh
+python3 -B experiments/DisplayPerformance/periodicity.py /tmp/colorsync-local.ndjson
+```

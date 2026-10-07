@@ -30,3 +30,5 @@
   - 不链接 OCU 的单文件私有显示器 demo，以及 descriptor/init/apply/退出阶段的增量对照。
 - `20261007-minimal-display-thirty-cycles.md`
   - 最小独立 demo 30 次后纯物理屏负载累积、用户卡顿反馈与资源清理检查。
+- `20261007-minimal-display-call-isolation.md`
+  - 队列、typed init、纯 CoreGraphics 观测和系统设置对照，以及约五秒周期请求组累积的证据与限制。

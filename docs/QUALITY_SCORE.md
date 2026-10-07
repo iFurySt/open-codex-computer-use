@@ -32,3 +32,5 @@
 [独立最小复现](references/20261006-minimal-colorsync-reproducer.md)进一步缩到 71 行 Foundation/CoreGraphics demo：未应用模式的实例不在线、未观察到阶梯增量；应用一次模式上线再退出后请求约 2.19→2.57/s。已有异常基线、一次现有 ICC 内容更新和其他 runtime 未隔离是限制，内部根因仍未知，质量等级不变。
 
 2026-10-07 [最小 demo 30 次](references/20261007-minimal-display-thirty-cycles.md)在 LG 条件下将移除后合计 ColorSync CPU 从约 19% 推到约 99%，随后 90 秒保持约 99–100%；用户明确反馈变卡。30 次退出/移除均通过，146 ICC 数量及内容恒定。正式兼容问题仍未解决，不将独立触发复现等同内部根因定位或修复。
+
+2026-10-07 [调用与周期隔离](references/20261007-minimal-display-call-isolation.md)：物理重连后约 1.41% / 0.198 请求每秒，ICC 内容未变；全局队列、typed init 及纯 CG 观测均未消除增量。同一显示器持有 60 秒未持续增长，移除后约 5.05 秒重复请求相位组从三次后的 7 组增至四次后的 9 组。正常退出系统设置未清除请求。root 调用栈待用户只读采样，内部根因和修复仍未确认，维持 C。
