@@ -334,3 +334,11 @@ WindowServer 元数据并不提供像素或 compositor 原子交接保证；1 �
 冲突处理保留虚拟显示器 SwiftPM 产品 / cursor 资源并加入 LockedUseNative 依赖；保留 agent 的安全 retire 和虚拟屏所有权检查，补齐构建身份；真实输入同时执行 Locked Use 会话检查与虚拟会话输入门，缓存沿用 session/window key 并在会话失效时清空。Node 的虚拟 / AX diff 测试和租约退出测试均保留，安全 / 可靠性文档两边内容合并。未改系统认证配置、未发起锁屏或热插拔测试。
 
 合并后 Swift 330 项（2 跳过、0 失败）、Node REPL 28 项、Python 28 项均通过，根构建覆盖主 app、Guardian、Broker、Installer 与虚拟显示器产品。此前物理双屏录屏闭环与保留 Counter: 1 的证据仍有效，但此次集成不新增真实场景验收，也不开放生产 backend。仅本地提交，不推送。
+
+### 合并后主目录实机回归
+
+从合并后的 awesome-extension 构建并严格校验签名的 App、Guardian、Broker、Installer 和授权插件；在无保护会话时通过正常管理员安装流程更新系统组件。首轮自动解锁成功，但固定验证器未指定完整 AX 输出，被目标分支新加入的增量快照误判为 verification 失败。验证器现在显式使用 full 快照，并仅记录计数与图像变化；失败路径先结束租约再等待释放，避免控制器仍连接时等待无效。
+
+构建期间 Broker 策略观察超过有效期，触发持续拒绝；现场确认保护已释放、用户正常解锁后，经管理员重启空闲服务，不更改策略校验期限。修正后的不锁屏原生 AX / SCK 验证通过，随后完整 legacy-only 实测通过：自动解锁、固定窗口 AX 点击和 SCK 图像变化、保持 5.001 秒、重锁、双保护释放 ACK、手动解锁后隔离项验证 / 清理、保留原 Counter: 1 窗口。用户确认两块物理屏幕全程遮蔽、撤罩无桌面闪现、手动解锁正常并看到 Counter: 1。
+
+相关 Swift 回归 128 项零失败，五个 Python 回归脚本全部通过。完整生产证据与故障矩阵仍未补齐，productionEvidenceEligible=false，生产 backend 保持关闭。仅本地提交，不推送。

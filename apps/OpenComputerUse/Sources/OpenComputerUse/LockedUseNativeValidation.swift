@@ -25,7 +25,9 @@ enum LockedUseNativeValidation {
             throw ComputerUseError.stateUnavailable("Native validation fixture signer is not approved.")
         }
         let service = ComputerUseService()
-        let before = try service.getAppState(app: identifier)
+        // This fixed assertion parses a complete tree. Normal agent output may
+        // be an incremental AX diff after the action's own read-back.
+        let before = try service.getAppState(app: identifier, snapshotMode: .full)
         guard let text = before.primaryText else { throw LockedUseKeychainProbe.Failure.verification }
         let buttons = text.split(separator: "\n").filter {
             $0.contains("Increment Counter") && $0.contains("locked-use-validation-increment")
@@ -36,9 +38,11 @@ enum LockedUseNativeValidation {
         logger.notice("fixtureBeforeCaptured counter=\(counter, privacy: .public)")
         _ = try service.click(app: identifier, elementIndex: String(index), x: nil, y: nil,
                               clickCount: 1, mouseButton: "left", clickMethod: .accessibility)
-        let after = try service.getAppState(app: identifier)
-        guard try counterValue(after.primaryText ?? "") == counter + 1,
-              try imageHash(before) != imageHash(after) else { throw LockedUseKeychainProbe.Failure.verification }
+        let after = try service.getAppState(app: identifier, snapshotMode: .full)
+        let afterCounter = try counterValue(after.primaryText ?? "")
+        let imageChanged = try imageHash(before) != imageHash(after)
+        logger.notice("fixtureReadBack counter=\(afterCounter, privacy: .public) imageChanged=\(imageChanged, privacy: .public)")
+        guard afterCounter == counter + 1, imageChanged else { throw LockedUseKeychainProbe.Failure.verification }
         logger.notice("fixtureChanged counterIncremented=true imageChanged=true")
         try probe.verify()
         logger.notice("isolatedKeychainVerified dataProtectionIncluded=\(probe.includesDataProtection, privacy: .public)")

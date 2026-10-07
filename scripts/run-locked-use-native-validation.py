@@ -224,6 +224,11 @@ def main():
         raise
     finally:
         if not completed and locked:
+            # End the lease before waiting for release. Keeping this RPC open
+            # without ending its turn would leave protection active until the
+            # wait timed out and close() finally disconnected the controller.
+            try: rpc.notify("notifications/turn-ended")
+            except Exception: pass
             # Root and the independent guards own relock. An extra controller
             # SPI request can interrupt a user's normal recovery login.
             print("Validation failed; independent guards own recovery. Unlock normally before retrying cleanup.", file=sys.stderr)

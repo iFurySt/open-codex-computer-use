@@ -317,3 +317,7 @@ python3 scripts/run-locked-use-native-validation.py --confirm-lock-test --legacy
 ```
 
 退出 ACK 由 main / watchdog 在各自真实撤罩后，经同一签名与 audit-token 的恢复连接提交，最多 3 次并检查回复；不以窗口进程死亡冒充 ACK。周期报告的 IPC 失败不再跳过 terminal 确认。控制器最多等待 8 秒观测 Root 的双 ACK，此等待不生成许可或代替呈现屏障。演示的 `--keep-fixture` 目标采用独立进程 session 和空 stdin，因此 runner 结束不带走原有计数窗口；已实测脚本退出后只读 AX 仍见 `Counter: 1`。
+
+### 合并后的原生验证读回
+
+固定计数器验证显式请求 `snapshotMode: .full`：普通 Agent 查询继续支持 AX 增量输出，但验证器必须读取完整的 Counter 状态，不能将 action 自带读回后的 `AX unchanged` 当作计数丢失。验证日志仅记录计数与图像变化布尔值。验证失败后控制器先发送 turn-ended 结束租约，再等待双保护释放确认，避免因仍保持 RPC 连接而无谓等待释放超时。
