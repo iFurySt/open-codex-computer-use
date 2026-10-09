@@ -644,24 +644,33 @@ KEY_ALIASES = {
     "next": "Page_Down",
 }
 
-MODIFIER_KEYS = {
-    "ctrl": "Control_L",
-    "control": "Control_L",
-    "shift": "Shift_L",
-    "alt": "Alt_L",
-    "super": "Super_L",
-    "win": "Super_L",
-    "cmd": "Super_L",
+# X11 modifier bits for LOCKMODIFIERS/UNLOCKMODIFIERS. Super is usually Mod4.
+MODIFIER_BITS = {
+    "ctrl": "CONTROL",
+    "control": "CONTROL",
+    "shift": "SHIFT",
+    "alt": "ALT",
+    "super": "META3",
+    "win": "META3",
+    "cmd": "META3",
 }
 
 
+# GDK returns VoidSymbol for names it doesn't know.
+VOID_SYMBOL = 0xFFFFFF
+
+
 def keyval(name):
-    if Gdk is not None:
-        value = Gdk.keyval_from_name(name)
-        if value:
-            return int(value)
+    # Characters have no name lookup in GDK ("/" is "slash"), so map them
+    # from Unicode instead.
     if len(name) == 1:
+        if Gdk is not None:
+            return int(Gdk.unicode_to_keyval(ord(name)))
         return ord(name)
+    if Gdk is not None:
+        value = int(Gdk.keyval_from_name(name))
+        if value and value != VOID_SYMBOL:
+            return value
     raise RuntimeError("Unsupported key: " + name)
 
 
@@ -670,24 +679,29 @@ def send_key(key):
     if not parts:
         raise RuntimeError("Unsupported key: " + str(key))
     main = parts[-1]
-    modifiers = parts[:-1]
-    pressed = []
-    for modifier in modifiers:
-        name = MODIFIER_KEYS.get(modifier.lower())
+    mask = 0
+    for modifier in parts[:-1]:
+        name = MODIFIER_BITS.get(modifier.lower())
         if name is None:
-            continue
-        value = keyval(name)
-        Atspi.generate_keyboard_event(value, None, Atspi.KeySynthType.PRESS)
-        pressed.append(value)
+            raise RuntimeError("Unsupported modifier: " + modifier)
+        mask |= 1 << int(getattr(Atspi.ModifierType, name))
     normalized = KEY_ALIASES.get(main.lower(), main)
-    if len(normalized) == 1:
-        Atspi.generate_keyboard_event(0, normalized, Atspi.KeySynthType.STRING)
-    else:
-        Atspi.generate_keyboard_event(
-            keyval(normalized), None, Atspi.KeySynthType.PRESSRELEASE
-        )
-    for value in reversed(pressed):
-        Atspi.generate_keyboard_event(value, None, Atspi.KeySynthType.RELEASE)
+    if mask:
+        Atspi.generate_keyboard_event(mask, None, Atspi.KeySynthType.LOCKMODIFIERS)
+    try:
+        if len(normalized) == 1 and not mask:
+            Atspi.generate_keyboard_event(0, normalized, Atspi.KeySynthType.STRING)
+        else:
+            # SYM takes a keysym. PRESS, RELEASE, and PRESSRELEASE take a
+            # hardware keycode, so passing a keysym there sends another key.
+            Atspi.generate_keyboard_event(
+                keyval(normalized), None, Atspi.KeySynthType.SYM
+            )
+    finally:
+        if mask:
+            Atspi.generate_keyboard_event(
+                mask, None, Atspi.KeySynthType.UNLOCKMODIFIERS
+            )
 
 
 def send_text(text):
