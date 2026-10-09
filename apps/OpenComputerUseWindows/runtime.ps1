@@ -7,6 +7,8 @@ $ErrorActionPreference = "Stop"
 $DefaultTextLimit = 500
 $AccessibilityTreeMaxNodeCount = 1200
 $AccessibilityTreeMaxDepth = 64
+$MinimumScreenshotDimension = 64
+$MinimumScreenshotArea = 20000
 
 # Set output encoding to UTF-8 to properly handle non-ASCII characters
 $OutputEncoding = [System.Text.Encoding]::UTF8
@@ -37,6 +39,18 @@ public static class OCUWin32 {
 
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern int GetSystemMetrics(int index);
+
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmGetWindowAttribute(IntPtr hWnd, int attribute, out int value, int valueSize);
 
     [DllImport("user32.dll")]
     public static extern bool ScreenToClient(IntPtr hWnd, ref POINT point);
@@ -107,6 +121,71 @@ function Get-WindowRectFrame([IntPtr]$hwnd) {
     return $null
 }
 
+function Get-VirtualScreenFrame {
+    $x = [OCUWin32]::GetSystemMetrics(76)
+    $y = [OCUWin32]::GetSystemMetrics(77)
+    $width = [OCUWin32]::GetSystemMetrics(78)
+    $height = [OCUWin32]::GetSystemMetrics(79)
+    if ($width -le 0 -or $height -le 0) {
+        return $null
+    }
+    return New-Frame $x $y $width $height
+}
+
+function Test-FrameIntersectsVirtualScreen($frame) {
+    if ($null -eq $frame) {
+        return $false
+    }
+    $virtualScreen = Get-VirtualScreenFrame
+    if ($null -eq $virtualScreen) {
+        return $false
+    }
+    return (
+        $frame.x -lt ($virtualScreen.x + $virtualScreen.width) -and
+        ($frame.x + $frame.width) -gt $virtualScreen.x -and
+        $frame.y -lt ($virtualScreen.y + $virtualScreen.height) -and
+        ($frame.y + $frame.height) -gt $virtualScreen.y
+    )
+}
+
+function Test-CapturableFrame($frame) {
+    if ($null -eq $frame) {
+        return $false
+    }
+    if ($frame.width -lt $MinimumScreenshotDimension -or $frame.height -lt $MinimumScreenshotDimension) {
+        return $false
+    }
+    if (($frame.width * $frame.height) -lt $MinimumScreenshotArea) {
+        return $false
+    }
+    return Test-FrameIntersectsVirtualScreen $frame
+}
+
+function Get-CapturableWindowFrame([IntPtr]$hwnd) {
+    if ($hwnd -eq [IntPtr]::Zero) {
+        return $null
+    }
+    if (-not [OCUWin32]::IsWindowVisible($hwnd) -or [OCUWin32]::IsIconic($hwnd)) {
+        return $null
+    }
+    try {
+        [int]$cloaked = 0
+        $result = [OCUWin32]::DwmGetWindowAttribute($hwnd, 14, [ref]$cloaked, 4)
+        if ($result -ne 0 -or $cloaked -ne 0) {
+            return $null
+        }
+    } catch {
+        # An unknown DWM visibility state is not a trustworthy screenshot
+        # source. Keep the accessibility tree, but fail closed for the image.
+        return $null
+    }
+    $frame = Get-WindowRectFrame $hwnd
+    if (-not (Test-CapturableFrame $frame)) {
+        return $null
+    }
+    return $frame
+}
+
 function Get-ElementFrame($element, $windowBounds) {
     try {
         $rect = $element.Current.BoundingRectangle
@@ -123,12 +202,19 @@ function Get-ElementFrame($element, $windowBounds) {
 }
 
 function Get-ScreenPoint($localFrame, $windowBounds) {
-    if ($null -eq $localFrame -or $null -eq $windowBounds) {
-        return $null
+    Assert-UsableWindowBounds $windowBounds
+    if ($null -eq $localFrame) {
+        throw "No usable element frame is available for screenshot-coordinate input."
     }
     [pscustomobject]@{
         x = [int][math]::Round($windowBounds.x + $localFrame.x + ($localFrame.width / 2))
         y = [int][math]::Round($windowBounds.y + $localFrame.y + ($localFrame.height / 2))
+    }
+}
+
+function Assert-UsableWindowBounds($windowBounds) {
+    if (-not (Test-CapturableFrame $windowBounds)) {
+        throw "No usable screenshot coordinates are available. Restore a visible, non-minimized, on-screen window and run get_app_state again."
     }
 }
 
@@ -343,20 +429,7 @@ function Get-MainElement($process) {
 
 function Get-WindowBounds($process, $element) {
     $hwnd = [IntPtr]$process.MainWindowHandle
-    if ($hwnd -ne [IntPtr]::Zero) {
-        $fromWin32 = Get-WindowRectFrame $hwnd
-        if ($null -ne $fromWin32) {
-            return $fromWin32
-        }
-    }
-    try {
-        $rect = $element.Current.BoundingRectangle
-        if (-not $rect.IsEmpty -and $rect.Width -gt 0 -and $rect.Height -gt 0) {
-            return New-Frame $rect.X $rect.Y $rect.Width $rect.Height
-        }
-    } catch {
-    }
-    return $null
+    return Get-CapturableWindowFrame $hwnd
 }
 
 function Get-PatternNames($element) {
@@ -563,22 +636,26 @@ function Render-Tree($element, $windowBounds, $TextLimit = $script:DefaultTextLi
 }
 
 function Capture-WindowPngBase64($bounds) {
-    if ($null -eq $bounds -or $bounds.width -le 0 -or $bounds.height -le 0) {
+    if (-not (Test-CapturableFrame $bounds)) {
         return $null
     }
+    $bitmap = $null
+    $graphics = $null
+    $stream = $null
     try {
         $bitmap = New-Object System.Drawing.Bitmap ([int][math]::Round($bounds.width)), ([int][math]::Round($bounds.height))
         $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
         $graphics.CopyFromScreen([int][math]::Round($bounds.x), [int][math]::Round($bounds.y), 0, 0, $bitmap.Size)
         $stream = New-Object System.IO.MemoryStream
         $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
-        $graphics.Dispose()
-        $bitmap.Dispose()
         $bytes = $stream.ToArray()
-        $stream.Dispose()
         return [Convert]::ToBase64String($bytes)
     } catch {
         return $null
+    } finally {
+        if ($null -ne $graphics) { $graphics.Dispose() }
+        if ($null -ne $bitmap) { $bitmap.Dispose() }
+        if ($null -ne $stream) { $stream.Dispose() }
     }
 }
 
@@ -639,6 +716,9 @@ function Build-Snapshot([string]$query, $TextLimit = $script:DefaultTextLimit, [
 function List-Apps {
     $lines = New-Object System.Collections.Generic.List[string]
     foreach ($process in (Get-Process | Where-Object { $_.MainWindowHandle -ne 0 } | Sort-Object ProcessName, Id)) {
+        if ($null -eq (Get-CapturableWindowFrame ([IntPtr]$process.MainWindowHandle))) {
+            continue
+        }
         $title = $process.MainWindowTitle
         if ([string]::IsNullOrWhiteSpace($title)) {
             $title = "untitled"
@@ -923,6 +1003,7 @@ try {
                         throw "click_method 'accessibility' could not click the requested element"
                     }
                 } elseif ($clickMethod -eq "app_post") {
+                    Assert-UsableWindowBounds $windowBounds
                     if ($null -ne $operation.element -and $null -ne $operation.element.frame) {
                         $point = Get-ScreenPoint $operation.element.frame $windowBounds
                     } else {
@@ -942,6 +1023,7 @@ try {
                         $handled = Invoke-PreferredClick $element
                     }
                     if (-not $handled) {
+                        Assert-UsableWindowBounds $windowBounds
                         if ($null -ne $operation.element -and $null -ne $operation.element.frame) {
                             $point = Get-ScreenPoint $operation.element.frame $windowBounds
                         } else {
@@ -966,11 +1048,13 @@ try {
                     $handled = Invoke-Scroll $element $operation.direction ([double]$operation.pages)
                 }
                 if (-not $handled) {
+                    Assert-UsableWindowBounds $windowBounds
                     $point = Get-ScreenPoint $operation.element.frame $windowBounds
                     Send-Scroll $hwnd $point.x $point.y $operation.direction ([double]$operation.pages)
                 }
             }
             "drag" {
+                Assert-UsableWindowBounds $windowBounds
                 Send-Drag $hwnd ([int][math]::Round($windowBounds.x + [double]$operation.from_x)) ([int][math]::Round($windowBounds.y + [double]$operation.from_y)) ([int][math]::Round($windowBounds.x + [double]$operation.to_x)) ([int][math]::Round($windowBounds.y + [double]$operation.to_y))
             }
             "type_text" {

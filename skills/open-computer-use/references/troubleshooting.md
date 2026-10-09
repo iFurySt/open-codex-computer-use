@@ -47,6 +47,8 @@ Common causes:
 
 Ask the user to bring the target app/window into a visible state when automation cannot do so safely.
 
+On Windows, `get_app_state` may intentionally return the accessibility tree without an image when the main window is hidden, minimized, DWM-cloaked, off-screen, or too small to be a trustworthy Computer Use screenshot. Do not synthesize, upscale, or pad an image. Use `element_index` actions when the returned tree is sufficient; screenshot-coordinate click and drag require a later state result that contains a usable image.
+
 ## Truncated Text
 
 Snapshot text is limited to 500 characters by default. If a visible chat message, email body, document paragraph, or form value ends with `...`, do not assume the page itself is missing content.

@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image/png"
 	"io"
 	"math"
 	"os"
@@ -21,10 +24,15 @@ var version = "0.3.6"
 
 var clickMethodValues = []string{"auto", "accessibility", "app_post", "sky_click", "global"}
 
+const (
+	minimumScreenshotDimension = 64
+	minimumScreenshotArea      = 20_000
+)
+
 //go:embed runtime.ps1
 var windowsRuntimeScript string
 
-const serverInstructions = "Computer Use tools let you interact with Windows apps by performing UI actions.\n\nBegin by calling `get_app_state` every turn you want to use Computer Use to get the latest state before acting. The available tools are list_apps, get_app_state, click, perform_secondary_action, scroll, drag, type_text, press_key, and set_value.\n\nPrefer element-targeted interactions over coordinate clicks when an index for the targeted element is available. Windows actions use UI Automation patterns first and fall back to window messages when an app does not expose the needed pattern. The Windows runtime does not auto-launch apps, perform SetFocus, or use UIA text fallback by default, so background-capable actions do not intentionally steal the user's foreground focus."
+const serverInstructions = "Computer Use tools let you interact with Windows apps by performing UI actions.\n\nBegin by calling `get_app_state` every turn you want to use Computer Use to get the latest state before acting. The available tools are list_apps, get_app_state, click, perform_secondary_action, scroll, drag, type_text, press_key, and set_value.\n\nPrefer element-targeted interactions over coordinate clicks when an index for the targeted element is available. Screenshot-coordinate actions require get_app_state to return a usable image; hidden, minimized, cloaked, off-screen, or degenerate windows may return only the accessibility tree. Windows actions use UI Automation patterns first and fall back to window messages when an app does not expose the needed pattern. The Windows runtime does not auto-launch apps, perform SetFocus, or use UIA text fallback by default, so background-capable actions do not intentionally steal the user's foreground focus."
 
 type toolDefinition struct {
 	Name        string         `json:"name"`
@@ -109,6 +117,9 @@ func (s *appSnapshot) renderedText() string {
 		fmt.Sprintf("Window: %q, App: %s.", title, s.App.Name),
 	}
 	lines = append(lines, s.TreeLines...)
+	if !s.hasUsableScreenshot() {
+		lines = append(lines, "", "Screenshot unavailable. Restore a visible, non-minimized, on-screen window before using screenshot-coordinate actions; element_index actions may still work.")
+	}
 	if strings.TrimSpace(s.SelectedText) != "" {
 		lines = append(lines, "", fmt.Sprintf("Selected text: [%s]", s.SelectedText))
 	} else if strings.TrimSpace(s.FocusedSummary) != "" {
@@ -118,17 +129,68 @@ func (s *appSnapshot) renderedText() string {
 }
 
 func (s *appSnapshot) result() toolCallResult {
+	s.sanitizeScreenshot()
 	result := toolCallResult{
 		Content: []contentItem{{Type: "text", Text: s.renderedText()}},
 	}
-	if s != nil && s.ScreenshotPNGBase64 != "" {
+	if screenshot := s.usableScreenshotPNGBase64(); screenshot != "" {
 		result.Content = append(result.Content, contentItem{
 			Type:     "image",
-			Data:     s.ScreenshotPNGBase64,
+			Data:     screenshot,
 			MimeType: "image/png",
 		})
 	}
 	return result
+}
+
+func (s *appSnapshot) usableScreenshotPNGBase64() string {
+	if !s.hasUsableScreenshot() {
+		return ""
+	}
+	return s.ScreenshotPNGBase64
+}
+
+func (s *appSnapshot) hasUsableScreenshot() bool {
+	return s != nil && isUsableScreenshotFrame(s.WindowBounds) && s.ScreenshotPNGBase64 != ""
+}
+
+func (s *appSnapshot) sanitizeScreenshot() {
+	if s == nil {
+		return
+	}
+	if !isUsableScreenshotFrame(s.WindowBounds) {
+		s.ScreenshotPNGBase64 = ""
+		return
+	}
+	s.ScreenshotPNGBase64 = validateScreenshotPNGBase64(s.ScreenshotPNGBase64)
+}
+
+func isUsableScreenshotFrame(bounds *frame) bool {
+	if bounds == nil || math.IsNaN(bounds.Width) || math.IsNaN(bounds.Height) || math.IsInf(bounds.Width, 0) || math.IsInf(bounds.Height, 0) {
+		return false
+	}
+	return bounds.Width >= minimumScreenshotDimension &&
+		bounds.Height >= minimumScreenshotDimension &&
+		bounds.Width*bounds.Height >= minimumScreenshotArea
+}
+
+func validateScreenshotPNGBase64(encoded string) string {
+	encoded = strings.TrimSpace(encoded)
+	if encoded == "" {
+		return ""
+	}
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return ""
+	}
+	configuration, err := png.DecodeConfig(bytes.NewReader(data))
+	if err != nil || configuration.Width < minimumScreenshotDimension || configuration.Height < minimumScreenshotDimension {
+		return ""
+	}
+	if int64(configuration.Width)*int64(configuration.Height) < minimumScreenshotArea {
+		return ""
+	}
+	return encoded
 }
 
 type psRequest struct {
@@ -302,6 +364,9 @@ func (s *service) click(app, elementIndex string, x, y *float64, clickCount int,
 	if snapshot == nil {
 		return textResult("No app state is available for "+app+". Run get_app_state before action tools.", true)
 	}
+	if (elementIndex == "" || clickMethod == "app_post") && !snapshot.hasUsableScreenshot() {
+		return screenshotCoordinatesUnavailableResult(app)
+	}
 	request := psRequest{
 		Tool:         "click",
 		App:          app,
@@ -388,7 +453,14 @@ func (s *service) drag(app string, fromX, fromY, toX, toY *float64) toolCallResu
 	if snapshot == nil {
 		return textResult("No app state is available for "+app+". Run get_app_state before action tools.", true)
 	}
+	if !snapshot.hasUsableScreenshot() {
+		return screenshotCoordinatesUnavailableResult(app)
+	}
 	return s.actionResult(app, psRequest{Tool: "drag", App: app, FromX: fromX, FromY: fromY, ToX: toX, ToY: toY, WindowBounds: snapshot.WindowBounds})
+}
+
+func screenshotCoordinatesUnavailableResult(app string) toolCallResult {
+	return textResult("No usable screenshot is available for "+app+". Restore a visible, non-minimized, on-screen window and run get_app_state again before using screenshot coordinates.", true)
 }
 
 func (s *service) typeText(app, text string) toolCallResult {
@@ -458,6 +530,7 @@ func (s *service) refreshSnapshot(app string, request psRequest) (*appSnapshot, 
 	if response.Snapshot == nil {
 		return nil, textResult("Windows runtime did not return an app snapshot.", true)
 	}
+	response.Snapshot.sanitizeScreenshot()
 	s.rememberSnapshot(app, response.Snapshot)
 	return response.Snapshot, toolCallResult{}
 }

@@ -1,5 +1,11 @@
 # 功能发布记录
 
+## 2026-10
+
+| 日期 | 功能域 | 用户价值 | 变更摘要 |
+| --- | --- | --- | --- |
+| 2026-10-09 | Windows 截图可靠性 | 极小、最小化、隐藏、cloaked 或离屏窗口不会再向模型返回不可用的 PNG；极端情况下仍可读取 accessibility tree，并明确限制依赖截图坐标的操作。 | Windows bridge 在截图前校验窗口状态、virtual screen 交集和最小尺寸，Go 层再次解码 PNG header 复核；无有效截图时省略 image block，coordinate click / drag fail closed，不做放大、补边或占位图。 |
+
 ## 2026-09
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
