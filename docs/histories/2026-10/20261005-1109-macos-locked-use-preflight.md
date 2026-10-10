@@ -360,3 +360,5 @@ WindowServer 元数据并不提供像素或 compositor 原子交接保证；1 �
 构建支持 --configuration debug|release，组件输出目录隔离；App 按其构建配置选取组件，内嵌与系统安装的 Guardian 路径固定为 OCU Guardian.app，plist 显示名区分配置。签名 ID / launchd Label / remote right 保持稳定，授权 mechanism 同步为 OCULockAuth:remote，生产门槛不变。新版停用入口可校验并调用旧安装的签名 installer；安装器拒绝旧插件残留，要求先正常停用卸载，不在线改名认证插件。日志诊断兼容新旧进程 / 机制名称。
 
 Swift 301 项（7 跳过、0 失败）、Node 25 项、Python 29 项和文档检查通过。debug / release 组件与 App 签名构建、授权插件 ABI / task verifier 检查、严格嵌套签名验证通过；实际 plist / 文件检查确认名称正确，两种 App 均只嵌入四个运行组件，没有测试 App / 诊断插件。诊断探针独立构建和 ABI 检查通过。未安装新系统组件、修改当前认证规则或锁屏测试；旧实机证据不自动授予改名制品生产资格。
+
+推送前同步 main 的 1.0.0 发版提交，保留两条发布记录；同步后 Swift 301 项（8 跳过、0 失败），额外跳过为需要 unlocked console 的无事件输入门验证。PR 的正式名称与升级说明通过 GitHub REST API 同步。
