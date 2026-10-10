@@ -27,6 +27,33 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["--version"]), .version)
     }
 
+    func testDoctorJSONContract() throws {
+        XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["doctor"]), .doctor())
+        XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["doctor", "--json"]), .doctor(json: true))
+        XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["doctor", "--json", "--json"]))
+        XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["doctor", "--unknown"]))
+        XCTAssertTrue(shouldUseMacOSAppAgentProxy(
+            command: .doctor(json: true), proxyDisabled: false,
+            appBundleAvailable: true, runningFromLaunchServicesAppInstance: false
+        ))
+        for accessibility in [false, true] {
+            for screenCapture in [false, true] {
+                let diagnostics = PermissionDiagnostics(
+                    accessibilityTrusted: accessibility, screenCaptureGranted: screenCapture
+                )
+                let payload = try XCTUnwrap(JSONSerialization.jsonObject(
+                    with: Data(try diagnostics.jsonText().utf8)
+                ) as? [String: Any])
+                XCTAssertEqual(payload["platform"] as? String, "macos")
+                XCTAssertEqual(payload["accessibilityTrusted"] as? Bool, accessibility)
+                XCTAssertEqual(payload["screenCaptureGranted"] as? Bool, screenCapture)
+                XCTAssertEqual(payload["allGranted"] as? Bool, accessibility && screenCapture)
+                XCTAssertEqual(payload["missingPermissions"] as? [String],
+                               diagnostics.missingPermissions.map(\.rawValue))
+            }
+        }
+    }
+
     func testCLIRecognizesCommandSpecificHelp() throws {
         XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["help", "snapshot"]), .help(command: "snapshot"))
         XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["snapshot", "--help"]), .help(command: "snapshot"))
@@ -346,7 +373,7 @@ final class OpenComputerUseKitTests: XCTestCase {
     func testMacOSAppAgentProxyDecisionRoutesAutomationCommandsThroughAppBundle() {
         for command in [
             OpenComputerUseCLICommand.mcp,
-            .doctor,
+            .doctor(),
             .listApps,
             .snapshot(app: "TextEdit"),
             .call(.single(toolName: "list_apps", argumentsJSON: nil, argumentsFile: nil)),
@@ -412,13 +439,13 @@ final class OpenComputerUseKitTests: XCTestCase {
 
     func testMacOSAppAgentProxyDecisionHonorsDisableAndMissingBundle() {
         XCTAssertFalse(shouldUseMacOSAppAgentProxy(
-            command: .doctor,
+            command: .doctor(),
             proxyDisabled: true,
             appBundleAvailable: true,
             runningFromLaunchServicesAppInstance: false
         ))
         XCTAssertFalse(shouldUseMacOSAppAgentProxy(
-            command: .doctor,
+            command: .doctor(),
             proxyDisabled: false,
             appBundleAvailable: false,
             runningFromLaunchServicesAppInstance: false

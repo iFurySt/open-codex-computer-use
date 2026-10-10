@@ -389,14 +389,14 @@ private final class AppAgentConnection: @unchecked Sendable {
                 }
                 return CLIProxyResponse(stdout: "", stderr: "", exitCode: EXIT_SUCCESS)
 
-            case .doctor:
+            case let .doctor(json):
                 let permissions = PermissionDiagnostics.current()
-                if !permissions.missingPermissions.isEmpty {
+                if !json && !permissions.missingPermissions.isEmpty {
                     Task { @MainActor in
                         PermissionOnboardingApp.present()
                     }
                 }
-                return CLIProxyResponse(stdout: permissions.summary + "\n", stderr: "", exitCode: EXIT_SUCCESS)
+                return CLIProxyResponse(stdout: (try json ? permissions.jsonText() : permissions.summary) + "\n", stderr: "", exitCode: EXIT_SUCCESS)
 
             case .listApps:
                 let service = ComputerUseService()

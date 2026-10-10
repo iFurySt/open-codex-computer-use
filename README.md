@@ -155,6 +155,9 @@ open-computer-use call --calls-file examples/textedit-overlay-seq.json --sleep 0
 # Check permissions; onboarding only opens when something is missing
 open-computer-use doctor
 
+# macOS: query permission JSON without opening onboarding
+ocu doctor --json
+
 # Run local validation from a source checkout
 make smoke
 OPEN_COMPUTER_USE_STRESS_LOOPS=20 make stress
@@ -184,6 +187,8 @@ The npm launcher itself currently requires Node.js 18 or newer. Its help always 
 `js` / `repl`, while `ocu capabilities --json` reports whether Node, the REPL
 adapter/kernel, and the native runtime are available. Once started, it reuses
 the current Node executable instead of looking up another `node` on PATH.
+
+`ocu doctor --json` (macOS only) returns `platform`, `accessibilityTrusted`, `screenCaptureGranted`, `allGranted`, and `missingPermissions`. Missing permissions still exit with code 0; hosts should check `allGranted` and query again after authorization. The snapshot uses existing system API/TCC diagnostics and does not prove an operation succeeded; some permission changes may still require a process restart.
 
 ## Cursor Motion
 

@@ -1366,6 +1366,9 @@ func runCLI(args []string, stdout io.Writer) error {
 	case "mcp":
 		return runMCP(os.Stdin, stdout)
 	case "doctor":
+		if len(args) > 1 && args[1] == "--json" {
+			return errors.New("doctor --json permission diagnostics are only supported on macOS")
+		}
 		fmt.Fprintln(stdout, "Linux runtime: AT-SPI2 and GDK run against the signed-in desktop user's accessibility session. When Codex starts without XDG_RUNTIME_DIR, DBUS_SESSION_BUS_ADDRESS, or display variables, open-computer-use tries to discover the same user's session from /run/user/<uid> and desktop processes.")
 		return nil
 	case "list-apps":

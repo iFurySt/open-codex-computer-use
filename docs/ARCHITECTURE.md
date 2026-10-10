@@ -175,3 +175,6 @@
 macOS screenshot 在每轮捕获读取用户 JSON 配置，优先级为 ENV > 文件 > 默认值。npm launcher 提供 `ocu config` 查看、set、reset 和 path；支持 PNG/JPG/WebP、JPEG 质量、最大长边/超限缩小策略、最小总像素数丢弃与 SCK 超时，保留 hardware capture 优先路径。app-agent 按请求转发解析后的配置路径并清除未提供的 image 环境，防止常驻值污染。见[中文配置说明](configuration.zh-CN.md)与[English](configuration.md)。
 
 截图像素丢弃门槛按 width×height 计算，低于（不含等于）门槛不返回 image，但保留 AX 和原因；配置省略截图后拒绝坐标输入。WebP 无损编码通过固定版本 libwebp 静态链接，随 app/npm 制品带上许可文本。
+## 结构化权限查询
+
+macOS `doctor --json` 在 CLI 和 app-agent proxy 路径复用 `PermissionDiagnostics`，只输出一份 JSON 快照，不打开 onboarding。字段为 `platform: "macos"`、`accessibilityTrusted`、`screenCaptureGranted`、`allGranted` 和 `missingPermissions`（`accessibility` / `screenRecording`）。缺权限仍退出 0，宿主应读取 `allGranted` 并重新查询授权变化。此状态延续系统 API/TCC 合并诊断语义，并非操作成功证明；Linux/Windows 明确拒绝该权限查询模式。普通 `doctor` 保留文本输出与权限引导。
