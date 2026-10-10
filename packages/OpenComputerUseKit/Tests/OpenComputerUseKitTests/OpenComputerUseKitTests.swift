@@ -1979,11 +1979,20 @@ final class OpenComputerUseKitTests: XCTestCase {
             screenMappings: screenMappings
         )
 
+        // The target also carries the anchor: the element centre relative to
+        // the window frame it was derived from, which is what lets the overlay
+        // follow the window if it moves before the action lands.
         XCTAssertEqual(
             target,
             VisualCursorTarget(
                 point: CGPoint(x: 484, y: 724),
-                window: CursorTargetWindow(windowID: 321, layer: 8)
+                window: CursorTargetWindow(windowID: 321, layer: 8),
+                anchor: CursorRestingAnchor(
+                    windowID: 321,
+                    layer: 8,
+                    windowLocalPoint: CGPoint(x: 84, y: 56),
+                    windowBounds: CGRect(x: 400, y: 220, width: 900, height: 640)
+                )
             )
         )
     }
