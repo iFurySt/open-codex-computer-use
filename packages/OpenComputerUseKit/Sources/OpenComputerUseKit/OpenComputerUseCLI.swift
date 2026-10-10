@@ -4,6 +4,8 @@ public enum OpenComputerUseCLICommand: Equatable {
     case launchOnboarding
     case mcp
     case doctor
+    case lockedUseStatus(json: Bool)
+    case lockedUseManagement(action: String, validation: Bool)
     case listApps
     case snapshot(app: String, textLimit: SnapshotTextLimit = .defaults, treeLimits: AccessibilityTreeLimits = .defaults)
     case call(OpenComputerUseCallInvocation)
@@ -32,9 +34,9 @@ public func shouldUseMacOSAppAgentProxy(
     switch command {
     case .launchOnboarding:
         return !runningFromLaunchServicesAppInstance
-    case .mcp, .doctor, .listApps, .snapshot, .call:
+    case .mcp, .doctor, .lockedUseStatus, .listApps, .snapshot, .call:
         return true
-    case .turnEnded, .help, .version:
+    case .lockedUseManagement, .turnEnded, .help, .version:
         return false
     }
 }
@@ -78,6 +80,8 @@ public func parseOpenComputerUseCLI(arguments: [String]) throws -> OpenComputerU
         return try parseSimpleCommand(name: "mcp", arguments: Array(arguments.dropFirst()), result: .mcp)
     case "doctor":
         return try parseSimpleCommand(name: "doctor", arguments: Array(arguments.dropFirst()), result: .doctor)
+    case "locked-use":
+        return try parseLockedUse(arguments: Array(arguments.dropFirst()))
     case "list-apps":
         return try parseSimpleCommand(name: "list-apps", arguments: Array(arguments.dropFirst()), result: .listApps)
     case "call":
@@ -108,6 +112,7 @@ public func openComputerUseHelpText(command: String? = nil) -> String {
         Commands:
           mcp                  Start the stdio MCP server.
           doctor               Print permission status and launch onboarding if needed.
+          locked-use status    Print experimental macOS Locked Use readiness.
           list-apps            Print running or recently used apps.
           snapshot <app>       Print the current accessibility snapshot for an app.
           call <tool>           Call one tool, or run a JSON array of tool calls.
@@ -137,6 +142,23 @@ public func openComputerUseHelpText(command: String? = nil) -> String {
 
         Print the current Accessibility and Screen Recording permission state.
         If permissions are missing, this also launches the onboarding app.
+        """
+    case "locked-use":
+        return """
+        Usage:
+          open-computer-use locked-use status [--json]
+
+        Read-only macOS session, permission, and system-component diagnostics.
+          open-computer-use locked-use enable [--validation]
+          open-computer-use locked-use disable
+          open-computer-use locked-use recover
+          open-computer-use locked-use certify
+          open-computer-use locked-use settings
+
+        Installation and removal require macOS administrator authentication.
+        --validation installs an experimental profile for supervised testing.
+        Production unlock requires evidence matching this OS and component build.
+        recover restores an interrupted installation only after safe drainage.
         """
     case "list-apps":
         return """
@@ -467,4 +489,18 @@ private func formatOpenComputerUseDelay(_ delay: TimeInterval) -> String {
     }
 
     return "\(delay)s"
+}
+
+private func parseLockedUse(arguments: [String]) throws -> OpenComputerUseCLICommand {
+    if arguments == ["--help"] || arguments == ["-h"] || arguments == ["status", "--help"] {
+        return .help(command: "locked-use")
+    }
+    if arguments == ["status"] { return .lockedUseStatus(json: false) }
+    if arguments == ["status", "--json"] { return .lockedUseStatus(json: true) }
+    if arguments == ["enable", "--validation"] { return .lockedUseManagement(action: "enable", validation: true) }
+    if arguments.count == 1, let action = arguments.first,
+       ["enable", "disable", "recover", "certify", "settings"].contains(action) {
+        return .lockedUseManagement(action: action, validation: false)
+    }
+    throw OpenComputerUseCLIError(message: "Expected locked-use status, enable, disable, recover, certify, or settings", helpCommand: "locked-use")
 }

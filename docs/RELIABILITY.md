@@ -56,3 +56,14 @@
 - 增加普通 app 回归样本，而不是只覆盖 fixture。
 
 CI/CD 流程结构和 release 自动化的默认方案，统一写在 `docs/CICD.md`。
+
+## macOS Locked Use 预检
+
+- `ocu locked-use status --json`：只读检查当前会话 / runtime 权限 / 安装组件；缺少完整实测证据时生产自动解锁不可用，显式验证 profile 与生产状态分开报告。
+- `swift test --filter LockedUseTests`：许可、租约、超时、显示器变化、本地接管和重锁确认策略回归。
+- `./scripts/build-locked-use-plugin.sh`：构建 deny-only ABI probe 并在普通进程内测试；通过不代表 SecurityAgent 加载成功。
+- `./scripts/build-locked-use-guardian.sh`：构建独立 Guardian / child watchdog；`--diagnose` 与签名构建后的 `--peer-self-test` 为非锁屏诊断。先运行 `python3 scripts/run-locked-use-rehearsal.py --shield-preview` 观察 15 秒倒计时与所有物理屏幕；用户准备好后才运行 `--confirm-lock-test`，验证窗口 AX / SCK 与重锁结果；人工 GUI 测试不进入自动 CI。`python3 scripts/tests/locked-use-rehearsal.test.py` 不启动 GUI / 锁屏，回归 controller 的恢复顺序和 preview 不锁屏边界。
+- 系统插件加载实验和后续真实锁屏测试是独立的人工门槛，不进入常规 CI / smoke，也不在日常账户自动运行。步骤和恢复路径见 [Locked Use](locked-use.md)。
+
+- Root 的认证策略读取使用独立队列；策略待定 / 过期 / 失败时停止新许可，协调队列继续处理恢复。独立 agent deadline 限制准备 / 停止时间，仍须验证真正撤罩和正常手动解锁的耗时。
+- `python3 scripts/run-locked-use-native-validation.py --confirm-recovery-test` 是验证 profile 的人工故障收束入口，不签发解锁许可。必须同时证明两个保护确曾就绪、原会话锁定、动作排空与双方释放 ACK，才报告通过。

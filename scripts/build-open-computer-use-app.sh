@@ -211,7 +211,7 @@ codesign_app_bundle() {
     return
   fi
 
-  local -a args=(--force --deep --sign "${identity}")
+  local -a args=(--force --sign "${identity}")
 
   if [[ -n "${codesign_keychain}" && "${identity}" != "-" ]]; then
     args+=(--keychain "${codesign_keychain}")
@@ -219,6 +219,16 @@ codesign_app_bundle() {
 
   if [[ "${identity}" != "-" ]]; then
     args+=(--options runtime)
+  fi
+  if [[ -n "${OPEN_COMPUTER_USE_PROVISIONING_PROFILE:-}" ]]; then
+    if [[ "${identity}" == "-" ]]; then
+      echo 'Keychain provisioning requires an Apple signing identity.' >&2
+      exit 1
+    fi
+    profile_entitlements="${icon_work_dir}/keychain-entitlements.plist"
+    python3 "${repo_root}/scripts/prepare-macos-keychain-profile.py" "${OPEN_COMPUTER_USE_PROVISIONING_PROFILE}" "${bundle_identifier}" "${profile_entitlements}"
+    cp "${OPEN_COMPUTER_USE_PROVISIONING_PROFILE}" "${contents_dir}/embedded.provisionprofile"
+    args+=(--entitlements "${profile_entitlements}")
   fi
 
   run_with_codesign_keychain "${codesign_keychain}" \
@@ -318,6 +328,7 @@ mkdir -p "${iconset_dir}"
 iconutil -c icns "${iconset_dir}" -o "${resources_dir}/${bundle_icon_name}"
 cp "${cursor_reference_source}" "${resources_dir}/official-software-cursor-window-252.png"
 
+bundle_build_identifier="$(uuidgen)"
 cat > "${contents_dir}/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -337,6 +348,8 @@ cat > "${contents_dir}/Info.plist" <<PLIST
   <string>${bundle_display_name}</string>
   <key>CFBundleDisplayName</key>
   <string>${bundle_display_name}</string>
+  <key>OpenComputerUseBuildIdentifier</key>
+  <string>${bundle_build_identifier}</string>
   <key>OpenComputerUseAppVariant</key>
   <string>${app_variant}</string>
   <key>CFBundlePackageType</key>
@@ -356,6 +369,22 @@ cat > "${contents_dir}/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
+
+if [[ "${OPEN_COMPUTER_USE_INCLUDE_LOCKED_USE:-0}" == 1 ]]; then
+  if [[ "${arch_mode}" != native ]]; then
+    echo 'Locked Use components currently require the native architecture build.' >&2
+    exit 1
+  fi
+  locked_use_components="${repo_root}/.build/locked-use/components"
+  if [[ ! -x "${locked_use_components}/OpenComputerUseLockedUseInstaller" ]]; then
+    echo 'Build signed Locked Use components before embedding them.' >&2
+    exit 1
+  fi
+  mkdir -p "${resources_dir}/LockedUse"
+  for component in OpenComputerUseLockedUseBroker OpenComputerUseLockedUseInstaller 'Open Computer Use Guardian (Dev).app' OpenComputerUseLockedUseAuthorizationPlugin.bundle; do
+    ditto "${locked_use_components}/${component}" "${resources_dir}/LockedUse/${component}"
+  done
+fi
 
 plutil -lint "${contents_dir}/Info.plist" >/dev/null
 codesign_app_bundle "${app_root}"

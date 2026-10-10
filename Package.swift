@@ -8,6 +8,9 @@ let package = Package(
         .macOS(.v14),
     ],
     products: [
+        .executable(name: "OpenComputerUseLockedUseInstaller", targets: ["OpenComputerUseLockedUseInstaller"]),
+        .executable(name: "OpenComputerUseLockedUseBroker", targets: ["OpenComputerUseLockedUseBroker"]),
+        .executable(name: "OpenComputerUseGuardian", targets: ["OpenComputerUseGuardian"]),
         .library(
             name: "OpenComputerUseKit",
             targets: ["OpenComputerUseKit"]
@@ -43,8 +46,29 @@ let package = Package(
             ]
         ),
         .target(
+            name: "LockedUseNative",
+            path: "packages/LockedUseNative",
+            publicHeadersPath: "include",
+            linkerSettings: [.linkedLibrary("bsm")]
+        ),
+        .executableTarget(
+            name: "OpenComputerUseLockedUseInstaller",
+            dependencies: ["OpenComputerUseKit", "LockedUseNative"],
+            path: "experiments/LockedUse/Sources/Installer"
+        ),
+        .executableTarget(
+            name: "OpenComputerUseLockedUseBroker",
+            dependencies: ["OpenComputerUseKit", "LockedUseNative"],
+            path: "experiments/LockedUse/Sources/Broker"
+        ),
+        .executableTarget(
+            name: "OpenComputerUseGuardian",
+            dependencies: ["OpenComputerUseKit"],
+            path: "experiments/LockedUse/Sources/Guardian"
+        ),
+        .target(
             name: "OpenComputerUseKit",
-            dependencies: ["OpenComputerUseVirtualDisplayShim"],
+            dependencies: ["OpenComputerUseVirtualDisplayShim", "LockedUseNative"],
             path: "packages/OpenComputerUseKit/Sources/OpenComputerUseKit"
         ),
         .executableTarget(
