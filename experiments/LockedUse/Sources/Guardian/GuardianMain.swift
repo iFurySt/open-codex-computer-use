@@ -164,7 +164,7 @@ struct GuardianMain {
                 guard guardian.watchdogTestPassed else { throw GuardianError.message("Independent watchdog stall test did not pass") }
                 if LockedUseSession.current().state == .locked { try inspectLoginwindow() }
             default:
-                fputs("Usage: OpenComputerUseGuardian --diagnose | --request-permissions | --inspect-loginwindow | --shield-preview | --rehearse --confirm-lock-test\nPreview shows the shield for 15 seconds without locking; countdown is logged. Rehearsal consumes local input and locks the Mac. No unlock is attempted.\n", stderr)
+                fputs("Usage: OCUGuardian --diagnose | --request-permissions | --inspect-loginwindow | --shield-preview | --rehearse --confirm-lock-test\nPreview shows the shield for 15 seconds without locking; countdown is logged. Rehearsal consumes local input and locks the Mac. No unlock is attempted.\n", stderr)
                 exit(64)
             }
         } catch {

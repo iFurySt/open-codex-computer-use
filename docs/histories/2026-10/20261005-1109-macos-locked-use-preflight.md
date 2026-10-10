@@ -352,3 +352,11 @@ WindowServer 元数据并不提供像素或 compositor 原子交接保证；1 �
 本轮未安装系统组件、未修改认证规则、未锁屏；既有双物理屏 legacy-only 实测仍作为 awesome-extension 的历史证据，不能冒充提取分支实机验收。生产 backend 保持关闭。
 
 独立提取已交付为 [PR #92](https://github.com/iFurySt/open-codex-computer-use/pull/92)，目标 main；原 awesome-extension 未修改。提取执行计划已归档至 completed，等待用户合并。
+
+### PR 组件命名与正式 / 开发构建（2026-10-10）
+
+按用户确认的短名称更新 PR #92：主 App 正式显示 Open Computer Use.app；Guardian 正式 / 开发分别为 OCU Guardian.app / OCU Guardian (Dev).app，可执行文件 OCUGuardian；服务、安装器和授权插件为 OCULockService、OCULockInstaller、OCULockAuth.bundle。测试目标改名 OCU Lock Demo (Dev).app，独立诊断插件 OCULockProbe.bundle。Watchdog 仍为 Guardian 的进程模式。
+
+构建支持 --configuration debug|release，组件输出目录隔离；App 按其构建配置选取组件，内嵌与系统安装的 Guardian 路径固定为 OCU Guardian.app，plist 显示名区分配置。签名 ID / launchd Label / remote right 保持稳定，授权 mechanism 同步为 OCULockAuth:remote，生产门槛不变。新版停用入口可校验并调用旧安装的签名 installer；安装器拒绝旧插件残留，要求先正常停用卸载，不在线改名认证插件。日志诊断兼容新旧进程 / 机制名称。
+
+Swift 301 项（7 跳过、0 失败）、Node 25 项、Python 29 项和文档检查通过。debug / release 组件与 App 签名构建、授权插件 ABI / task verifier 检查、严格嵌套签名验证通过；实际 plist / 文件检查确认名称正确，两种 App 均只嵌入四个运行组件，没有测试 App / 诊断插件。诊断探针独立构建和 ABI 检查通过。未安装新系统组件、修改当前认证规则或锁屏测试；旧实机证据不自动授予改名制品生产资格。

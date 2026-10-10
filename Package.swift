@@ -8,9 +8,9 @@ let package = Package(
         .macOS(.v14),
     ],
     products: [
-        .executable(name: "OpenComputerUseLockedUseInstaller", targets: ["OpenComputerUseLockedUseInstaller"]),
-        .executable(name: "OpenComputerUseLockedUseBroker", targets: ["OpenComputerUseLockedUseBroker"]),
-        .executable(name: "OpenComputerUseGuardian", targets: ["OpenComputerUseGuardian"]),
+        .executable(name: "OCULockInstaller", targets: ["OCULockInstaller"]),
+        .executable(name: "OCULockService", targets: ["OCULockService"]),
+        .executable(name: "OCUGuardian", targets: ["OCUGuardian"]),
         .library(
             name: "OpenComputerUseKit",
             targets: ["OpenComputerUseKit"]
@@ -52,17 +52,17 @@ let package = Package(
             linkerSettings: [.linkedLibrary("bsm")]
         ),
         .executableTarget(
-            name: "OpenComputerUseLockedUseInstaller",
+            name: "OCULockInstaller",
             dependencies: ["OpenComputerUseKit", "LockedUseNative"],
             path: "experiments/LockedUse/Sources/Installer"
         ),
         .executableTarget(
-            name: "OpenComputerUseLockedUseBroker",
+            name: "OCULockService",
             dependencies: ["OpenComputerUseKit", "LockedUseNative"],
             path: "experiments/LockedUse/Sources/Broker"
         ),
         .executableTarget(
-            name: "OpenComputerUseGuardian",
+            name: "OCUGuardian",
             dependencies: ["OpenComputerUseKit"],
             path: "experiments/LockedUse/Sources/Guardian"
         ),

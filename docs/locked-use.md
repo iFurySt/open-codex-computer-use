@@ -43,8 +43,8 @@ OPEN_COMPUTER_USE_DISABLE_APP_AGENT_PROXY=1 .build/debug/OpenComputerUse locked-
 
 ```sh
 ./scripts/build-locked-use-guardian.sh --identity 'Developer ID Application: <your identity>'
-'.build/locked-use/Open Computer Use Guardian (Dev).app/Contents/MacOS/OpenComputerUseGuardian' --diagnose
-'.build/locked-use/Open Computer Use Guardian (Dev).app/Contents/MacOS/OpenComputerUseGuardian' --peer-self-test
+'.build/locked-use/OCU Guardian (Dev).app/Contents/MacOS/OCUGuardian' --diagnose
+'.build/locked-use/OCU Guardian (Dev).app/Contents/MacOS/OCUGuardian' --peer-self-test
 ```
 
 缺少权限时显式执行同一 binary 的 `--request-permissions`，由用户在系统设置授予 Accessibility 与 Input Monitoring。`--diagnose` 本身不请求权限、不锁屏。
@@ -192,7 +192,7 @@ python3 scripts/run-locked-use-native-validation.py --unlocked-fixture-test --le
 python3 scripts/run-locked-use-native-validation.py --confirm-lock-test
 ```
 
-控制器保持同一原生 MCP 连接：正常解锁时创建本项目 UUID 的测试项，从真实锁屏调用固定 native validation，受保护解锁后只对签名的 `Locked Use Native Fixture` 执行 AXPress，检查计数器变化和前后真实 SCK 图片哈希，再读取自己的测试项。图片与 secret 只在内存；输出只有结果。结束后发送 turn-ended、观察重锁，用户正常解锁并输入 `continue`，再验证 / 清理测试项。带 `--wait-for-manual-unlock` 时控制器直接观测真实会话解锁，不需要 stdin 确认；等待本身不代表通过。备用遮罩可以通过签名 Guardian 的 `--watchdog-surface-self-test` 单独检查，不请求锁屏或解锁。任何失败都不杀 Guardian / watchdog，也不凭旧锁屏拆除保护。连接退出时无法删除的自有项目会留在 app agent 内重试正常解锁后的清理；进程死亡会丢失内存清理对象，应保留监督式测试连接直到 cleanup 完成。
+控制器保持同一原生 MCP 连接：正常解锁时创建本项目 UUID 的测试项，从真实锁屏调用固定 native validation，受保护解锁后只对签名的 `OCU Lock Demo` 执行 AXPress，检查计数器变化和前后真实 SCK 图片哈希，再读取自己的测试项。图片与 secret 只在内存；输出只有结果。结束后发送 turn-ended、观察重锁，用户正常解锁并输入 `continue`，再验证 / 清理测试项。带 `--wait-for-manual-unlock` 时控制器直接观测真实会话解锁，不需要 stdin 确认；等待本身不代表通过。备用遮罩可以通过签名 Guardian 的 `--watchdog-surface-self-test` 单独检查，不请求锁屏或解锁。任何失败都不杀 Guardian / watchdog，也不凭旧锁屏拆除保护。连接退出时无法删除的自有项目会留在 app agent 内重试正常解锁后的清理；进程死亡会丢失内存清理对象，应保留监督式测试连接直到 cleanup 完成。
 
 Data Protection Keychain 使用受限 entitlement，需要为该 OCU bundle 匹配的 macOS Developer ID provisioning profile：
 
@@ -209,7 +209,7 @@ app bundle 含每次构建唯一的标识，app agent 在启动时固定捕获�
 
 失败恢复增加独立于 RPC / AppKit 队列的 agent deadline：独立进程 deadline 跟随已认证 Root 的启动截止 + 现有 RPC 排空余量 2 秒；默认启动上限 8 秒，显式验证 profile 的总待命上限 20 秒，准备双保护仍最多 8 秒；进入停止 / 清理或 Broker 轮询失败后最多 5 秒，重试只能缩短、不能延长已有期限。期限到达时 agent 结束自身进程，不杀用户应用或保护进程。Broker 仍须通过原进程退出、解锁工作排空和实际锁定证据决定释放双遮罩；这个期限是停止动作的上限，**不等于系统恢复可登录的实测上限**。已观测到原会话锁定时，主 / 备用保护不重复调用锁屏 SPI；等待排空仍保留遮罩。
 
-真实实验曾出现 Broker 清理通信超时、保护持续数分钟并干扰用户正常解锁。已安全卸载验证组件并恢复原认证规则；自动解锁没有通过。下一轮锁屏测试之前，必须先验证独立 deadline、进程退出到保护释放的故障链路，以及 Broker 清理通信时延，不能继续用长时间循环锁屏定位问题。`OpenComputerUseGuardian --recovery-deadline-self-test` 只阻塞自己的主线程、用独立计时结束自身进程，预期退出码 70；不调用锁屏、认证或显示遮罩。
+真实实验曾出现 Broker 清理通信超时、保护持续数分钟并干扰用户正常解锁。已安全卸载验证组件并恢复原认证规则；自动解锁没有通过。下一轮锁屏测试之前，必须先验证独立 deadline、进程退出到保护释放的故障链路，以及 Broker 清理通信时延，不能继续用长时间循环锁屏定位问题。`OCUGuardian --recovery-deadline-self-test` 只阻塞自己的主线程、用独立计时结束自身进程，预期退出码 70；不调用锁屏、认证或显示遮罩。
 
 恢复专项入口 `python3 scripts/run-locked-use-native-validation.py --confirm-recovery-test` 仅供已安装验证 profile 的人工测试：真实锁屏、创建双保护，然后由 Broker 在签发许可前直接终止事务；要求 root 回报两个保护确曾就绪，再等待实际锁定、动作排空和两个保护退出 ACK；准备失败后清理成功不算双保护恢复通过。生产 profile 拒绝此入口。输出恢复耗时与布尔结果，不创建 Keychain 项、不执行 GUI 动作，不作为自动解锁通过的证据。
 
@@ -324,3 +324,26 @@ python3 scripts/run-locked-use-native-validation.py --confirm-lock-test --legacy
 Locked Use 从 awesome-extension 单独提取，不依赖该分支的虚拟工作区、电源模块或 AX diff。main 的普通 `get_app_state` 返回完整树，原生固定验证继续读取完整 Counter；未来引入增量输出时必须显式请求完整快照。失败后控制器先发送 turn-ended 再等待双保护释放。main 的 sky_click / sky_key 原生投递及菜单动作也执行会话 / 租约检查；租约内窗口捕获明确走 ScreenCaptureKit，普通非租约捕获沿用 main 的硬件截图优先路径。MCP 断开仍执行 endSession 恢复 main 的 agent display 和窗口 occlusion 状态。
 
 该独立 PR 的验证为回归测试、签名构建和 ABI 检查；先前双物理屏实测是 awesome-extension 的证据，不代表本次分支重新进行真实锁屏验收。生产 backend 继续关闭。
+
+
+## 组件命名与正式构建
+
+| 组件 | 正式构建 | 开发构建 |
+| --- | --- | --- |
+| 主 App | Open Computer Use.app | Open Computer Use (Dev).app |
+| 遮罩 App | OCU Guardian.app | OCU Guardian (Dev).app |
+| root 服务 | OCULockService | OCULockService |
+| 安装工具 | OCULockInstaller | OCULockInstaller |
+| 授权插件 | OCULockAuth.bundle | OCULockAuth.bundle |
+
+Watchdog 是 OCUGuardian 的另一进程模式，不新增 App。OCU Lock Demo (Dev).app 和 OCULockProbe.bundle 仅供开发验证，正式 App 不打包这两项。正式组件构建输出 components-release，开发仍输出 components；主 App 按自身配置选择对应组件，内嵌及系统安装的 Guardian 路径固定为 OCU Guardian.app，plist 中的显示名称保留配置差异。
+
+签名 ID、launchd Label 与 remote right 保持已有内部标识；授权机制同步改为 OCULockAuth:remote。Guardian 的内部签名 ID 保留原标识，即使正式显示名称不带 Dev。此命名调整不开放生产后端。
+
+```sh
+scripts/build-locked-use-components.sh --identity "$IDENTITY" --configuration release
+OPEN_COMPUTER_USE_INCLUDE_LOCKED_USE=1 OPEN_COMPUTER_USE_CODESIGN_MODE=identity \
+OPEN_COMPUTER_USE_CODESIGN_IDENTITY="$IDENTITY" scripts/build-open-computer-use-app.sh release
+```
+
+已有旧验证安装先在正常解锁、保护已结束时执行新 App 的 `locked-use disable`；新 App 会校验并调用旧安装中的签名 installer 完成其原始卸载，再执行新版本 enable。安装器发现旧插件残留时拒绝安装，不直接改名在用插件或自动替换认证链。旧版本生产资格不能复用，新制品须重新验证。

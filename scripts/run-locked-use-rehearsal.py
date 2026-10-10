@@ -48,7 +48,7 @@ def main():
     if not 0 <= args.delay <= 30:
         parser.error("--delay must be between 0 and 30 seconds")
     root = Path(__file__).resolve().parent.parent
-    binary = root / ".build/locked-use/Open Computer Use Guardian (Dev).app/Contents/MacOS/OpenComputerUseGuardian"
+    binary = root / ".build/locked-use/OCU Guardian (Dev).app/Contents/MacOS/OCUGuardian"
     if not binary.is_file():
         print("Build the Guardian bundle first.", file=sys.stderr)
         return 1

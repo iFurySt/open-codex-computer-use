@@ -28,9 +28,9 @@ public enum LockedUseComponentValidation {
         let osBuild = try kernelString("kern.osversion")
         let base = "/Library/Application Support/OpenComputerUse/LockedUse/"
         return try .init(osBuild: osBuild,
-            brokerHash: hash(path: base + "OpenComputerUseLockedUseBroker", id: "dev.opencomputeruse.locked-use.broker", team: team),
-            guardianHash: hash(path: base + "Open Computer Use Guardian (Dev).app", id: "dev.opencomputeruse.locked-use.guardian.dev", team: team),
-            pluginHash: hash(path: "/Library/Security/SecurityAgentPlugins/OpenComputerUseLockedUseAuthorizationPlugin.bundle", id: "dev.opencomputeruse.locked-use.authorization", team: team))
+            brokerHash: hash(path: base + "OCULockService", id: "dev.opencomputeruse.locked-use.broker", team: team),
+            guardianHash: hash(path: base + "OCU Guardian.app", id: "dev.opencomputeruse.locked-use.guardian.dev", team: team),
+            pluginHash: hash(path: "/Library/Security/SecurityAgentPlugins/OCULockAuth.bundle", id: "dev.opencomputeruse.locked-use.authorization", team: team))
     }
     private static func hash(path: String, id: String, team: String) throws -> String {
         var code: SecStaticCode?

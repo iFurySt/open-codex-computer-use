@@ -12,7 +12,7 @@ enum BrokerMain {
         do {
             guard CommandLine.arguments.count == 2,
                   ["--serve", "--serve-validation"].contains(CommandLine.arguments[1]), geteuid() == 0 else {
-                throw BrokerError.message("Usage: OpenComputerUseLockedUseBroker --serve | --serve-validation (administrator installed service only)")
+                throw BrokerError.message("Usage: OCULockService --serve | --serve-validation (administrator installed service only)")
             }
             let approvals = try LockedUseClientApprovals.loadInstalled()
             let configuration = try LockedUseBrokerConfiguration.loadInstalled()

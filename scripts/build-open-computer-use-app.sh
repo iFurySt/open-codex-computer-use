@@ -18,6 +18,7 @@ Examples:
   ./scripts/build-open-computer-use-app.sh --configuration release --arch universal
 
 Environment:
+  OPEN_COMPUTER_USE_APP_OUTPUT_DIR=/path/to/isolated/output
   OPEN_COMPUTER_USE_CODESIGN_MODE=auto|identity|adhoc|none
   OPEN_COMPUTER_USE_CODESIGN_IDENTITY="Developer ID Application: Example, Inc. (TEAMID)"
   OPEN_COMPUTER_USE_CODESIGN_KEYCHAIN=/path/to/signing.keychain-db
@@ -265,10 +266,11 @@ if [[ "${configuration}" != "release" ]]; then
   app_bundle_name="${development_app_bundle_name}"
 fi
 
-app_root="${repo_root}/dist/${app_bundle_name}"
-release_app_root="${repo_root}/dist/${release_app_bundle_name}"
-development_app_root="${repo_root}/dist/${development_app_bundle_name}"
-legacy_app_root="${repo_root}/dist/${legacy_app_bundle_name}"
+app_output_dir="${OPEN_COMPUTER_USE_APP_OUTPUT_DIR:-${repo_root}/dist}"
+app_root="${app_output_dir}/${app_bundle_name}"
+release_app_root="${app_output_dir}/${release_app_bundle_name}"
+development_app_root="${app_output_dir}/${development_app_bundle_name}"
+legacy_app_root="${app_output_dir}/${legacy_app_bundle_name}"
 contents_dir="${app_root}/Contents"
 macos_dir="${contents_dir}/MacOS"
 resources_dir="${contents_dir}/Resources"
@@ -376,14 +378,20 @@ if [[ "${OPEN_COMPUTER_USE_INCLUDE_LOCKED_USE:-0}" == 1 ]]; then
     exit 1
   fi
   locked_use_components="${repo_root}/.build/locked-use/components"
-  if [[ ! -x "${locked_use_components}/OpenComputerUseLockedUseInstaller" ]]; then
+  guardian_component="OCU Guardian (Dev).app"
+  if [[ "${app_variant}" == release ]]; then
+    locked_use_components="${repo_root}/.build/locked-use/components-release"
+    guardian_component="OCU Guardian.app"
+  fi
+  if [[ ! -x "${locked_use_components}/OCULockInstaller" ]]; then
     echo 'Build signed Locked Use components before embedding them.' >&2
     exit 1
   fi
   mkdir -p "${resources_dir}/LockedUse"
-  for component in OpenComputerUseLockedUseBroker OpenComputerUseLockedUseInstaller 'Open Computer Use Guardian (Dev).app' OpenComputerUseLockedUseAuthorizationPlugin.bundle; do
+  for component in OCULockService OCULockInstaller OCULockAuth.bundle; do
     ditto "${locked_use_components}/${component}" "${resources_dir}/LockedUse/${component}"
   done
+  ditto "${locked_use_components}/${guardian_component}" "${resources_dir}/LockedUse/OCU Guardian.app"
 fi
 
 plutil -lint "${contents_dir}/Info.plist" >/dev/null

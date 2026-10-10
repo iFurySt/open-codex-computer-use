@@ -3,7 +3,7 @@
 set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 right='dev.opencomputeruse.locked-use.preflight'
-plugin_name='OpenComputerUseAuthorizationPlugin'
+plugin_name='OCULockProbe'
 plugin_id='dev.opencomputeruse.locked-use.authorization-probe'
 plugins='/Library/Security/SecurityAgentPlugins'
 destination="${plugins}/${plugin_name}.bundle"
@@ -38,7 +38,7 @@ if [[ "$1" == 'uninstall' ]]; then
 import plistlib, sys
 with open(sys.argv[1], 'rb') as stream:
     rule = plistlib.load(stream)
-if rule.get('class') != 'evaluate-mechanisms' or rule.get('mechanisms') != ['OpenComputerUseAuthorizationPlugin:preflight']:
+if rule.get('class') != 'evaluate-mechanisms' or rule.get('mechanisms') != ['OCULockProbe:preflight']:
     sys.exit('The probe right has changed; refusing to remove another configuration.')
 PY
     /usr/bin/security authorizationdb remove "${right}"
@@ -80,7 +80,7 @@ cat > "${scratch}/right.plist" <<'PLIST'
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>class</key><string>evaluate-mechanisms</string>
-<key>mechanisms</key><array><string>OpenComputerUseAuthorizationPlugin:preflight</string></array>
+<key>mechanisms</key><array><string>OCULockProbe:preflight</string></array>
 <key>shared</key><false/>
 <key>timeout</key><integer>0</integer>
 <key>tries</key><integer>1</integer>

@@ -63,7 +63,7 @@ public enum LockedUseAuthorizationRules {
         guard AuthorizationRightGet(remoteRight, &remote) == errAuthorizationSuccess,
               let rule = remote as? [String: Any] else { return false }
         return rule["class"] as? String == "evaluate-mechanisms"
-            && rule["mechanisms"] as? [String] == ["OpenComputerUseLockedUseAuthorizationPlugin:remote"]
+            && rule["mechanisms"] as? [String] == ["OCULockAuth:remote"]
             && (rule["shared"] as? NSNumber)?.boolValue == false
     }
 

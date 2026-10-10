@@ -14,18 +14,18 @@ elif [[ $# -ne 0 ]]; then
 fi
 if [[ "$(uname -s)" != Darwin ]]; then echo 'The Authorization plugin probe requires macOS.' >&2; exit 1; fi
 output="${repo_root}/.build/locked-use"
-bundle="${output}/OpenComputerUseAuthorizationPlugin.bundle"
+bundle="${output}/OCULockProbe.bundle"
 mkdir -p "${bundle}/Contents/MacOS"
 xcrun clang -std=c11 -Wall -Wextra -Werror -fvisibility=hidden -mmacosx-version-min=14.0 \
   -bundle -framework Security -framework CoreFoundation \
   "${repo_root}/experiments/LockedUse/AuthorizationPlugin/Plugin.c" \
-  -o "${bundle}/Contents/MacOS/OpenComputerUseAuthorizationPlugin"
+  -o "${bundle}/Contents/MacOS/OCULockProbe"
 cat > "${bundle}/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleIdentifier</key><string>dev.opencomputeruse.locked-use.authorization-probe</string>
-<key>CFBundleExecutable</key><string>OpenComputerUseAuthorizationPlugin</string>
+<key>CFBundleExecutable</key><string>OCULockProbe</string>
 <key>CFBundlePackageType</key><string>BNDL</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>CFBundleShortVersionString</key><string>0.0.1</string>
@@ -39,7 +39,7 @@ codesign --verify --strict "${bundle}"
 xcrun clang -std=c11 -Wall -Wextra -Werror -mmacosx-version-min=14.0 \
   -framework Security "${repo_root}/experiments/LockedUse/AuthorizationPlugin/PluginTests.c" \
   -o "${output}/plugin-abi-tests"
-"${output}/plugin-abi-tests" "${bundle}/Contents/MacOS/OpenComputerUseAuthorizationPlugin"
+"${output}/plugin-abi-tests" "${bundle}/Contents/MacOS/OCULockProbe"
 xcrun swiftc -framework Security "${repo_root}/experiments/LockedUse/Sources/AuthorizationProbe.swift" \
   -o "${output}/authorization-probe"
 echo 'Built deny-only probe. Signing verification is not SecurityAgent Library Validation or notarization.'

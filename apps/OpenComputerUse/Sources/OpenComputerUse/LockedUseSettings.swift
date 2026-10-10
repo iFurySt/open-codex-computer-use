@@ -57,7 +57,7 @@ enum LockedUseSettings {
         guard identity.userID > 0, ["com.ifuryst.opencomputeruse", "com.ifuryst.opencomputeruse.dev"].contains(identity.signingIdentifier),
               let team = identity.teamIdentifier else { throw OpenComputerUseCLIError(message: "Use the signed Open Computer Use app to enable Locked Use.") }
         let source = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/LockedUse")
-        guard FileManager.default.fileExists(atPath: source.appendingPathComponent("OpenComputerUseLockedUseInstaller").path) else {
+        guard FileManager.default.fileExists(atPath: source.appendingPathComponent("OCULockInstaller").path) else {
             throw OpenComputerUseCLIError(message: "Signed Locked Use components are missing from this app. Build with OPEN_COMPUTER_USE_INCLUDE_LOCKED_USE=1.")
         }
         // Administrator staging has a protected parent; /tmp ancestry would
@@ -79,8 +79,8 @@ enum LockedUseSettings {
             "/usr/sbin/chown -hR -P root:wheel " + quote(stage) + "\n" +
             "/bin/chmod -RN " + quote(stage) + "\n" +
             "/bin/chmod -R go-w " + quote(stage) + "\n" +
-            "/usr/bin/codesign --verify --strict -R " + quote(requirement) + " " + quote(stage + "/OpenComputerUseLockedUseInstaller") + "\n" +
-            quote(stage + "/OpenComputerUseLockedUseInstaller") + (recovering ? " recover" : " install " + quote(stage) + " " + String(identity.userID) + " " + (validation ? "validation" : "production"))
+            "/usr/bin/codesign --verify --strict -R " + quote(requirement) + " " + quote(stage + "/OCULockInstaller") + "\n" +
+            quote(stage + "/OCULockInstaller") + (recovering ? " recover" : " install " + quote(stage) + " " + String(identity.userID) + " " + (validation ? "validation" : "production"))
         try elevate(shell)
     }
     private static func certify() throws {
@@ -97,7 +97,10 @@ enum LockedUseSettings {
     }
     private static func installedAction(_ action: String) throws {
         let team = try LockedUseSigningIdentity.current().teamIdentifier!
-        let path = "/Library/Application Support/OpenComputerUse/LockedUse/OpenComputerUseLockedUseInstaller"
+        let base = "/Library/Application Support/OpenComputerUse/LockedUse/"
+        let current = base + "OCULockInstaller"
+        let legacy = base + "OpenComputerUseLockedUseInstaller"
+        let path = FileManager.default.fileExists(atPath: current) ? current : legacy
         let requirement = "=identifier \"dev.opencomputeruse.locked-use.installer\" and anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
         try elevate("set -eu\n/usr/bin/codesign --verify --strict -R " + quote(requirement) + " " + quote(path) + "\n" + quote(path) + " " + quote(action))
     }

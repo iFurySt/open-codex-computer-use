@@ -79,7 +79,7 @@ final class LockedUseConnection: @unchecked Sendable {
             let child = Process()
             // The installer fixes this location; caller arguments cannot select
             // another guardian or executable while holding a capability.
-            child.executableURL = URL(fileURLWithPath: "/Library/Application Support/OpenComputerUse/LockedUse/Open Computer Use Guardian (Dev).app/Contents/MacOS/OpenComputerUseGuardian")
+            child.executableURL = URL(fileURLWithPath: "/Library/Application Support/OpenComputerUse/LockedUse/OCU Guardian.app/Contents/MacOS/OCUGuardian")
             child.arguments = ["--broker-guardian"]
             let input = Pipe()
             child.standardInput = input

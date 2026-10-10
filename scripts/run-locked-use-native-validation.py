@@ -130,8 +130,8 @@ def main():
         return
     binary = root / "dist/Open Computer Use (Dev).app/Contents/MacOS/OpenComputerUse"
     components = root / ".build/locked-use/components"
-    guardian = components / "Open Computer Use Guardian (Dev).app/Contents/MacOS/OpenComputerUseGuardian"
-    fixture_binary = components / "Locked Use Native Fixture (Dev).app/Contents/MacOS/OpenComputerUseGuardian"
+    guardian = components / "OCU Guardian (Dev).app/Contents/MacOS/OCUGuardian"
+    fixture_binary = components / "OCU Lock Demo (Dev).app/Contents/MacOS/OCUGuardian"
     if session(guardian, timeout=15) != "unlocked": raise RuntimeError("Unlock normally before starting validation")
     rpc = RPC(binary)
     fixture = None

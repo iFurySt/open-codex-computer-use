@@ -90,8 +90,8 @@ public struct LockedUseDiagnostics: Codable, Sendable {
     public static func current() -> LockedUseDiagnostics {
         let pluginsPath = "/Library/Security/SecurityAgentPlugins"
         let entries = (try? FileManager.default.contentsOfDirectory(atPath: pluginsPath)) ?? []
-        let ownPlugin = "OpenComputerUseLockedUseAuthorizationPlugin.bundle"
-        let others = entries.filter { $0.hasSuffix(".bundle") && $0 != ownPlugin && $0 != "OpenComputerUseAuthorizationPlugin.bundle" }.sorted()
+        let ownPlugin = "OCULockAuth.bundle"
+        let others = entries.filter { $0.hasSuffix(".bundle") && $0 != ownPlugin && $0 != "OCULockProbe.bundle" }.sorted()
         let configuration = try? LockedUseBrokerConfiguration.loadInstalled()
         let policyIntact = (try? LockedUseAuthorizationRules.installedRulesObserved()) == true
         let identity = try? LockedUseSigningIdentity.current()
@@ -113,7 +113,7 @@ public struct LockedUseDiagnostics: Codable, Sendable {
             session: .current(), accessibility: AXIsProcessTrusted(),
             screenRecording: CGPreflightScreenCaptureAccess(), inputMonitoring: CGPreflightListenEventAccess(),
             pluginInstalled: entries.contains(ownPlugin),
-            brokerInstalled: FileManager.default.fileExists(atPath: "/Library/Application Support/OpenComputerUse/LockedUse/OpenComputerUseLockedUseBroker"),
+            brokerInstalled: FileManager.default.fileExists(atPath: "/Library/Application Support/OpenComputerUse/LockedUse/OCULockService"),
             otherAuthorizationPlugins: others,
             blockers: available ? [] : [
                 "The loginwindow unlock backend and Keychain preservation require live validation for these components and this macOS build. Production automatic unlock is unavailable.",

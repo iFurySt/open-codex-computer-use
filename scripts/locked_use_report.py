@@ -104,7 +104,8 @@ def curate(records, started):
             if "system.login.screensaver" in message:
                 action = "systemRightSucceeded" if "Succeeded authorizing right" in message else "systemRightFailed" if "Failed authorizing right" in message else "systemRightEvaluationObserved" if "evaluates" in message and "rights" in message else None
                 if action: emit("SystemAuthorization", action)
-            if "running mechanism OpenComputerUseLockedUseAuthorizationPlugin:remote" in message:
+            if any(name in message for name in ("running mechanism OCULockAuth:remote",
+                                                "running mechanism OpenComputerUseLockedUseAuthorizationPlugin:remote")):
                 emit("SystemAuthorization", "remoteMechanismRunning")
             continue
         if process in SYSTEM_MARKERS:
@@ -113,7 +114,8 @@ def curate(records, started):
             continue
         if process in {"SecurityAgentHelper-arm64", "SecurityAgentHelper-x86_64"}:
             emit("SecurityAgentHost", "helperActivityObserved")
-        if process not in {"OpenComputerUse", "OpenComputerUseGuardian", "OpenComputerUseLockedUseBroker",
+        if process not in {"OpenComputerUse", "OCUGuardian", "OCULockService",
+                           "OpenComputerUseGuardian", "OpenComputerUseLockedUseBroker",
                            "SecurityAgentHelper-arm64", "SecurityAgentHelper-x86_64"}: continue
         category = entry.get("category", "")
         message = entry.get("eventMessage", "")

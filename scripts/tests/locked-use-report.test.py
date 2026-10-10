@@ -13,9 +13,17 @@ spec.loader.exec_module(report)
 
 
 class ReportTests(unittest.TestCase):
-    def entry(self, message, category="UnlockTrigger", process="OpenComputerUseGuardian"):
+    def entry(self, message, category="UnlockTrigger", process="OCUGuardian"):
         return {"eventMessage": message, "category": category, "processImagePath": "/private/"+process,
                 "timestamp": "2026-10-05T10:00:00+00:00", "privateData": "must never be retained"}
+
+    def testRenamedAndLegacyComponentsKeepNormalizedDiagnostics(self):
+        for process in ['OCUGuardian', 'OpenComputerUseGuardian']:
+            result = report.curate([self.entry('AXTrigger returnPairQueued=true authenticationEvidence=false', process=process)], 0)
+            self.assertEqual(len(result), 1)
+        for plugin in ['OCULockAuth', 'OpenComputerUseLockedUseAuthorizationPlugin']:
+            result = report.curate([self.entry('running mechanism '+plugin+':remote', process='authd')], 0)
+            self.assertEqual(result[0]['message'], 'remoteMechanismRunning')
 
     def testReturnSubmissionMarkersAreCuratedWithoutContext(self):
         entries = [self.entry('AXTrigger returnDispatching=true keyCode=36 tap=hid'),

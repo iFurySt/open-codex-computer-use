@@ -24,7 +24,7 @@ def main():
     parser.add_argument('--confirm-visible-desktop-test', action='store_true', required=True)
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
-    binary = root / '.build/locked-use/components/Open Computer Use Guardian (Dev).app/Contents/MacOS/OpenComputerUseGuardian'
+    binary = root / '.build/locked-use/components/OCU Guardian (Dev).app/Contents/MacOS/OCUGuardian'
     started = time.time()
     events = []
     def record(event, elapsed=None, **fields):

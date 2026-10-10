@@ -5,8 +5,8 @@ import OpenComputerUseKit
 import Security
 
 private let root = URL(fileURLWithPath: "/Library/Application Support/OpenComputerUse/LockedUse", isDirectory: true)
-private let pluginName = "OpenComputerUseLockedUseAuthorizationPlugin.bundle"
-private let guardianName = "Open Computer Use Guardian (Dev).app"
+private let pluginName = "OCULockAuth.bundle"
+private let guardianName = "OCU Guardian.app"
 private let service = "dev.opencomputeruse.locked-use.broker"
 private let daemon = URL(fileURLWithPath: "/Library/LaunchDaemons/dev.opencomputeruse.locked-use.broker.plist")
 private let plugin = URL(fileURLWithPath: "/Library/Security/SecurityAgentPlugins/" + pluginName)
@@ -138,14 +138,14 @@ struct InstallerMain {
     }
     private static func remoteDefinition() throws -> Data {
         try PropertyListSerialization.data(fromPropertyList: ["class": "evaluate-mechanisms",
-            "mechanisms": ["OpenComputerUseLockedUseAuthorizationPlugin:remote"], "shared": false,
+            "mechanisms": ["OCULockAuth:remote"], "shared": false,
             "timeout": 0, "tries": 1, "comment": "Open Computer Use single-use protected-session authorization"], format: .xml, options: 0)
     }
     private static func install(source: URL, uid: UInt32, team: String, validation: Bool) throws {
         try trustedTree(source)
-        let broker = source.appendingPathComponent("OpenComputerUseLockedUseBroker")
+        let broker = source.appendingPathComponent("OCULockService")
         _ = try verify(broker, id: service, team: team)
-        _ = try verify(source.appendingPathComponent("OpenComputerUseLockedUseInstaller"), id: "dev.opencomputeruse.locked-use.installer", team: team)
+        _ = try verify(source.appendingPathComponent("OCULockInstaller"), id: "dev.opencomputeruse.locked-use.installer", team: team)
         _ = try verify(source.appendingPathComponent(guardianName), id: "dev.opencomputeruse.locked-use.guardian.dev", team: team)
         _ = try verify(source.appendingPathComponent(pluginName), id: "dev.opencomputeruse.locked-use.authorization", team: team)
         let client = source.appendingPathComponent("Client.app")
@@ -153,7 +153,8 @@ struct InstallerMain {
               ["com.ifuryst.opencomputeruse", "com.ifuryst.opencomputeruse.dev"].contains(identifier) else { throw InstallError.untrusted }
         _ = try verify(client, id: identifier, team: team)
         guard !FileManager.default.fileExists(atPath: root.path), !FileManager.default.fileExists(atPath: plugin.path),
-              !FileManager.default.fileExists(atPath: daemon.path) else { throw InstallError.existingInstallation }
+              !FileManager.default.fileExists(atPath: daemon.path),
+              !FileManager.default.fileExists(atPath: plugin.deletingLastPathComponent().appendingPathComponent("OpenComputerUseLockedUseAuthorizationPlugin.bundle").path) else { throw InstallError.existingInstallation }
         var existing: CFDictionary?
         guard AuthorizationRightGet(LockedUseAuthorizationRules.remoteRight, &existing) == errAuthorizationDenied else { throw InstallError.existingInstallation }
         let plan = try LockedUseAuthorizationRules.planInstallation(current: readRight(screensaver))
@@ -172,7 +173,7 @@ struct InstallerMain {
         ])
         try write(approvals, name: "clients.json")
         try write(LockedUseBrokerConfiguration(enabled: true), name: "configuration.json")
-        for name in ["OpenComputerUseLockedUseBroker", guardianName, "OpenComputerUseLockedUseInstaller"] {
+        for name in ["OCULockService", guardianName, "OCULockInstaller"] {
             try FileManager.default.copyItem(at: source.appendingPathComponent(name), to: root.appendingPathComponent(name))
         }
         try makeDirectory(plugin.deletingLastPathComponent())
@@ -185,7 +186,7 @@ struct InstallerMain {
             try setRight(screensaver, data: plan.installed, authorization: reference)
             guard try LockedUseAuthorizationRules.installationObserved(current: readRight(screensaver), plan: plan) else { throw InstallError.changedPolicy }
             let plist: [String: Any] = ["Label": service,
-                "ProgramArguments": [root.appendingPathComponent("OpenComputerUseLockedUseBroker").path, validation ? "--serve-validation" : "--serve"],
+                "ProgramArguments": [root.appendingPathComponent("OCULockService").path, validation ? "--serve-validation" : "--serve"],
                 "RunAtLoad": true, "KeepAlive": true, "ProcessType": "Interactive", "ThrottleInterval": 5]
             try makeDirectory(daemon.deletingLastPathComponent())
             try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: daemon, options: [.withoutOverwriting])
@@ -210,7 +211,7 @@ struct InstallerMain {
         let bytes = try Data(contentsOf: daemon)
         guard var definition = try PropertyListSerialization.propertyList(from: bytes, format: nil) as? [String: Any],
               definition["Label"] as? String == service,
-              definition["ProgramArguments"] as? [String] == [root.appendingPathComponent("OpenComputerUseLockedUseBroker").path, "--serve-validation"] else { throw InstallError.changedPolicy }
+              definition["ProgramArguments"] as? [String] == [root.appendingPathComponent("OCULockService").path, "--serve-validation"] else { throw InstallError.changedPolicy }
         let admin = try LockedUseIPCClient(endpoint: .admin, brokerRequirement: LockedUseSigningIdentity.brokerRequirement())
         let reply = try admin.request(.init(operation: .disable)); admin.close()
         guard reply.result != .denied else { throw InstallError.changedPolicy }
@@ -219,7 +220,7 @@ struct InstallerMain {
         try write(LockedUseBrokerConfiguration(enabled: true, validatedOSBuild: evidence.osBuild,
             validatedBrokerHash: evidence.brokerHash, validatedGuardianHash: evidence.guardianHash,
             validatedPluginHash: evidence.pluginHash), name: "configuration.json", replacing: true)
-        definition["ProgramArguments"] = [root.appendingPathComponent("OpenComputerUseLockedUseBroker").path, "--serve"]
+        definition["ProgramArguments"] = [root.appendingPathComponent("OCULockService").path, "--serve"]
         let updated = try PropertyListSerialization.data(fromPropertyList: definition, format: .xml, options: 0)
         try updated.write(to: daemon, options: [.atomic])
         guard chmod(daemon.path, 0o644) == 0 else { throw InstallError.untrusted }
@@ -340,7 +341,7 @@ struct InstallerMain {
         let found = AuthorizationRightGet(LockedUseAuthorizationRules.remoteRight, &existing)
         if found == errSecSuccess {
             guard let right = existing as? [String: Any], right["class"] as? String == "evaluate-mechanisms",
-                  right["mechanisms"] as? [String] == ["OpenComputerUseLockedUseAuthorizationPlugin:remote"] else { throw InstallError.changedPolicy }
+                  right["mechanisms"] as? [String] == ["OCULockAuth:remote"] else { throw InstallError.changedPolicy }
             let result = AuthorizationRightRemove(authorization, LockedUseAuthorizationRules.remoteRight)
             guard result == errSecSuccess else { throw InstallError.authentication(result) }
         } else if found != errAuthorizationDenied { throw InstallError.authentication(found) }

@@ -14,7 +14,7 @@ enum LockedUseNativeValidation {
         let apps = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
         guard apps.count == 1, let path = apps.first?.bundleURL,
               let team = try LockedUseSigningIdentity.current().teamIdentifier else {
-            throw ComputerUseError.stateUnavailable("Launch the signed Locked Use Native Fixture first.")
+            throw ComputerUseError.stateUnavailable("Launch the signed OCU Lock Demo first.")
         }
         var code: SecStaticCode?
         var requirement: SecRequirement?
