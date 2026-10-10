@@ -15,6 +15,12 @@ It supports the same core tool surface across macOS, Linux, and Windows:
 `list_apps`, `get_app_state`, `click`, `perform_secondary_action`, `scroll`,
 `drag`, `type_text`, `press_key`, and `set_value`.
 
+The macOS runtime additionally implements `select_text`, which selects the given text inside a text
+element or places the text cursor before / after it (`selection`: `text`, `cursor_before`,
+`cursor_after`). Pass `text` exactly as it appears in the accessibility tree, plus `prefix` /
+`suffix` when it is not unique; an ambiguous target fails closed instead of silently selecting the
+first match. Windows and Linux runtimes do not implement this tool yet.
+
 ## Core Workflow
 
 1. On macOS, run `sw_vers -productVersion` before invoking the CLI and require macOS 14.0 or later. On older versions, explain that the runtime cannot launch; do not recommend `doctor` or permission changes as a fix for binary incompatibility.

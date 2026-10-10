@@ -307,6 +307,21 @@ final class FixtureAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         case ("set_value", "fixture-input"):
             inputField.stringValue = command.value ?? ""
             updateExportedState()
+        case ("select_text", "fixture-input"):
+            window.makeFirstResponder(inputField)
+            if let editor = inputField.currentEditor() {
+                let mode = command.selection.flatMap(TextSelectionMode.init(rawValue:)) ?? .text
+                if let target = try? TextSelectionResolver.resolve(
+                    value: inputField.stringValue,
+                    text: command.value ?? "",
+                    prefix: command.prefix,
+                    suffix: command.suffix,
+                    selection: mode
+                ) {
+                    editor.selectedRange = NSRange(location: target.location, length: target.length)
+                }
+            }
+            updateExportedState()
         case ("click", "fixture-increment"):
             handleIncrement()
         case ("click", "fixture-input"):
@@ -352,6 +367,20 @@ final class FixtureAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         }
     }
 
+    private var selectedTextInInputField: String? {
+        guard let editor = inputField.currentEditor(), editor.selectedRange.length > 0 else {
+            return nil
+        }
+
+        let value = inputField.stringValue as NSString
+        let range = editor.selectedRange
+        guard range.location >= 0, NSMaxRange(range) <= value.length else {
+            return nil
+        }
+
+        return value.substring(with: range)
+    }
+
     private func updateExportedState() {
         guard let window, let contentView = window.contentView else {
             return
@@ -377,7 +406,8 @@ final class FixtureAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
             isActive: NSApp.isActive,
             isKeyWindow: window.isKeyWindow,
             activationLossCount: activationLossCount,
-            keyWindowLossCount: keyWindowLossCount
+            keyWindowLossCount: keyWindowLossCount,
+            selectedText: selectedTextInInputField
         )
 
         try? FixtureBridge.writeState(state)

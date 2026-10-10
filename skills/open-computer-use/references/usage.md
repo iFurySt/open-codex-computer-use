@@ -39,6 +39,7 @@ drag
 type_text
 press_key
 set_value
+select_text   (macOS runtime only)
 ```
 
 This remains the native compatibility surface. The bundled Codex plugin uses a
