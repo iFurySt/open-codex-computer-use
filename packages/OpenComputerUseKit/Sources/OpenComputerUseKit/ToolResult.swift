@@ -12,6 +12,13 @@ public struct ToolResultContentItem: @unchecked Sendable {
         )
     }
 
+    static func screenshotImage(_ data: Data) -> ToolResultContentItem {
+        ToolResultContentItem(dictionary: [
+            "type": "image", "data": data.base64EncodedString(),
+            "mimeType": data.starts(with: [0xff, 0xd8, 0xff]) ? "image/jpeg" : (data.count >= 12 && String(data: data.subdata(in: 8..<12), encoding: .ascii) == "WEBP" ? "image/webp" : "image/png"),
+        ])
+    }
+
     public static func pngImage(_ data: Data) -> ToolResultContentItem {
         ToolResultContentItem(
             dictionary: [

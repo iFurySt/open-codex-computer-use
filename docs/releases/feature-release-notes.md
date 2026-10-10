@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-10-10 | macOS 截图配置 | 普通用户可用 `ocu config` 持久化截图偏好，无需维护 shell ENV。 | 新增用户 JSON、ENV 覆盖、PNG/JPG/WebP 格式、明确的超大缩小/丢弃开关、最小总像素数过滤、质量/SCK 超时；取消字节预算缩小，支持关闭长边上限，省略截图时说明原因，保留 #65 捕获路径与坐标映射。 |
 | 2026-10-10 | 1.0.0 正式发布 | 用户可通过 npm 或直接下载使用跨平台桌面自动化，并以持久 JavaScript 会话编排操作。 | 基于当前 main 发布 `1.0.0`：统一所有版本源，交付 macOS 后台键盘、遮挡/其他 Space 窗口读取及显式 agent display，包含 Linux 快捷键与 Windows 无效截图修复；Linux / Windows runtime 继续标为实验性。 |
 | 2026-10-09 | Linux 按键 | Linux 上 `press_key` 的 Enter、Tab、Escape、方向键和 `ctrl+a` 等快捷键会送达正确的按键，Agent 可以提交表单、切换焦点和使用快捷键。 | Linux bridge 改用 `KeySynthType.SYM` 发送具名键 keysym，并以 `LOCKMODIFIERS` / `UNLOCKMODIFIERS` 保持修饰键；此前 keysym 被当作 keycode，Enter 会输入 `4`，修饰键不生效。 |
 | 2026-10-09 | Windows 截图可靠性 | 极小、最小化、隐藏、cloaked 或离屏窗口不会再向模型返回不可用的 PNG；极端情况下仍可读取 accessibility tree，并明确限制依赖截图坐标的操作。 | Windows bridge 在截图前校验窗口状态、virtual screen 交集和最小尺寸，Go 层再次解码 PNG header 复核；无有效截图时省略 image block，coordinate click / drag fail closed，不做放大、补边或占位图。 |

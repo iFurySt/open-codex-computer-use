@@ -1,3 +1,4 @@
+import { configCommand, configHelp } from "./ocu-config.mjs";
 import { spawn } from "node:child_process";
 import { constants as fsConstants, accessSync, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -122,6 +123,7 @@ Commands:
   mcp                  Start the native 9-tool stdio MCP server.
   js <code>            Run JavaScript once with the asynchronous cua API.
   repl                 Start a persistent interactive JavaScript session.
+  config               View or persist macOS screenshot settings.
   capabilities         Report Node, adapter, native, js, and repl availability.
   doctor               Print permission status and launch onboarding if needed on macOS.
   list-apps            Print running or recently used apps.
@@ -478,6 +480,14 @@ export async function main({
     }
     if (command === "help" && installCommands.has(argv[1])) {
       writeLine(output, installHelp(installCommands.get(argv[1]), installerUsage(argv[1])));
+      return 0;
+    }
+    if (command === "config") {
+      writeLine(output, configCommand(argv.slice(1), env));
+      return 0;
+    }
+    if (command === "help" && argv[1] === "config") {
+      writeLine(output, configHelp);
       return 0;
     }
     if (command === "capabilities") {

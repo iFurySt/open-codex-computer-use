@@ -410,6 +410,7 @@ function renderMetaPackageJson(packageName, version) {
       "skills/open-computer-use/",
       "README.md",
       "LICENSE",
+      "THIRD_PARTY_NOTICES.md",
     ],
   };
 }
@@ -426,6 +427,7 @@ function copyInstallerScripts(packageRoot) {
   mkdirSync(path.join(packageRoot, "scripts", "node-repl"), { recursive: true });
   for (const scriptName of [
     "open-computer-use-cli.mjs",
+    "ocu-config.mjs",
     "open-computer-use-repl.mjs",
     "open-computer-use-kernel.mjs",
   ]) {
@@ -501,6 +503,7 @@ function stageMetaPackage(packageName, version, outDir) {
     recursive: true,
   });
   cpSync(path.join(repoRoot, "LICENSE"), path.join(packageRoot, "LICENSE"));
+  cpSync(path.join(repoRoot, "THIRD_PARTY_NOTICES.md"), path.join(packageRoot, "THIRD_PARTY_NOTICES.md"));
   copyBundledRuntimes(packageRoot, packageName);
   copyInstallerScripts(packageRoot);
 

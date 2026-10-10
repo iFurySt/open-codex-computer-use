@@ -81,7 +81,7 @@ final class AppMatrixLiveTests: XCTestCase {
             let nodes = snapshot.elements.count
             let hasWeb = snapshot.treeLines.contains { $0.contains("HTML content") }
             let covered = snapshot.treeLines.contains { $0.hasPrefix("Note: this window is covered") }
-            let shot = snapshot.screenshotPNGData?.count ?? 0
+            let shot = snapshot.screenshotData?.count ?? 0
             guard let windowID = snapshot.targetWindowID, let bounds = snapshot.windowBounds else {
                 rows.append(row(name, engine, "snapshot ok nodes=\(nodes) web=\(hasWeb) shot=\(shot)B \(snapMs)ms; no window id"))
                 continue
@@ -104,7 +104,7 @@ final class AppMatrixLiveTests: XCTestCase {
                     let parkedMs = Int((TimingLog.now() - s0) * 1000)
                     let parkedWeb = parkedSnapshot.treeLines.contains { $0.contains("HTML content") }
                     let onDisplay = AgentDisplay.shared.displayBounds.map { $0.contains(CGPoint(x: (parkedSnapshot.windowBounds?.minX ?? -1) + 1, y: (parkedSnapshot.windowBounds?.minY ?? -1) + 1)) } ?? false
-                    var parkDetail = "PARK \(parkMs)ms onDisplay=\(onDisplay) snapshot \(parkedMs)ms nodes=\(parkedSnapshot.elements.count) web=\(parkedWeb) shot=\(parkedSnapshot.screenshotPNGData?.count ?? 0)B; " + inputRound(parkedSnapshot, descriptor, app.processIdentifier)
+                    var parkDetail = "PARK \(parkMs)ms onDisplay=\(onDisplay) snapshot \(parkedMs)ms nodes=\(parkedSnapshot.elements.count) web=\(parkedWeb) shot=\(parkedSnapshot.screenshotData?.count ?? 0)B; " + inputRound(parkedSnapshot, descriptor, app.processIdentifier)
                     let r0 = TimingLog.now()
                     try AgentDisplay.shared.restore(windowID: windowID)
                     let restoredBounds = (try? SnapshotBuilder.build(for: descriptor, recoveryPolicy: .readOnly))?.windowBounds

@@ -123,7 +123,7 @@ final class CrossSpaceLiveTests: XCTestCase {
         let parkedSnapshot = try SnapshotBuilder.build(for: descriptor, recoveryPolicy: .readOnly)
         XCTAssertEqual(parkedSnapshot.targetWindowID, window.id, "snapshot must resolve the off-screen window")
         XCTAssertTrue(parkedSnapshot.treeLines.contains { $0.contains("sky probe") }, "parked snapshot must include web content")
-        XCTAssertNotNil(parkedSnapshot.screenshotPNGData, "parked window must still be captured")
+        XCTAssertNotNil(parkedSnapshot.screenshotData, "parked window must still be captured")
         XCTAssertEqual(activeSpace(cid), homeSpace, "snapshot must not switch Spaces")
         XCTAssertNotEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, window.pid, "snapshot must not activate Chrome")
 

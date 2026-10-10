@@ -204,3 +204,7 @@ Cursor Motion is an open-source cursor motion system for macOS, based on public 
 ## License
 
 [MIT](./LICENSE).
+
+### Persistent configuration
+
+Use `ocu config` to inspect settings and `ocu config set image.format jpg` to persist a macOS screenshot preference. Environment overrides remain supported. See [configuration](docs/configuration.md) ([简体中文](docs/configuration.zh-CN.md)) for settings and CLI commands.

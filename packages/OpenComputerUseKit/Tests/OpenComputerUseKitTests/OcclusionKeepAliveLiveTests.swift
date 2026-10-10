@@ -91,7 +91,7 @@ final class OcclusionKeepAliveLiveTests: XCTestCase {
 
         XCTAssertTrue(coveredSnapshot.treeLines.contains { $0.contains("sky probe") }, "covered snapshot must still include the web content")
         XCTAssertFalse(coveredSnapshot.treeLines.contains { $0.hasPrefix("Note: this window is covered") })
-        XCTAssertNotNil(coveredSnapshot.screenshotPNGData)
+        XCTAssertNotNil(coveredSnapshot.screenshotData)
         XCTAssertNotEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, window.pid, "snapshots must not activate Chrome")
 
         WindowOcclusionKeepAlive.shared.releaseAll()

@@ -144,9 +144,13 @@ enum MacOSAppAgentProxy {
     }
 
     private static func proxiedEnvironment() -> [String: String] {
-        ProcessInfo.processInfo.environment.filter { key, _ in
+        var environment = ProcessInfo.processInfo.environment.filter { key, _ in
             key.hasPrefix("OPEN_COMPUTER_USE_")
         }
+        if let url = try? OCUConfiguration.fileURL(environment: OCUConfiguration.environment) {
+            environment["OPEN_COMPUTER_USE_CONFIG_FILE"] = url.path
+        }
+        return environment
     }
 }
 
@@ -425,18 +429,14 @@ private enum AppAgentEnvironment {
     private static let lock = NSLock()
 
     static func withOverrides<T>(_ overrides: [String: String], _ body: () throws -> T) rethrows -> T {
-        guard !overrides.isEmpty else {
-            return try body()
-        }
-
         lock.lock()
         defer { lock.unlock() }
 
-        let previousValues = Dictionary(
-            uniqueKeysWithValues: overrides.keys.map { key in
-                (key, ProcessInfo.processInfo.environment[key])
-            }
-        )
+        let keys = Set(overrides.keys).union(OCUConfiguration.environmentKeys)
+        let previousValues = Dictionary(uniqueKeysWithValues: keys.map { key in
+            (key, getenv(key).map { String(cString: $0) })
+        })
+        for key in OCUConfiguration.environmentKeys where overrides[key] == nil { unsetenv(key) }
         for (key, value) in overrides {
             setenv(key, value, 1)
         }

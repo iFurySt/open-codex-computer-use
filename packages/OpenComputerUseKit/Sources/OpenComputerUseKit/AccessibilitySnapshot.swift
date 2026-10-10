@@ -91,10 +91,7 @@ public struct SnapshotTextLimit: Equatable, Sendable {
 
 let accessibilityTreeMaxNodeCount = AccessibilityTreeLimits.defaultMaxNodeCount
 let accessibilityTreeMaxDepth = AccessibilityTreeLimits.defaultMaxDepth
-let screenshotCaptureTimeout: TimeInterval = 5
-let screenshotResultMaxPNGBytes = 900_000
 let screenshotResultMaxDimension: CGFloat = 1280
-let screenshotResultMinScale: CGFloat = 0.25
 private let windowVisibilityRecoveryDelay: TimeInterval = 0.7
 private let axWebAreaRole = "AXWebArea"
 // Chrome needs up to ~2s after AXManualAccessibility before the web tree exists.
@@ -129,7 +126,12 @@ public struct AppSnapshot {
     public let windowBounds: CGRect?
     let targetWindowID: CGWindowID?
     let targetWindowLayer: Int?
-    public let screenshotPNGData: Data?
+    public let screenshotData: Data?
+    @available(*, deprecated, message: "Use screenshotData; screenshots may be JPEG")
+    public var screenshotPNGData: Data? {
+        guard let data = screenshotData, data.starts(with: [0x89, 0x50, 0x4e, 0x47]) else { return nil }
+        return data
+    }
     let mode: SnapshotMode
     let treeLines: [String]
     let focusedSummary: String?
@@ -139,6 +141,7 @@ public struct AppSnapshot {
     let windowElement: AXUIElement?
 
     let elements: [Int: ElementRecord]
+    var screenshotNote: String? = nil
 
     public var renderedText: String {
         renderedText(style: .fullState)
@@ -256,7 +259,8 @@ enum SnapshotBuilder {
         lazyWebAccessibility: Bool
     ) -> AppSnapshot {
         let windowBounds = windowCapture.bounds
-        let screenshotPNGData = windowCapture.pngDataIfAvailable()
+        let screenshot = windowCapture.screenshotResult()
+        let screenshotData = screenshot.data
         let focusedElement = preferredFocusedElement(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
         let selectedText = focusedElement.flatMap { copySelectedText($0, textLimit: textLimit) }
         let context = RenderContext(
@@ -310,14 +314,15 @@ enum SnapshotBuilder {
             windowBounds: windowBounds,
             targetWindowID: windowCapture.windowID,
             targetWindowLayer: windowCapture.layer,
-            screenshotPNGData: screenshotPNGData,
+            screenshotData: screenshotData,
             mode: .accessibility,
             treeLines: treeLines,
             focusedSummary: renderer.focusedSummary,
             focusedElement: focusedElement,
             selectedText: selectedText,
             windowElement: rootElement,
-            elements: renderer.records
+            elements: renderer.records,
+            screenshotNote: screenshot.note
         )
     }
 
@@ -467,7 +472,7 @@ enum SnapshotBuilder {
             windowBounds: state.windowBounds.cgRect,
             targetWindowID: nil,
             targetWindowLayer: nil,
-            screenshotPNGData: nil,
+            screenshotData: nil,
             mode: .fixture,
             treeLines: lines,
             focusedSummary: focusedSummary,
@@ -498,6 +503,7 @@ private struct WindowCapture {
     let layer: Int
     let bounds: CGRect
     let image: CGImage?
+    var imageConfig = ImageCaptureConfig.defaults
 
     /// Exact binding: the window the AX tree was walked from.
     static func resolve(for pid: pid_t, exactWindowID: CGWindowID?) -> WindowCapture? {
@@ -516,7 +522,8 @@ private struct WindowCapture {
             else {
                 continue
             }
-            return WindowCapture(windowID: exactWindowID, layer: layer, bounds: bounds, image: captureImage(windowID: exactWindowID, bounds: bounds))
+            let config = ImageCaptureConfig.current
+            return WindowCapture(windowID: exactWindowID, layer: layer, bounds: bounds, image: captureImage(windowID: exactWindowID, bounds: bounds, config: config), imageConfig: config)
         }
         return nil
     }
@@ -562,22 +569,23 @@ private struct WindowCapture {
             return nil
         }
 
-        let image = captureImage(windowID: best.windowID, bounds: best.bounds)
+        let config = ImageCaptureConfig.current
+        let image = captureImage(windowID: best.windowID, bounds: best.bounds, config: config)
 
-        return WindowCapture(windowID: best.windowID, layer: best.layer, bounds: best.bounds, image: image)
+        return WindowCapture(windowID: best.windowID, layer: best.layer, bounds: best.bounds, image: image, imageConfig: config)
     }
 
     /// WindowServer's hardware window capture first (any Space, covered or not,
     /// ~10-40ms), ScreenCaptureKit when it is unavailable.
-    private static func captureImage(windowID: CGWindowID, bounds: CGRect) -> CGImage? {
+    private static func captureImage(windowID: CGWindowID, bounds: CGRect, config: ImageCaptureConfig) -> CGImage? {
         if let image = TimingLog.measure("snapshot.capture_hw") { SkyLightSPI.shared.hardwareCaptureWindow(windowID) } {
             return image
         }
-        return TimingLog.measure("snapshot.capture_sck") { captureImageWithScreenCaptureKit(windowID: windowID, bounds: bounds) }
+        return TimingLog.measure("snapshot.capture_sck") { captureImageWithScreenCaptureKit(windowID: windowID, bounds: bounds, config: config) }
     }
 
-    private static func captureImageWithScreenCaptureKit(windowID: CGWindowID, bounds: CGRect) -> CGImage? {
-        try? BlockingAsyncBridge.run(timeout: screenshotCaptureTimeout) {
+    private static func captureImageWithScreenCaptureKit(windowID: CGWindowID, bounds: CGRect, config: ImageCaptureConfig) -> CGImage? {
+        try? BlockingAsyncBridge.run(timeout: config.captureTimeout) {
             let shareableContent = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
             guard let window = shareableContent.windows.first(where: { $0.windowID == windowID }) else {
                 return nil
@@ -603,13 +611,11 @@ private struct WindowCapture {
             ?? 1
     }
 
-    func pngDataIfAvailable() -> Data? {
-        guard let image else {
-            return nil
-        }
-
-        return boundedScreenshotPNGData(for: image)
+    func screenshotResult() -> ScreenshotEncodingResult {
+        guard let image else { return ScreenshotEncodingResult(data: nil, note: nil) }
+        return encodeScreenshot(for: image, config: imageConfig)
     }
+
 }
 
 struct WindowCaptureCandidate {
@@ -655,39 +661,55 @@ func preferredWindowCaptureCandidate(_ candidates: [WindowCaptureCandidate], tit
 
 func boundedScreenshotPNGData(
     for image: CGImage,
-    maxBytes: Int = screenshotResultMaxPNGBytes,
-    maxDimension: CGFloat = screenshotResultMaxDimension,
-    minScale: CGFloat = screenshotResultMinScale
+    maxDimension: CGFloat = screenshotResultMaxDimension
 ) -> Data? {
-    guard image.width > 0, image.height > 0, maxBytes > 0 else {
-        return nil
+    boundedScreenshotData(for: image, config: ImageCaptureConfig(
+        discardBelowPixelCount: 0, maxDimension: maxDimension
+    ))
+}
+
+struct ScreenshotEncodingResult {
+    let data: Data?
+    let note: String?
+}
+
+func boundedScreenshotData(for image: CGImage, config: ImageCaptureConfig) -> Data? {
+    encodeScreenshot(for: image, config: config).data
+}
+
+func encodeScreenshot(for image: CGImage, config: ImageCaptureConfig) -> ScreenshotEncodingResult {
+    func omitted(_ reason: String) -> ScreenshotEncodingResult { .init(data: nil, note: "Screenshot omitted: " + reason) }
+    guard image.width > 0, image.height > 0 else { return omitted("invalid dimensions") }
+    guard config.maxDimension.map({ $0.isFinite && $0 >= 1 && $0.rounded(.down) == $0 }) ?? true else {
+        return omitted("invalid image configuration")
     }
-
-    let original = pngData(for: image)
-    let largestDimension = CGFloat(max(image.width, image.height))
-    var scale = min(1, maxDimension / largestDimension)
-
-    if scale >= 1, let original, original.count <= maxBytes {
-        return original
+    func isTiny(_ width: Int, _ height: Int) -> Bool {
+        Double(width) * Double(height) < Double(config.discardBelowPixelCount)
     }
-
-    var best = original
-    while scale >= minScale {
-        guard let resized = resizedCGImage(image, scale: scale),
-              let data = pngData(for: resized)
-        else {
-            break
+    if isTiny(image.width, image.height) {
+        return omitted("\(image.width)×\(image.height) has fewer than \(config.discardBelowPixelCount) pixels")
+    }
+    let longEdge = CGFloat(max(image.width, image.height))
+    if let maximum = config.maxDimension, longEdge > maximum, !config.scaleDownAfterMaxSize {
+        return omitted("long edge \(Int(longEdge)) exceeds maxLongEdgePixels \(Int(maximum)); scaleDownAfterMaxSize is false")
+    }
+    func encode(_ image: CGImage) -> Data? {
+        switch config.format {
+        case "png": return pngData(for: image)
+        case "webp": return losslessWebPData(for: image)
+        case "jpg", "jpeg": return NSBitmapImageRep(cgImage: image).representation(using: .jpeg, properties: [.compressionFactor: config.jpegQuality])
+        default: return nil
         }
-
-        best = data
-        if data.count <= maxBytes {
-            return data
-        }
-
-        scale *= 0.85
     }
-
-    return best
+    let scale = min(1, (config.maxDimension ?? longEdge) / longEdge)
+    let width = max(1, Int((CGFloat(image.width) * scale).rounded(.down)))
+    let height = max(1, Int((CGFloat(image.height) * scale).rounded(.down)))
+    if isTiny(width, height) {
+        return omitted("resizing would fall below discardBelowPixelCount \(config.discardBelowPixelCount)")
+    }
+    guard let resized = scale == 1 ? image : resizedCGImage(image, scale: scale),
+          let data = encode(resized) else { return omitted("\(config.format) encoding failed") }
+    return .init(data: data, note: nil)
 }
 
 private func pngData(for image: CGImage) -> Data? {
@@ -696,8 +718,8 @@ private func pngData(for image: CGImage) -> Data? {
 }
 
 private func resizedCGImage(_ image: CGImage, scale: CGFloat) -> CGImage? {
-    let width = max(1, Int((CGFloat(image.width) * scale).rounded()))
-    let height = max(1, Int((CGFloat(image.height) * scale).rounded()))
+    let width = max(1, Int((CGFloat(image.width) * scale).rounded(.down)))
+    let height = max(1, Int((CGFloat(image.height) * scale).rounded(.down)))
     let colorSpace = CGColorSpaceCreateDeviceRGB()
     let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
 
