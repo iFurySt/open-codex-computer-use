@@ -350,3 +350,5 @@ WindowServer 元数据并不提供像素或 compositor 原子交接保证；1 �
 独立分支 Swift 301 项（7 跳过、0 失败）、Node 25 项、Python 28 项、make check-docs、签名组件 / App 构建及严格嵌套签名检查通过。授权插件 ABI 与 live task verifier 的身份 / 签名负例检查通过。系统 Node 缺少已有动态库，Node 回归使用可用的 bundled runtime 完成，不修改系统安装。make check-repo 的旧 hygiene 脚本在未修改的 main 即缺少其要求的模板 / CI 文件，本任务不扩张范围补这些文件。
 
 本轮未安装系统组件、未修改认证规则、未锁屏；既有双物理屏 legacy-only 实测仍作为 awesome-extension 的历史证据，不能冒充提取分支实机验收。生产 backend 保持关闭。
+
+独立提取已交付为 [PR #92](https://github.com/iFurySt/open-codex-computer-use/pull/92)，目标 main；原 awesome-extension 未修改。提取执行计划已归档至 completed，等待用户合并。

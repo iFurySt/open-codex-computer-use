@@ -14,10 +14,13 @@
 1. [x] 同步 main，提取原独立 feature diff 和合并后的必要修正。
 2. [x] 处理共享构建及退出路径冲突，补齐新输入路径门和捕获选择。
 3. [x] 运行 Swift / Node / Python 回归、文档检查和构建检查。
-4. [ ] 核对 diff 范围，记录历史 / 发布说明，提交并推送独立分支，创建 main PR。
+4. [x] 核对 diff 范围，记录历史 / 发布说明，提交并推送独立分支，创建 main PR。
 
 ## 验证边界
 既有双物理屏完整 legacy 闭环及用户确认属于 awesome-extension 的实机证据；本次独立分支另跑离线 / 构建集成检查，不将旧实测当作新分支的真实锁屏验收。完整 Data Protection、Secure Input、组件死亡和显示器矩阵仍未完成，生产保持关闭。
 
 ## 检查结果
 Swift 301 项（7 跳过、0 失败），Node 25 项，Python 28 项，文档检查、组件 / App 签名构建与 ABI 检查通过。make check-repo 的模板缺失属于 main 的既有问题，不在本次修复范围。
+
+## 交付
+独立分支 `codex/macos-locked-use-pr` 已推送，创建 [PR #92](https://github.com/iFurySt/open-codex-computer-use/pull/92)，目标 main；awesome-extension 保持原样，等待用户评审与合并。
