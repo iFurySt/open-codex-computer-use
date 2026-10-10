@@ -219,6 +219,18 @@ Every non-fixture `drag` result includes a text item that begins `Drag delivered
 
 When the gate is not enabled, treat window-server drags as unavailable and reach the same outcome another way: copy or move files with a shell command instead of a Finder drag, use `set_value` or keyboard selection instead of drag-selecting text, and use the app's own window controls instead of dragging a title bar.
 
+## Software Cursor
+
+The software cursor follows the target window when it moves. Its point is derived from the snapshot, so it
+also carries an anchor: the same point expressed relative to the window frame the snapshot reported. Before
+drawing, and on every frame of a travel, the overlay re-derives the point from the window's live frame, so a
+window dragged to another display mid-action takes the cursor with it instead of leaving it on the display
+the window just left.
+
+The live frame comes from the window's accessibility element — the element the snapshot already holds — and
+only falls back to `CGWindowListCopyWindowInfo`, which can keep reporting the pre-move origin for about a
+second (measured: 83 identical frames at the travel's 120 Hz pump).
+
 ## Platform Notes
 
 ### macOS

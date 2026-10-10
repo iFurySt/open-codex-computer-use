@@ -192,13 +192,20 @@ enum SoftwareCursorOverlay {
     private static var restingTipPosition: CGPoint?
     private static var displayedTipPosition: CGPoint?
     private static var activeTargetWindow: CursorTargetWindow?
+    /// Window frame the current target point was derived from; lets a move
+    /// under the cursor be detected and re-derived instead of ignored.
+    private static var restingAnchor: CursorRestingAnchor?
     private static var visualDynamicsState: CursorVisualDynamicsState?
     private static var idleTimer: Timer?
     private static var hideTimer: Timer?
     private static var idlePhase: CGFloat = 0
     private static var observationPhase = "hidden"
 
-    static func moveCursor(to targetPoint: CGPoint, in targetWindow: CursorTargetWindow?) {
+    static func moveCursor(
+        to targetPoint: CGPoint,
+        in targetWindow: CursorTargetWindow?,
+        anchor: CursorRestingAnchor? = nil
+    ) {
         guard VisualCursorSupport.isEnabled, canPresentOverlay else {
             return
         }
@@ -208,7 +215,8 @@ enum SoftwareCursorOverlay {
         cancelPendingHide()
         configureOrdering(relativeTo: targetWindow)
 
-        let constrainedTarget = clampTipPosition(targetPoint)
+        restingAnchor = anchor
+        let constrainedTarget = clampTipPosition(liveTargetPoint(targetPoint, anchor: anchor))
         let isFreshStart = displayedTipPosition == nil
         let startPoint = displayedTipPosition ?? defaultInitialTipPosition()
         let now = CACurrentMediaTime()
@@ -234,13 +242,20 @@ enum SoftwareCursorOverlay {
         }
     }
 
-    static func pulseClick(at targetPoint: CGPoint, clickCount: Int, mouseButton: MouseButtonKind, in targetWindow: CursorTargetWindow?) {
+    static func pulseClick(
+        at targetPoint: CGPoint,
+        clickCount: Int,
+        mouseButton: MouseButtonKind,
+        in targetWindow: CursorTargetWindow?,
+        anchor: CursorRestingAnchor? = nil
+    ) {
         guard VisualCursorSupport.isEnabled, canPresentOverlay else {
             return
         }
 
         configureOrdering(relativeTo: targetWindow)
-        let constrainedTarget = clampTipPosition(targetPoint)
+        restingAnchor = anchor ?? restingAnchor
+        let constrainedTarget = clampTipPosition(liveTargetPoint(targetPoint, anchor: anchor))
         let now = CACurrentMediaTime()
         seedVisualDynamicsIfNeeded(at: constrainedTarget, time: now)
         restingTipPosition = constrainedTarget
@@ -250,13 +265,18 @@ enum SoftwareCursorOverlay {
         scheduleHide(after: visualCursorPostInteractionIdleTimeout())
     }
 
-    static func settle(at targetPoint: CGPoint, in targetWindow: CursorTargetWindow?) {
+    static func settle(
+        at targetPoint: CGPoint,
+        in targetWindow: CursorTargetWindow?,
+        anchor: CursorRestingAnchor? = nil
+    ) {
         guard VisualCursorSupport.isEnabled, canPresentOverlay else {
             return
         }
 
         configureOrdering(relativeTo: targetWindow)
-        let constrainedTarget = clampTipPosition(targetPoint)
+        restingAnchor = anchor ?? restingAnchor
+        let constrainedTarget = clampTipPosition(liveTargetPoint(targetPoint, anchor: anchor))
         restingTipPosition = constrainedTarget
         observationPhase = "settling"
         placeCursor(
@@ -276,10 +296,65 @@ enum SoftwareCursorOverlay {
         displayedTipPosition = nil
         restingTipPosition = nil
         activeTargetWindow = nil
+        restingAnchor = nil
         visualDynamicsState = nil
         observationPhase = "hidden"
         writeObservationSnapshot(tipPosition: nil, rotation: nil)
         panel?.orderOut(nil)
+    }
+
+    /// Re-derive a target point that was computed from a snapshot taken before
+    /// the window moved. Element frames are window-relative, so the anchored
+    /// point follows the window instead of staying on the display it just left.
+    private static func liveTargetPoint(_ targetPoint: CGPoint, anchor: CursorRestingAnchor?) -> CGPoint {
+        guard let anchor,
+              let liveFrame = CursorWindowFrameTracker.liveFrame(for: anchor.windowID),
+              liveFrame != anchor.windowBounds,
+              let screenStatePoint = anchor.screenStatePoint(liveFrame: liveFrame)
+        else {
+            return targetPoint
+        }
+
+        return screenStatePointToAppKitGlobalPoint(
+            fromScreenStatePoint: screenStatePoint,
+            screenMappings: currentVisualCursorScreenMappings()
+        )
+    }
+
+    /// Whether the anchored window has moved since the anchor was taken.
+    private static func anchoredWindowMoved() -> Bool {
+        guard let anchor = restingAnchor,
+              let liveFrame = CursorWindowFrameTracker.liveFrame(for: anchor.windowID)
+        else {
+            return false
+        }
+
+        return liveFrame != anchor.windowBounds
+    }
+
+    /// Stop a travel whose window moved under it: land the cursor on the
+    /// window's live frame instead of finishing the path towards the display
+    /// the window just left.
+    private static func abortTravelOntoObservedWindow() {
+        guard let anchor = restingAnchor,
+              let liveFrame = CursorWindowFrameTracker.liveFrame(for: anchor.windowID),
+              let screenStatePoint = anchor.screenStatePoint(liveFrame: liveFrame)
+        else {
+            return
+        }
+
+        let constrainedTarget = clampTipPosition(
+            screenStatePointToAppKitGlobalPoint(
+                fromScreenStatePoint: screenStatePoint,
+                screenMappings: currentVisualCursorScreenMappings()
+            )
+        )
+        restingTipPosition = constrainedTarget
+        observationPhase = "reanchored"
+        placeCursor(
+            using: advanceVisualDynamics(toward: constrainedTarget, at: CACurrentMediaTime()),
+            clickProgress: 0
+        )
     }
 
     private static var canPresentOverlay: Bool {
@@ -362,6 +437,11 @@ enum SoftwareCursorOverlay {
 
         while true {
             refreshActiveOrderingIfNeeded()
+
+            if anchoredWindowMoved() {
+                abortTravelOntoObservedWindow()
+                return
+            }
 
             let elapsed = CGFloat(CACurrentMediaTime() - startTime)
             let normalizedElapsed = (elapsed / max(duration, 0.001)).clamped(to: 0...1)

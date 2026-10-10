@@ -6,6 +6,11 @@ import ImageIO
 struct VisualCursorTarget: Equatable {
     let point: CGPoint
     let window: CursorTargetWindow?
+    /// The same point expressed relative to the window frame the snapshot
+    /// reported. The overlay keeps it so a window that moves before or during
+    /// the action can be re-derived instead of drawing on the display the
+    /// window just left.
+    var anchor: CursorRestingAnchor? = nil
 }
 
 public enum ClickMethod: String, CaseIterable, Sendable {
@@ -149,18 +154,43 @@ func inputEventPoint(
     point
 }
 
+/// Anchor for a cursor target built from a window-local point.
+///
+/// The click paths derive their point from the snapshot, so they carry the
+/// window frame that point belongs to; the overlay needs both to follow the
+/// window if it moves before or during the action.
+func makeCursorWindowAnchor(snapshot: AppSnapshot, windowLocalPoint: CGPoint) -> CursorRestingAnchor? {
+    guard let windowID = snapshot.targetWindowID, let windowBounds = snapshot.windowBounds else {
+        return nil
+    }
+
+    // Registering here keeps the live-frame source next to the anchor that
+    // depends on it: the window list can lag a move by about a second, so the
+    // accessibility element is what makes the re-derivation immediate.
+    CursorWindowFrameTracker.register(windowID: windowID, element: snapshot.windowElement)
+
+    return CursorRestingAnchor(
+        windowID: windowID,
+        layer: snapshot.targetWindowLayer ?? 0,
+        windowLocalPoint: windowLocalPoint,
+        windowBounds: windowBounds
+    )
+}
+
 func makeVisualCursorTarget(
     at point: CGPoint,
     targetWindowID: CGWindowID?,
     targetWindowLayer: Int?,
-    screenMappings: [VisualCursorScreenMapping] = currentVisualCursorScreenMappings()
+    screenMappings: [VisualCursorScreenMapping] = currentVisualCursorScreenMappings(),
+    anchor: CursorRestingAnchor? = nil
 ) -> VisualCursorTarget {
     VisualCursorTarget(
         point: screenStatePointToAppKitGlobalPoint(
             fromScreenStatePoint: point,
             screenMappings: screenMappings
         ),
-        window: targetWindowID.map { CursorTargetWindow(windowID: $0, layer: targetWindowLayer ?? 0) }
+        window: targetWindowID.map { CursorTargetWindow(windowID: $0, layer: targetWindowLayer ?? 0) },
+        anchor: anchor
     )
 }
 
@@ -183,7 +213,15 @@ func makeVisualCursorTarget(
         at: point,
         targetWindowID: targetWindowID,
         targetWindowLayer: targetWindowLayer,
-        screenMappings: screenMappings
+        screenMappings: screenMappings,
+        anchor: targetWindowID.map { windowID in
+            CursorRestingAnchor(
+                windowID: windowID,
+                layer: targetWindowLayer ?? 0,
+                windowLocalPoint: CGPoint(x: localFrame.midX, y: localFrame.midY),
+                windowBounds: windowBounds
+            )
+        }
     )
 }
 
@@ -611,7 +649,8 @@ public final class ComputerUseService {
             let cursorTarget = makeVisualCursorTarget(
                 at: targetPoint,
                 targetWindowID: snapshot.targetWindowID,
-                targetWindowLayer: snapshot.targetWindowLayer
+                targetWindowLayer: snapshot.targetWindowLayer,
+                anchor: makeCursorWindowAnchor(snapshot: snapshot, windowLocalPoint: windowPoint)
             )
 
             moveVisualCursor(to: cursorTarget)
@@ -672,7 +711,8 @@ public final class ComputerUseService {
             let cursorTarget = makeVisualCursorTarget(
                 at: targetPoint,
                 targetWindowID: snapshot.targetWindowID,
-                targetWindowLayer: snapshot.targetWindowLayer
+                targetWindowLayer: snapshot.targetWindowLayer,
+                anchor: makeCursorWindowAnchor(snapshot: snapshot, windowLocalPoint: point)
             )
 
             moveVisualCursor(to: cursorTarget)
@@ -1817,7 +1857,15 @@ public final class ComputerUseService {
     }
 
     private func visualCursorTarget(for record: ElementRecord, snapshot: AppSnapshot) -> VisualCursorTarget? {
-        makeVisualCursorTarget(
+        // The accessibility element is the overlay's only immediate source of
+        // truth for the window frame: the window list can keep reporting the
+        // pre-move origin for about a second.
+        CursorWindowFrameTracker.register(
+            windowID: snapshot.targetWindowID,
+            element: snapshot.windowElement
+        )
+
+        return makeVisualCursorTarget(
             localFrame: record.localFrame,
             windowBounds: snapshot.windowBounds,
             targetWindowID: snapshot.targetWindowID,
@@ -1836,7 +1884,7 @@ public final class ComputerUseService {
         }
 
         VisualCursorSupport.performOnMain {
-            SoftwareCursorOverlay.moveCursor(to: target.point, in: target.window)
+            SoftwareCursorOverlay.moveCursor(to: target.point, in: target.window, anchor: target.anchor)
         }
     }
 
@@ -1846,7 +1894,7 @@ public final class ComputerUseService {
         }
 
         VisualCursorSupport.performOnMain {
-            SoftwareCursorOverlay.settle(at: target.point, in: target.window)
+            SoftwareCursorOverlay.settle(at: target.point, in: target.window, anchor: target.anchor)
         }
     }
 
@@ -1860,7 +1908,8 @@ public final class ComputerUseService {
                 at: target.point,
                 clickCount: clickCount,
                 mouseButton: mouseButton,
-                in: target.window
+                in: target.window,
+                anchor: target.anchor
             )
         }
     }
