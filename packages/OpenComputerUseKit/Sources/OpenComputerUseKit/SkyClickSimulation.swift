@@ -111,6 +111,7 @@ enum SkyClickDispatcher {
         clickCount: Int,
         spi: SkyLightSPI = .shared
     ) throws {
+        try requireUsableComputerUseSession()
         guard spi.capability.isAvailable else {
             throw ComputerUseError.message(
                 "click_method 'sky_click' is unavailable: \(spi.capability.unavailableReason)"
@@ -148,6 +149,7 @@ enum SkyClickDispatcher {
 
         do {
             for step in recipe {
+                try requireUsableComputerUseSession()
                 let screenPoint = step.pointKind == .target ? target.screenPoint : primerScreenPoint
                 let windowPoint = step.pointKind == .target ? target.windowPoint : primerWindowPoint
                 guard let event = CGEvent(

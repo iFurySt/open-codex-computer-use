@@ -103,6 +103,8 @@ You can also manually download and install the
 
 ## More
 
+See the [Locked Use guide](docs/locked-use.en.md) for setup, installed components, and permissions.
+
 Besides the MCP JSON config above, you can also use the built-in commands:
 
 ```bash

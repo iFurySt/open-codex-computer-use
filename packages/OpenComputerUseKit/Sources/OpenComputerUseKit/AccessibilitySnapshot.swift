@@ -184,6 +184,8 @@ enum SnapshotBuilder {
             return buildFixtureSnapshot(app: app, state: fixtureState)
         }
 
+        try requireUsableComputerUseSession()
+
         let permissions = PermissionDiagnostics.current()
         guard permissions.accessibilityTrusted else {
             throw ComputerUseError.permissionDenied("Accessibility permission is required. Run `open-computer-use doctor` and grant access to Open Computer Use.")
@@ -578,7 +580,8 @@ private struct WindowCapture {
     /// WindowServer's hardware window capture first (any Space, covered or not,
     /// ~10-40ms), ScreenCaptureKit when it is unavailable.
     private static func captureImage(windowID: CGWindowID, bounds: CGRect, config: ImageCaptureConfig) -> CGImage? {
-        if let image = TimingLog.measure("snapshot.capture_hw") { SkyLightSPI.shared.hardwareCaptureWindow(windowID) } {
+        if !LockedUseActionScope.requiresScreenCaptureKit,
+           let image = TimingLog.measure("snapshot.capture_hw", { SkyLightSPI.shared.hardwareCaptureWindow(windowID) }) {
             return image
         }
         return TimingLog.measure("snapshot.capture_sck") { captureImageWithScreenCaptureKit(windowID: windowID, bounds: bounds, config: config) }
