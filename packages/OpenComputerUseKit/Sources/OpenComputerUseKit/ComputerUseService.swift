@@ -667,7 +667,7 @@ public final class ComputerUseService {
             pulseVisualCursor(at: cursorTarget, clickCount: clickCount, mouseButton: button)
         } else if let x, let y {
             let screenshotPoint = CGPoint(x: x, y: y)
-            let point = screenshotPixelToWindowPointInSnapshot(snapshot: snapshot, point: screenshotPoint)
+            let point = try screenshotPixelToWindowPointInSnapshot(snapshot: snapshot, point: screenshotPoint)
             let targetPoint = try windowPointToGlobalPoint(snapshot: snapshot, point: point)
             let cursorTarget = makeVisualCursorTarget(
                 at: targetPoint,
@@ -1772,15 +1772,18 @@ public final class ComputerUseService {
     private func screenshotToGlobalPoint(snapshot: AppSnapshot, x: Double, y: Double) throws -> CGPoint {
         try windowPointToGlobalPoint(
             snapshot: snapshot,
-            point: screenshotPixelToWindowPointInSnapshot(
+            point: try screenshotPixelToWindowPointInSnapshot(
                 snapshot: snapshot,
                 point: CGPoint(x: x, y: y)
             )
         )
     }
 
-    private func screenshotPixelToWindowPointInSnapshot(snapshot: AppSnapshot, point: CGPoint) -> CGPoint {
-        screenshotPixelToWindowPoint(
+    private func screenshotPixelToWindowPointInSnapshot(snapshot: AppSnapshot, point: CGPoint) throws -> CGPoint {
+        if snapshot.screenshotData == nil, let note = snapshot.screenshotNote {
+            throw ComputerUseError.stateUnavailable(note + "; coordinate input requires a delivered screenshot")
+        }
+        return screenshotPixelToWindowPoint(
             point,
             screenshotPixelSize: screenshotPixelSize(snapshot: snapshot),
             windowBounds: snapshot.windowBounds
@@ -1789,8 +1792,8 @@ public final class ComputerUseService {
 
     private func screenshotPixelSize(snapshot: AppSnapshot) -> CGSize? {
         guard
-            let screenshotPNGData = snapshot.screenshotPNGData,
-            let imageSource = CGImageSourceCreateWithData(screenshotPNGData as CFData, nil),
+            let screenshotData = snapshot.screenshotData,
+            let imageSource = CGImageSourceCreateWithData(screenshotData as CFData, nil),
             let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any],
             let pixelWidth = properties[kCGImagePropertyPixelWidth] as? CGFloat,
             let pixelHeight = properties[kCGImagePropertyPixelHeight] as? CGFloat,
@@ -2051,8 +2054,9 @@ public final class ComputerUseService {
 
     private func snapshotResult(for snapshot: AppSnapshot, style: SnapshotTextStyle) -> ToolCallResult {
         var content = [ToolResultContentItem.text(snapshot.renderedText(style: style))]
-        if let screenshotPNGData = snapshot.screenshotPNGData {
-            content.append(.pngImage(screenshotPNGData))
+        if let note = snapshot.screenshotNote { content.append(.text(note)) }
+        if let screenshotData = snapshot.screenshotData {
+            content.append(.screenshotImage(screenshotData))
         }
         return ToolCallResult(content: content)
     }

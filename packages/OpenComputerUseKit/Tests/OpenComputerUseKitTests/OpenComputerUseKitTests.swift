@@ -233,19 +233,18 @@ final class OpenComputerUseKitTests: XCTestCase {
         let image = try makeNoisyTestImage(width: 800, height: 600)
         let data = try XCTUnwrap(boundedScreenshotPNGData(
             for: image,
-            maxBytes: 50_000,
-            maxDimension: 320,
-            minScale: 0.05
+            maxDimension: 320
         ))
         let size = try imageSize(in: data)
 
-        XCTAssertLessThanOrEqual(data.count, 50_000)
+        XCTAssertEqual(size.width, 320)
+        XCTAssertEqual(size.height, 240)
         XCTAssertLessThanOrEqual(max(size.width, size.height), 320)
     }
 
     func testBoundedScreenshotPNGDataKeepsSmallScreenshotsAtOriginalSize() throws {
         let image = try makeSolidTestImage(width: 32, height: 24)
-        let data = try XCTUnwrap(boundedScreenshotPNGData(for: image, maxBytes: 1_000_000, maxDimension: 320))
+        let data = try XCTUnwrap(boundedScreenshotPNGData(for: image, maxDimension: 320))
         let size = try imageSize(in: data)
 
         XCTAssertEqual(size.width, 32)
@@ -2502,7 +2501,7 @@ final class OpenComputerUseKitTests: XCTestCase {
             windowBounds: nil,
             targetWindowID: nil,
             targetWindowLayer: nil,
-            screenshotPNGData: nil,
+            screenshotData: nil,
             mode: .accessibility,
             treeLines: treeLines,
             focusedSummary: focusedSummary,

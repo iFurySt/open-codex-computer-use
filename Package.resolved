@@ -1,0 +1,15 @@
+{
+  "originHash" : "ddf5857bfef42315d0aa9bdd7ff832a14fc1f7dff5df23672cd6202a96da51a8",
+  "pins" : [
+    {
+      "identity" : "libwebp-xcode",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/SDWebImage/libwebp-Xcode.git",
+      "state" : {
+        "revision" : "2b5256c29ff4e20f2a0d5ee863b62b1a22144434",
+        "version" : "1.6.0"
+      }
+    }
+  ],
+  "version" : 3
+}

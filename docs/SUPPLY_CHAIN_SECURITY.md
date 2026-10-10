@@ -33,3 +33,7 @@
 - 让构建过程尽量可重复、可验证。
 - 如果条件允许，在部署链路里增加对 provenance 的校验。
 - 把 attestation 校验继续下沉到部署平台或准入层。
+
+## Screenshot WebP codec
+
+macOS SwiftPM pins SDWebImage/libwebp-Xcode to libwebp 1.6.0 with a committed Package.resolved revision. The encoder links into the native executable; no Homebrew codec is required. BSD notices are retained in THIRD_PARTY_NOTICES.md and copied into app Resources and npm packages. Dependency/SBOM review must include this native dependency.

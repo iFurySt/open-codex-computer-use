@@ -368,3 +368,5 @@ Swift 301 项（7 跳过、0 失败）、Node 25 项、Python 29 项和文档检
 按用户要求，通过签名 App 的正常停用入口卸载旧开发安装。确认 Broker 服务、系统安装目录、自有授权插件与独立探针 right 均已移除，system.login.screensaver 恢复 use-login-window-ui。未移除第三方插件或修改用户权限、凭据。
 
 新增中英文简明使用文档，按配置位置 / JSON 示例、命令行使用、完整配置与命令表组织，并从对应 README 链接。区分安装开关与程序维护的验证字段，说明 Guardian 权限申请和当前验证模式入口；正式生产验证仍未完成。文档检查及 diff 格式检查通过，本轮未进行锁屏测试。
+
+推送前同步 main 的截图配置改动，保留 libwebp 依赖与截图配置参数，同时保留 Locked Use 租约强制 ScreenCaptureKit 的捕获条件，两条发布记录均保留。同步后 Swift 307 项（7 跳过、0 失败）、Node 33 项和文档检查通过。

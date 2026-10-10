@@ -79,7 +79,7 @@ final class AgentDisplayLiveTests: XCTestCase {
         let parkedSnapshot = try SnapshotBuilder.build(for: descriptor, recoveryPolicy: .readOnly)
         XCTAssertEqual(parkedSnapshot.targetWindowID, window.id)
         XCTAssertTrue(parkedSnapshot.treeLines.contains { $0.contains("sky probe paragraph") }, "parked snapshot must include web content")
-        XCTAssertNotNil(parkedSnapshot.screenshotPNGData)
+        XCTAssertNotNil(parkedSnapshot.screenshotData)
         XCTAssertEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, frontBefore, "parking must not change the frontmost app")
         XCTAssertEqual(NSEvent.mouseLocation, mouseBefore, "parking must not move the pointer")
 

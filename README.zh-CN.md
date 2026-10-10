@@ -161,3 +161,7 @@ Cursor Motion 是一个面向 macOS 的开源光标运动系统，基于 Softwar
 ## License
 
 [MIT](./LICENSE)。
+
+### 持久化配置
+
+使用 `ocu config` 查看生效配置，用 `ocu config set image.format jpg` 保存 macOS 截图偏好。默认文件是 `~/.config/ocu/config.json`，ENV 优先于文件。详见[中文配置说明](docs/configuration.zh-CN.md)（[English](docs/configuration.md)）。

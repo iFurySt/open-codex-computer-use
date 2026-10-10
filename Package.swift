@@ -36,6 +36,9 @@ let package = Package(
             targets: ["StandaloneCursor"]
         ),
     ],
+    dependencies: [
+        .package(url: "https://github.com/SDWebImage/libwebp-Xcode.git", exact: "1.6.0"),
+    ],
     targets: [
         .target(
             name: "OpenComputerUseVirtualDisplayShim",
@@ -68,7 +71,7 @@ let package = Package(
         ),
         .target(
             name: "OpenComputerUseKit",
-            dependencies: ["OpenComputerUseVirtualDisplayShim", "LockedUseNative"],
+            dependencies: ["OpenComputerUseVirtualDisplayShim", "LockedUseNative", .product(name: "libwebp", package: "libwebp-Xcode")],
             path: "packages/OpenComputerUseKit/Sources/OpenComputerUseKit"
         ),
         .executableTarget(
