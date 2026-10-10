@@ -245,3 +245,48 @@ test("worker session serializes concurrent callers", async () => {
   assert.equal((await second).content.at(-1).text, "first,second");
   await session.close();
 });
+
+test("lightweight app binding queries and acts across persistent JS calls without a snapshot", async () => {
+  const native = mockNative();
+  const request = native.request;
+  native.request = async (method, params) => {
+    if (params.name !== "query") return request(method, params);
+    native.calls.push(params);
+    return textResult(JSON.stringify({ matches: [{ index: 1000001, title: "Send" }], truncated: false, stop_reason: "complete", visited_nodes: 3, window_id: 12 }));
+  };
+  const session = new PersistentJavaScriptSession({ native });
+  let result = await session.run(`var queriedApp = await cua.getApp("Text", { initialState: false }); var found = await queriedApp.query({ text: "Send", role: "button", exact: true, maxNodes: 50, windowId: 12 }); nodeRepl.write(found);`);
+  assert.equal(result.isError, false, result.content.at(-1).text);
+  assert.deepEqual(native.calls.map(c => c.name), ["query"]);
+  assert.deepEqual(native.calls[0].arguments, { app: "Text", text: "Send", role: "button", exact: true, limit: undefined, max_nodes: 50, window_id: 12 });
+  result = await session.run(`await queriedApp.click(found.matches[0].index);`);
+  assert.equal(result.isError, false);
+  assert.equal(native.calls.at(-1).arguments.element_index, 1000001);
+  assert.equal(native.calls.some(c => c.name === "get_app_state"), false);
+});
+
+test("query rejects invalid options and preserves native errors", async () => {
+  const native = mockNative(), session = new PersistentJavaScriptSession({ native });
+  await session.run(`var queriedApp = await cua.getApp("Text", { initialState: false });`);
+  for (const options of [`{}`, `{text: "Send", windowId: -1}`, `{text: "Send", windowId: 4294967296}`, `{text: "Send", exact: 1}`, `{text: 3}`, `{role: "button", maxNodes: 1.5}`, `{text: "Send", typo: true}`]) {
+    const result = await session.run(`await queriedApp.query(${options});`);
+    assert.equal(result.isError, true, options);
+  }
+  assert.equal(native.calls.length, 0);
+  native.request = async () => textResult("query is unavailable on this platform", true);
+  const result = await session.run(`await queriedApp.query({text: "Send"});`);
+  assert.equal(result.isError, true);
+  assert.match(result.content.at(-1).text, /unavailable on this platform/);
+});
+
+test("query returns truncation metadata and rejects malformed native responses", async () => {
+  const native = mockNative(), session = new PersistentJavaScriptSession({ native });
+  native.request = async () => textResult(JSON.stringify({ matches: [], truncated: true, stop_reason: "timeout" }));
+  const result = await session.run(`var queriedApp = await cua.getApp("Text", { initialState: false }); nodeRepl.write(JSON.stringify(await queriedApp.query({role: "button"})));`);
+  assert.equal(result.isError, false);
+  assert.equal(JSON.parse(result.content.at(-1).text).stop_reason, "timeout");
+  native.request = async () => textResult("[]");
+  const bad = await session.run(`await queriedApp.query({role: "button"});`);
+  assert.equal(bad.isError, true);
+  assert.match(bad.content.at(-1).text, /Invalid query response/);
+});

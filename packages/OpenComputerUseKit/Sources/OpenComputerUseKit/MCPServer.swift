@@ -18,6 +18,7 @@ Ask the user before taking destructive or externally visible actions such as sen
 """
 
 public final class StdioMCPServer {
+    private let service: ComputerUseService
     private let dispatcher: ComputerUseToolDispatcher
     private let backgroundStateReset: () -> Void
 
@@ -25,6 +26,7 @@ public final class StdioMCPServer {
         service: ComputerUseService = ComputerUseService(),
         backgroundStateReset: @escaping () -> Void = resetOpenComputerUseBackgroundWindowState
     ) {
+        self.service = service
         self.dispatcher = ComputerUseToolDispatcher(service: service)
         self.backgroundStateReset = backgroundStateReset
     }
@@ -127,6 +129,7 @@ public final class StdioMCPServer {
     /// connections call this explicitly because they use `handle(line:)`
     /// instead of the stdio `run()` loop.
     public func endSession() {
+        service.clearQueryIndexes()
         VisualCursorSupport.performOnMain {
             SoftwareCursorOverlay.reset()
         }

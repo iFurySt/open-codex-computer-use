@@ -24,7 +24,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 const SERVER_INSTRUCTIONS = `UI automation through a persistent JavaScript REPL using the initialized cua API.
 
-On the first call after startup or js_reset, bind the requested app with await cua.getApp("Example App"), or call await cua.getState() only when an app inventory is actually needed. App bindings persist across js calls. Batch deterministic actions and the resulting getAXState() in one js call, then verify the returned UI state. Use nodeRepl.write(value) for additional text and await nodeRepl.emitImage(image) for additional images. Ask the user before destructive or externally visible actions such as sending, deleting, or purchasing.`;
+On the first call after startup or js_reset, bind the requested app with await cua.getApp("Example App"), or call await cua.getState() only when an app inventory is actually needed. On macOS, use getApp(name, { initialState: false }) followed by app.query({ text, role }) for targeted lookup without an initial snapshot. App bindings persist across js calls. Batch deterministic actions and the resulting getAXState() in one js call, then verify the returned UI state. Use nodeRepl.write(value) for additional text and await nodeRepl.emitImage(image) for additional images. Ask the user before destructive or externally visible actions such as sending, deleting, or purchasing.`;
 
 const JS_DESCRIPTION = `Run JavaScript in a persistent Node.js REPL with top-level await and an initialized asynchronous cua API for Open Computer Use. Use this for all desktop interactions. Bind an app with let app = await cua.getApp("Example App"); then call await app.click(...), await app.typeText(...), and await app.getAXState(). Top-level bindings persist until js_reset, so prefer top-level var for names that may be assigned again. Batch deterministic actions and the resulting state read in one call to reduce round trips. Use nodeRepl.write(value) for extra text and await nodeRepl.emitImage(image) for extra images. If timeout_ms is omitted, execution times out after 30000 ms.`;
 
@@ -36,7 +36,8 @@ The runtime exposes an asynchronous app-bound API:
 
 - \`await cua.getState({ emit? })\`: list current apps.
 - \`await cua.listApps({ emit? })\`: list current apps.
-- \`await cua.getApp(nameOrBundleID)\`: bind an app and emit its initial accessibility state.
+- \`await cua.getApp(nameOrBundleID, { initialState? })\`: bind an app; initialState defaults to true. Use false for a lightweight binding before query.
+- \`await app.query({ text?, role?, exact?, limit?, maxNodes?, windowId? })\`: macOS-only AX lookup; returns matches and truncation metadata, with indexes usable in this native session.
 - \`await app.getAXState({ emit?, textLimit?, maxTreeNodes?, maxTreeDepth?, windowPlacement? })\`
 - \`await app.getScreenshot({ emit? })\`
 - \`await app.getAXStateAndScreenshot(options?)\`
@@ -260,6 +261,25 @@ export function createCuaApi(native, activeOutput) {
   }
   function appBinding(app) {
     return Object.freeze({
+      async query(options = {}) {
+        if (!isPlainObject(options)) throw new Error("app.query expects an options object");
+        for (const key of Object.keys(options)) {
+          if (!["text", "role", "exact", "limit", "maxNodes", "windowId"].includes(key)) throw new Error(`Unknown query option: ${key}`);
+        }
+        for (const key of ["text", "role"]) {
+          if (options[key] !== undefined && (typeof options[key] !== "string" || options[key].length > 1000)) throw new Error(`${key} must be a string of at most 1000 UTF-16 code units`);
+        }
+        if (!options.text?.trim() && !options.role?.trim()) throw new Error("query requires text and/or role");
+        if (options.exact !== undefined && typeof options.exact !== "boolean") throw new Error("exact must be true or false");
+        for (const key of ["limit", "maxNodes", "windowId"]) {
+          if (options[key] !== undefined && (!Number.isSafeInteger(options[key]) || options[key] < 1 || (key === "windowId" && options[key] > 0xffffffff))) throw new Error(`${key} must be a positive integer${key === "windowId" ? " up to 4294967295" : ""}`);
+        }
+        const result = await call("query", { app, text: options.text, role: options.role, exact: options.exact,
+                                             limit: options.limit, max_nodes: options.maxNodes, window_id: options.windowId });
+        const response = JSON.parse(toolResultText(result));
+        if (!isPlainObject(response) || !Array.isArray(response.matches) || typeof response.truncated !== "boolean" || typeof response.stop_reason !== "string") throw new Error("Invalid query response");
+        return response;
+      },
       async getAXState(options = {}) {
         const result = await call("get_app_state", { app, ...optionsToSnapshotArgs(options) });
         const text = toolResultText(result);
@@ -318,10 +338,14 @@ export function createCuaApi(native, activeOutput) {
       if (options.emit !== false) activeOutput().write(state.apps, "cua.state");
       return state.apps;
     },
-    async getApp(app) {
+    async getApp(app, options = {}) {
+      if (typeof app !== "string" || !app.trim()) throw new Error("getApp requires an app name or bundle ID");
+      if (!isPlainObject(options) || (options.initialState !== undefined && typeof options.initialState !== "boolean")) throw new Error("initialState must be true or false");
       await emitDocs();
-      const result = await call("get_app_state", { app, text_limit: "max" });
-      await emitText(toolResultText(result));
+      if (options.initialState !== false) {
+        const result = await call("get_app_state", { app, text_limit: "max" });
+        await emitText(toolResultText(result));
+      }
       return appBinding(app);
     },
     async rewriteDocumentation() { activeOutput().write(COMPUTER_USE_GUIDANCE, "cua.core"); },
