@@ -3,7 +3,7 @@ import Foundation
 public enum OpenComputerUseCLICommand: Equatable {
     case launchOnboarding
     case mcp
-    case doctor
+    case doctor(json: Bool = false)
     case listApps
     case snapshot(app: String, textLimit: SnapshotTextLimit = .defaults, treeLimits: AccessibilityTreeLimits = .defaults)
     case call(OpenComputerUseCallInvocation)
@@ -77,7 +77,10 @@ public func parseOpenComputerUseCLI(arguments: [String]) throws -> OpenComputerU
     case "mcp":
         return try parseSimpleCommand(name: "mcp", arguments: Array(arguments.dropFirst()), result: .mcp)
     case "doctor":
-        return try parseSimpleCommand(name: "doctor", arguments: Array(arguments.dropFirst()), result: .doctor)
+        if Array(arguments.dropFirst()) == ["--json"] {
+            return .doctor(json: true)
+        }
+        return try parseSimpleCommand(name: "doctor", arguments: Array(arguments.dropFirst()), result: .doctor())
     case "list-apps":
         return try parseSimpleCommand(name: "list-apps", arguments: Array(arguments.dropFirst()), result: .listApps)
     case "call":
@@ -133,10 +136,12 @@ public func openComputerUseHelpText(command: String? = nil) -> String {
     case "doctor":
         return """
         Usage:
-          open-computer-use doctor
+          open-computer-use doctor [--json]
 
         Print the current Accessibility and Screen Recording permission state.
         If permissions are missing, this also launches the onboarding app.
+        --json prints a permission snapshot without launching onboarding (macOS only).
+        Read allGranted to determine readiness; missing permissions still exit successfully.
         """
     case "list-apps":
         return """

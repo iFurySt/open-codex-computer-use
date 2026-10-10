@@ -434,3 +434,13 @@ func TestLinuxWindowPlacementSchemaAndUnsupportedAgentDisplay(t *testing.T) {
 		t.Fatalf("agent_display result = %#v", result)
 	}
 }
+
+func TestDoctorJSONRejectsUnsupportedPermissionDiagnostics(t *testing.T) {
+	var out bytes.Buffer
+	if err := runCLI([]string{"doctor", "--json"}, &out); err == nil {
+		t.Fatal("expected unsupported permission diagnostics error")
+	}
+	if out.Len() != 0 {
+		t.Fatal("unsupported JSON mode must not emit text on stdout")
+	}
+}

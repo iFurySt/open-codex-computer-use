@@ -89,6 +89,19 @@ public struct PermissionDiagnostics: Sendable {
         "Permissions: accessibility=\(accessibilityTrusted ? "granted" : "missing"), screenRecording=\(screenCaptureGranted ? "granted" : "missing")"
     }
 
+    /// A read-only snapshot for host integrations; does not request permissions.
+    public func jsonText() throws -> String {
+        let payload: [String: Any] = [
+            "platform": "macos",
+            "accessibilityTrusted": accessibilityTrusted,
+            "screenCaptureGranted": screenCaptureGranted,
+            "allGranted": allGranted,
+            "missingPermissions": missingPermissions.map(\.rawValue),
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        return String(decoding: data, as: UTF8.self)
+    }
+
     public var missingPermissions: [SystemPermissionKind] {
         SystemPermissionKind.allCases.filter { !isGranted($0) }
     }

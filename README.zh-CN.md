@@ -135,10 +135,15 @@ open-computer-use call --calls-file examples/textedit-overlay-seq.json --sleep 0
 # 检查权限；只有缺失时才会拉起引导，已全部授权则只打印状态并退出
 open-computer-use doctor
 
+# macOS：只查询权限 JSON，不弹引导界面
+ocu doctor --json
+
 # 查看帮助
 open-computer-use -h
 ocu -h
 ```
+
+`ocu doctor --json`（仅 macOS）返回 `platform`、`accessibilityTrusted`、`screenCaptureGranted`、`allGranted` 和 `missingPermissions`。缺权限仍返回退出码 0；宿主应检查 `allGranted`，并在用户授权后再次查询。状态复用现有系统 API/TCC 检测，不代表实际操作已经成功；某些权限变更仍可能需要重启进程。
 
 ## Cursor Motion
 

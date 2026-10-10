@@ -1010,6 +1010,9 @@ func runCLI(args []string, stdout io.Writer) error {
 	case "mcp":
 		return runMCP(os.Stdin, stdout)
 	case "doctor":
+		if len(args) > 1 && args[1] == "--json" {
+			return errors.New("doctor --json permission diagnostics are only supported on macOS")
+		}
 		fmt.Fprintln(stdout, "Windows runtime: UI Automation and Win32 window-message bridge are available when this process runs in the signed-in desktop session.")
 		return nil
 	case "list-apps":
