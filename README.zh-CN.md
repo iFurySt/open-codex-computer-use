@@ -76,6 +76,12 @@ ocu install-codex-mcp
 }
 ```
 
+### 网页研究示例
+
+在桌面任务之前需要检索网页时，可使用可选的
+[Parallel Search MCP 示例](./examples/parallel-search)。它通过 `ocu js --file`
+提供免费网页搜索与内容提取，无需 API key。
+
 ### Skill
 
 一键安装skill：

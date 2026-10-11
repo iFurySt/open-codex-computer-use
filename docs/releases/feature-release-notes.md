@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-10-11 | 可选网页研究示例 | 在桌面任务之前通过 `ocu js --file` 免费搜索网页和提取公开页面，无需 Parallel API key。 | 新增独立安装的 Parallel Search MCP 示例，使用官方 SDK 的 Streamable HTTP transport；核心工具和已有客户端配置保持不变。 |
 | 2026-10-10 | macOS 截图配置 | 普通用户可用 `ocu config` 持久化截图偏好，无需维护 shell ENV。 | 新增用户 JSON、ENV 覆盖、PNG/JPG/WebP 格式、明确的超大缩小/丢弃开关、最小总像素数过滤、质量/SCK 超时；取消字节预算缩小，支持关闭长边上限，省略截图时说明原因，保留 #65 捕获路径与坐标映射。 |
 | 2026-10-10 | 结构化权限查询 | 宿主可以读取和轮询 macOS 授权状态，无需解析文本或重复弹引导。 | 新增 `ocu doctor --json`，输出权限布尔值、`allGranted` 和缺失权限列表；普通 `doctor` 保留权限引导，Linux/Windows 明确返回不支持。 |
 | 2026-10-10 | 1.0.0 正式发布 | 用户可通过 npm 或直接下载使用跨平台桌面自动化，并以持久 JavaScript 会话编排操作。 | 基于当前 main 发布 `1.0.0`：统一所有版本源，交付 macOS 后台键盘、遮挡/其他 Space 窗口读取及显式 agent display，包含 Linux 快捷键与 Windows 无效截图修复；Linux / Windows runtime 继续标为实验性。 |

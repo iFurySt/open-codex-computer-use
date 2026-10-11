@@ -15,7 +15,7 @@
 - Windows runtime 对隐藏、最小化、DWM cloaked、离屏或退化小窗口 fail closed：保留可读的 UI Automation tree，但不返回 image block，也不允许在缺少有效截图时执行 coordinate click / drag；不会用放大、补边或占位图伪造可用截图。
 - Linux runtime 的 screenshot 是 best-effort；如果 GNOME Wayland 返回黑图，bridge 会省略 image block，避免把无效截图误当成真实画面。
 - fixture app 的合成状态只写到本地临时 JSON 文件，目的是支撑 deterministic smoke test；当前写入走原子替换，减少测试期间的读写竞争。
-- 当前仓库不引入第三方服务，也不上传截图、AX tree 或输入内容。
+- 核心 runtime 不引入第三方服务，也不上传截图、AX tree 或输入内容。可选的 `examples/parallel-search/` 示例通过 HTTPS 调用 Parallel Search MCP，仅发送示例中显式提供的搜索查询和公开 URL；不上传截图、AX tree 或本地文件，也不读取保存的凭据。查询不应包含私密桌面内容，返回网页内容应视为不可信数据，而不是执行命令或桌面操作的授权。
 
 ## 授权与最小权限
 

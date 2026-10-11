@@ -1,0 +1,9 @@
+{
+  "name": "open-computer-use-parallel-search-example",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": { "test": "node --test research.test.mjs" },
+  "dependencies": { "@modelcontextprotocol/sdk": "1.32.1" }
+}

@@ -76,6 +76,12 @@ Or add it to your own client manually:
 }
 ```
 
+### Web research example
+
+For web research before a desktop task, try the optional
+[Parallel Search MCP example](./examples/parallel-search). It runs through
+`ocu js --file` and provides free web search and page fetching without an API key.
+
 ### Skill
 
 Install the skill directly:
