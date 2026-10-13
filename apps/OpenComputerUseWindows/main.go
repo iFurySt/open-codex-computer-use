@@ -36,7 +36,7 @@ const (
 //go:embed runtime.ps1
 var windowsRuntimeScript string
 
-const serverInstructions = "Computer Use tools let you interact with Windows apps by performing UI actions.\n\nBegin by calling `get_app_state` every turn you want to use Computer Use to get the latest state before acting. The available tools are list_apps, get_app_state, click, perform_secondary_action, scroll, drag, type_text, press_key, and set_value.\n\nPrefer element-targeted interactions over coordinate clicks when an index for the targeted element is available. Screenshot-coordinate actions require get_app_state to return a usable image; hidden, minimized, cloaked, off-screen, or degenerate windows may return only the accessibility tree. Windows actions use UI Automation patterns first and fall back to window messages when an app does not expose the needed pattern. The Windows runtime does not auto-launch apps, perform SetFocus, or use UIA text fallback by default, so background-capable actions do not intentionally steal the user's foreground focus."
+const serverInstructions = "Computer Use tools let you interact with Windows apps by performing UI actions.\n\nBegin by calling `get_app_state` every turn you want to use Computer Use to get the latest state before acting. The available tools are list_apps, get_app_state, click, perform_secondary_action, scroll, drag, type_text, press_key, and set_value.\n\nPrefer element-targeted interactions over coordinate clicks when an index for the targeted element is available. Screenshot-coordinate actions require get_app_state to return a usable image; hidden, minimized, cloaked, off-screen, or degenerate windows may return only the accessibility tree. Windows actions use UI Automation patterns first and fall back to window messages when an app does not expose the needed pattern. The Windows runtime does not auto-launch apps, perform SetFocus, or use UIA text fallback by default, so background-capable actions do not intentionally steal the user's foreground focus. Setting OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 enables click_method 'global' plus the real-pointer scroll/drag and real-key fallbacks, which move the system pointer and may change foreground focus; leave it unset to keep every action on UI Automation patterns and window messages."
 
 type toolDefinition struct {
 	Name        string         `json:"name"`
@@ -373,17 +373,17 @@ func (s *service) click(app, elementIndex string, x, y *float64, clickCount int,
 	if clickMethod == "accessibility" && elementIndex == "" {
 		return textResult("click_method 'accessibility' requires element_index", true)
 	}
-	if clickMethod == "global" {
-		return textResult("click_method 'global' is not supported on Windows", true)
-	}
 	if clickMethod == "sky_click" {
 		return textResult("click_method 'sky_click' is not supported on Windows", true)
+	}
+	if clickMethod == "global" && !globalPointerFallbacksEnabled() {
+		return textResult("click_method 'global' requires OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 because it may move the system pointer and change foreground focus", true)
 	}
 	snapshot := s.currentSnapshot(app)
 	if snapshot == nil {
 		return textResult("No app state is available for "+app+". Run get_app_state before action tools.", true)
 	}
-	if (elementIndex == "" || clickMethod == "app_post") && !snapshot.hasUsableScreenshot() {
+	if (elementIndex == "" || clickMethod == "app_post" || clickMethod == "global") && !snapshot.hasUsableScreenshot() {
 		return screenshotCoordinatesUnavailableResult(app)
 	}
 	request := psRequest{
@@ -449,7 +449,7 @@ func (s *service) scroll(app, direction, elementIndex string, pages float64) too
 	if err != nil {
 		return textResult(err.Error(), true)
 	}
-	return s.actionResult(app, psRequest{Tool: "scroll", App: app, Element: record, Direction: normalized, Pages: pages})
+	return s.actionResult(app, psRequest{Tool: "scroll", App: app, Element: record, Direction: normalized, Pages: pages, WindowBounds: snapshot.WindowBounds})
 }
 
 func (s *service) drag(app string, fromX, fromY, toX, toY *float64) toolCallResult {
@@ -545,7 +545,7 @@ func (s *service) currentSnapshot(app string) *appSnapshot {
 }
 
 func (s *service) refreshSnapshot(app string, request psRequest) (*appSnapshot, toolCallResult) {
-	response, err := runPowerShell(request)
+	response, err := runPowerShellRequest(request)
 	if err != nil {
 		return nil, textResult(err.Error(), true)
 	}
@@ -630,6 +630,10 @@ func runPowerShell(request psRequest) (*psResponse, error) {
 	}
 	return &response, nil
 }
+
+// runPowerShellRequest is the production PowerShell bridge and the seam tests
+// override to assert the request payloads that action tools build.
+var runPowerShellRequest = runPowerShell
 
 func requiredString(args map[string]any, key string) string {
 	value, _ := args[key].(string)
@@ -831,6 +835,15 @@ func parseClickMethod(value string) (string, error) {
 	return "", fmt.Errorf("Invalid click_method %q. Expected one of: %s", value, strings.Join(clickMethodValues, ", "))
 }
 
+func globalPointerFallbacksEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS"))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
 func toolDefinitions() []toolDefinition {
 	return []toolDefinition{
 		{
@@ -844,7 +857,7 @@ func toolDefinitions() []toolDefinition {
 				"y":             numberProperty("Y coordinate in screenshot pixel coordinates"),
 				"click_count":   integerProperty("Number of clicks. Defaults to 1"),
 				"mouse_button":  enumStringProperty("Mouse button to click. Defaults to left.", []string{"left", "right", "middle"}),
-				"click_method":  enumStringProperty("Click implementation: auto (default), accessibility, app_post, sky_click, or global. Accessibility requires element_index. Windows supports app_post through HWND messages and does not currently support sky_click or global.", clickMethodValues),
+				"click_method":  enumStringProperty("Click implementation: auto (default), accessibility, app_post, sky_click, or global. Accessibility requires element_index. Windows supports app_post through HWND messages; sky_click is macOS-only, and global requires OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 because it moves the real system pointer.", clickMethodValues),
 			}, []string{"app"}),
 		},
 		{

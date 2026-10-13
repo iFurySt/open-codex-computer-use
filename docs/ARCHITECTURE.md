@@ -119,11 +119,11 @@
 
 - Windows runtime 位于 `apps/OpenComputerUseWindows`，以 Go 维护 CLI、`call --calls` sequence、MCP JSON-RPC、tool schema 和进程内 snapshot cache。
 - 构建入口是 `scripts/build-open-computer-use-windows.sh --arch arm64|amd64`，默认输出到 `dist/windows/<arch>/open-computer-use.exe`；npm release package 会把两个 Windows artifact 内置到已有 root/alias packages，Node launcher 按 `process.platform/process.arch` 自动选择。
-- Go runtime 通过 `go:embed` 带上 `runtime.ps1`，执行 tool call 时临时落盘并调用 Windows PowerShell。PowerShell bridge 使用 `System.Windows.Automation` 做 app/window/element discovery、tree rendering、UIA pattern action、ValuePattern set value 和 ScrollPattern scroll；当目标 app 不暴露对应 pattern 时，fallback 到 `PostMessage` / `SendMessage` 形式的 Win32 window message。
+- Go runtime 通过 `go:embed` 带上 `runtime.ps1`，执行 tool call 时临时落盘并调用 Windows PowerShell。PowerShell bridge 使用 `System.Windows.Automation` 做 app/window/element discovery、tree rendering、UIA pattern action、ValuePattern set value 和 ScrollPattern scroll；当目标 app 不暴露对应 pattern 时，fallback 到 `PostMessage` / `SendMessage` 形式的 Win32 window message。PowerShell 进程启动时会通过 `SetProcessDpiAwarenessContext` / `SetThreadDpiAwarenessContext` 对齐到物理坐标空间，因为操作文件里的 `windowBounds` 和 UIA frame 都是物理像素，而 DPI-unaware 进程的 `GetSystemMetrics` / `GetWindowRect` 返回的是虚拟化尺度。
 - Windows runtime 默认只连接已经运行的 app，不会在 `get_app_state` 找不到进程时自动 `Start-Process`，也不会默认允许 `SetFocus` secondary action；这两条前台抢占路径分别需要 `OPEN_COMPUTER_USE_WINDOWS_ALLOW_APP_LAUNCH=1` 和 `OPEN_COMPUTER_USE_WINDOWS_ALLOW_FOCUS_ACTIONS=1` 显式打开。`type_text` 默认优先对可写文本控件的 child HWND 发送 `EM_SETSEL` / `EM_REPLACESEL`，不再默认走可能触发前台激活的 UIA `ValuePattern.SetValue` fallback；需要旧行为时必须设置 `OPEN_COMPUTER_USE_WINDOWS_ALLOW_UIA_TEXT_FALLBACK=1`。UIA pattern 和 Win32 message fallback 本身仍是 best-effort：很多控件可以在后台响应，但 Windows 没有一套对所有 GUI toolkit 都等价于 macOS AX 的后台键鼠输入模型。
-- Windows screenshot 会先检查主窗口可见、未最小化、未被 DWM cloaked、与 virtual screen 相交，并要求窗口宽高至少 64 像素且面积至少 20,000 像素；`list_apps` 也只列出通过这组可捕获性检查的窗口。PowerShell bridge 通过后，Go 层还会解码 PNG header 并用同一尺寸门槛复核。任一检查失败时 snapshot 仍可返回 UI Automation tree，但省略 MCP `image` block；coordinate click / drag 会明确失败，element-targeted action 仍可尝试。实现不会为退化窗口放大、补边或生成占位截图。
+- Windows screenshot 会先检查主窗口可见、未最小化、未被 DWM cloaked、与 virtual screen 相交，并要求窗口宽高至少 64 像素且面积至少 20,000 像素；`list_apps` 也只列出通过这组可捕获性检查的窗口。PowerShell bridge 通过后，Go 层还会解码 PNG header 并用同一尺寸门槛复核。任一检查失败时 snapshot 仍可返回 UI Automation tree，但省略 MCP `image` block；coordinate click / drag 会明确失败，element-targeted action 仍可尝试。实现不会为退化窗口放大、补边或生成占位截图。窗口与 virtual screen 的交集判断在物理坐标下进行，因此在 125% / 150% 缩放且窗口完全位于虚拟化屏幕之外时不会误判为不可捕获。
 - 这 9 个 tool 的协议面与 macOS 主线保持一致：`list_apps`、`get_app_state`、`click`、`perform_secondary_action`、`scroll`、`drag`、`type_text`、`press_key`、`set_value`。其中 element-targeted action 会优先复用上一轮 `get_app_state` 的 runtime id / automation metadata，coordinate action 使用 screenshot/window-relative 坐标。
-- Windows `click_method=accessibility` 映射到 UI Automation pattern，`app_post` 映射到 HWND `PostMessage`；macOS-only 的 `sky_click` 和没有实现的 `global` 都会在 snapshot lookup 前明确返回 unsupported。`type_text` / `press_key` 的 `key_method=sky_key` 同样在 snapshot lookup 前返回 unsupported。`auto` 仍保持 UIA 优先、window message fallback 的现有行为。
+- Windows `click_method=accessibility` 映射到 UI Automation pattern，`app_post` 映射到 HWND `PostMessage`，两者行为不变；macOS-only 的 `sky_click` 会在 snapshot lookup 前明确返回 unsupported。显式 `click_method=global` 现在由真实系统指针事件实现，同样要求 `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1`，未授权时在移动指针前拒绝。开启该开关后 `drag` / `scroll` / `press_key` 的 fallback 也改为真实指针与键盘输入（`auto` 点击先走 UIA，再落到真实指针），因此会移动真实指针并可能改变前台焦点；未开启时完全保持 UIA pattern 与 window message 路径。`type_text` / `press_key` 的 `key_method=sky_key` 同样在 snapshot lookup 前返回 unsupported。`auto` 仍保持 UIA 优先、window message fallback 的现有行为。
 - Windows UI Automation 需要运行在已登录用户的桌面 session 里。通过 SSH 作为脱离桌面的后台进程运行时，PowerShell 可以启动并返回 JSON，但系统可能不给它暴露顶层窗口；这种情况下 `list_apps` 会是空，`get_app_state` 可能返回 `appNotFound(...)`。
 - 当前 Windows 侧仍是功能性第一版：没有 visual cursor overlay、没有 installer/onboarding、没有 code signing，也没有独立的 Windows smoke fixture。后续 TODO 记录在 `docs/exec-plans/active/20260422-windows-computer-use-runtime.md`。
 
@@ -159,7 +159,7 @@
 - npm staging：`node ./scripts/npm/build-packages.mjs`
 - release tgz：`./scripts/release-package.sh`
 - skill 打包：`npm run package:skill`
-- Windows runtime 单测：`(cd apps/OpenComputerUseWindows && go test ./...)`
+- Windows runtime 单测：`(cd apps/OpenComputerUseWindows && go test ./...)`（包含 `scroll` 请求必须携带 `windowBounds`、`global` 开关门控以及 runtime.ps1 全局输入守卫的回归用例）
 - Windows exe 构建：`./scripts/build-open-computer-use-windows.sh --arch arm64`
 - Linux runtime 单测：`(cd apps/OpenComputerUseLinux && go test ./...)`
 - Linux binary 构建：`./scripts/build-open-computer-use-linux.sh --arch arm64`

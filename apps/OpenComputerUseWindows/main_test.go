@@ -49,11 +49,69 @@ func TestClickMethodSchemaAndParser(t *testing.T) {
 	}
 }
 
-func TestWindowsRejectsUnsupportedGlobalClickBeforeSnapshotLookup(t *testing.T) {
+func TestWindowsGlobalClickRequiresGlobalPointerFallbackOptIn(t *testing.T) {
 	x, y := 10.0, 20.0
+	t.Setenv("OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS", "")
 	result := newService().click("Notepad", "", &x, &y, 1, "left", "global")
-	if !result.IsError || result.Content[0].Text != "click_method 'global' is not supported on Windows" {
-		t.Fatalf("global click result = %#v", result)
+	if !result.IsError || !strings.Contains(result.Content[0].Text, "requires OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1") {
+		t.Fatalf("unauthorized global click result = %#v", result)
+	}
+
+	t.Setenv("OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS", "yes")
+	if !globalPointerFallbacksEnabled() {
+		t.Fatal("global pointer authorization should accept yes")
+	}
+	result = newService().click("Notepad", "", &x, &y, 1, "left", "global")
+	if !result.IsError || !strings.Contains(result.Content[0].Text, "No app state is available") {
+		t.Fatalf("authorized global click result = %#v", result)
+	}
+}
+
+func TestScrollRequestIncludesWindowBounds(t *testing.T) {
+	svc := newService()
+	svc.snapshots["fixture"] = &appSnapshot{
+		App:          appDescriptor{Name: "fixture", PID: 42},
+		WindowBounds: &frame{X: 100, Y: 200, Width: 800, Height: 600},
+		Elements:     []elementRecord{{Index: 0, Name: "document"}},
+	}
+
+	var captured psRequest
+	original := runPowerShellRequest
+	runPowerShellRequest = func(request psRequest) (*psResponse, error) {
+		captured = request
+		return &psResponse{OK: true, Snapshot: &appSnapshot{App: appDescriptor{Name: "fixture", PID: 42}}}, nil
+	}
+	defer func() { runPowerShellRequest = original }()
+
+	result := svc.scroll("fixture", "down", "0", 1)
+	if result.IsError {
+		t.Fatalf("scroll result = %#v", result)
+	}
+	if captured.Tool != "scroll" || captured.Element == nil || captured.Direction != "down" {
+		t.Fatalf("scroll request = %#v", captured)
+	}
+	if captured.WindowBounds == nil || captured.WindowBounds.X != 100 || captured.WindowBounds.Y != 200 || captured.WindowBounds.Width != 800 || captured.WindowBounds.Height != 600 {
+		t.Fatalf("scroll request must carry the snapshot window bounds, got %#v", captured.WindowBounds)
+	}
+}
+
+func TestWindowsRuntimeDPIAndGlobalInputFallbackArePresent(t *testing.T) {
+	for _, snippet := range []string{
+		"SetProcessDpiAwarenessContext",
+		"SetThreadDpiAwarenessContext",
+		"DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2",
+		"OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS",
+		"[OCUWin32]::SetCursorPos",
+		"mouse_event",
+		"keybd_event",
+		"Test-GlobalPointerFallbackEnabled",
+	} {
+		if !strings.Contains(windowsRuntimeScript, snippet) {
+			t.Fatalf("Windows runtime missing global input guard %q", snippet)
+		}
+	}
+	if !strings.Contains(serverInstructions, "OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS") {
+		t.Fatal("MCP instructions must document the Windows global pointer gate")
 	}
 }
 

@@ -4,6 +4,8 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-10-13 | Windows 滚动与坐标 | Windows 上 `scroll` 不再在默认配置下直接失败；150% 缩放且窗口位于屏幕右侧时，`get_app_state` 也能返回截图和窗口 bounds。 | 修复 `scroll` 请求漏传 `windowBounds` 导致坐标回退必然报 `No usable screenshot coordinates`；PowerShell bridge 启动时对齐 DPI 物理坐标；`ScrollPattern` 在当前状态不可滚动时回退到坐标路径而不是让整个 tool call 失败。 |
+| 2026-10-13 | Windows 全局输入兜底 | 需要真实指针或键盘的 Windows 动作（`click_method=global`、WinUI 键盘输入、子控件点击）在显式授权后可用，默认路径完全不变。 | Windows 实现 `click_method=global` 真实指针点击；`drag` / `scroll` / `press_key` 在 `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` 时改用真实输入，`app_post` 仍保持 HWND 消息语义；未授权时在任何指针移动前拒绝，并同步更新架构与安全文档。 |
 | 2026-10-10 | macOS 定向 AX 查询 | 知道控件文案时，可以直接查询并操作，不必先获取截图和完整 AX tree。 | 新增 native `query` 和 JS `app.query()`，按文字、角色和窗口查找元素，返回完整性元数据；查询索引仅在同一会话内有效，操作前重新验证目标和位置。 |
 | 2026-10-10 | macOS 截图配置 | 普通用户可用 `ocu config` 持久化截图偏好，无需维护 shell ENV。 | 新增用户 JSON、ENV 覆盖、PNG/JPG/WebP 格式、明确的超大缩小/丢弃开关、最小总像素数过滤、质量/SCK 超时；取消字节预算缩小，支持关闭长边上限，省略截图时说明原因，保留 #65 捕获路径与坐标映射。 |
 | 2026-10-10 | 结构化权限查询 | 宿主可以读取和轮询 macOS 授权状态，无需解析文本或重复弹引导。 | 新增 `ocu doctor --json`，输出权限布尔值、`allGranted` 和缺失权限列表；普通 `doctor` 保留权限引导，Linux/Windows 明确返回不支持。 |
