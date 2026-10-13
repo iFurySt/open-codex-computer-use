@@ -28,6 +28,28 @@ final class LockedUseBrokerCoordinatorTests: XCTestCase {
         XCTAssertThrowsError(try broker.handle(.init(operation: .pluginConsume, leaseID: lease, token: claim.token), context: plugin, now: 1.4))
     }
 
+    func testStaleIdleObservationDoesNotPermanentlyDisableLeases() throws {
+        var broker = LockedUseBrokerCoordinator(enabled: true, backendValidated: true)
+        try broker.suspendForPolicyObservation()
+        let begin = try broker.handle(.init(operation: .begin, session: locked), context: agent, now: 1)
+        XCTAssertEqual(begin.phase, .preparing)
+    }
+
+    func testStaleObservationStopsActionsAndAllowsRecoveryBeforeAnotherLease() throws {
+        var broker = LockedUseBrokerCoordinator(enabled: true, backendValidated: true)
+        let lease = try prepare(&broker)
+        try grant(&broker, lease: lease)
+        _ = try broker.handle(.init(operation: .guardianReport, leaseID: lease, session: unlocked, guards: healthy, unlockWorkPending: false), context: guardian, now: 1.5)
+        try broker.suspendForPolicyObservation()
+        XCTAssertEqual(broker.phase, .relocking)
+        XCTAssertThrowsError(try broker.handle(.init(operation: .action, leaseID: lease, session: unlocked), context: agent, now: 1.6))
+        _ = try broker.handle(.init(operation: .quiesced, leaseID: lease), context: agent, now: 1.7)
+        _ = try broker.handle(.init(operation: .guardianReport, leaseID: lease, session: locked, guards: healthy, unlockWorkPending: false), context: guardian, now: 1.8)
+        _ = try broker.handle(.init(operation: .guardianReleased, leaseID: lease), context: guardian, now: 1.9)
+        _ = try broker.handle(.init(operation: .status, session: unlocked), context: agent, now: 2)
+        XCTAssertNoThrow(try broker.handle(.init(operation: .begin, session: locked), context: agent, now: 2.1))
+    }
+
     func testPermitConsumptionDoesNotAuthorizeGUIUntilObservedUnlock() throws {
         var broker = LockedUseBrokerCoordinator(enabled: true, backendValidated: true)
         let lease = try prepare(&broker)
@@ -43,13 +65,13 @@ final class LockedUseBrokerCoordinatorTests: XCTestCase {
         XCTAssertNil(status.leaseID)
     }
 
-    func testConfirmationExperimentRequiresValidationProfileAndGuardianIdentity() throws {
+    func testProtectedReturnRequiresGuardianIdentityInBothProfiles() throws {
         for validation in [false, true] {
             var broker = LockedUseBrokerCoordinator(enabled: true, backendValidated: true, validationMode: validation)
             let begin = try broker.handle(.init(operation: .begin, session: locked), context: agent, now: 1)
             XCTAssertEqual(begin.validationConfirmation, false)
             let hello = try broker.handle(.init(operation: .guardianHello, leaseID: begin.leaseID, token: begin.token), context: guardian, now: 1.1)
-            XCTAssertEqual(hello.validationConfirmation, validation)
+            XCTAssertEqual(hello.validationConfirmation, true)
             let status = try broker.handle(.init(operation: .status), context: agent, now: 1.2)
             XCTAssertEqual(status.validationConfirmation, false)
         }

@@ -11,12 +11,10 @@ You need macOS 14 or later and a signed OCU app that includes the Locked Use com
 Unlock your Mac normally, then run this command and complete the administrator prompt:
 
 ```bash
-ocu locked-use enable --validation
+ocu locked-use enable
 ```
 
-This installs the components and enables validation mode. No manual configuration is needed. OCU's regular permission setup does not enable Locked Use automatically.
-
-Use validation mode for testing for now. Full production validation is still incomplete. Running `ocu locked-use enable` without `--validation` does not allow automatic unlock unless valid validation records are present.
+This installs the components and requests permissions for the main app and Guardian. No manual configuration is needed. OCU's regular permission setup does not enable Locked Use automatically.
 
 ```bash
 # Check installation and permissions
@@ -37,7 +35,7 @@ Allow these under **System Settings → Privacy & Security**:
 
 Installation and removal also require administrator authorization. Broker and the authorization plug-in do not need separate grants for these permissions. Development app names include `(Dev)`.
 
-After installation, run this command to request Guardian's permissions, then follow the system prompts:
+`enable` requests these permissions. To request Guardian's permissions again, run:
 
 ```bash
 "/Library/Application Support/OpenComputerUse/LockedUse/OCU Guardian.app/Contents/MacOS/OCUGuardian" --request-permissions

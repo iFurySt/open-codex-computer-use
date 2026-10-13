@@ -129,6 +129,9 @@ struct GuardianMain {
                 emit("peerSelfTest", details: ["verified": true, "wrongSignerRejected": denied,
                     "identifier": identity.signingIdentifier, "auditSessionMatches": true,
                     "approvedRoleVerified": true, "wrongRoleRejected": wrongRoleDenied])
+            case ["--permission-status"]:
+                emit("permissionStatus", details: ["accessibility": AXIsProcessTrusted(),
+                    "inputMonitoring": CGPreflightListenEventAccess()])
             case ["--request-permissions"]:
                 _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
                 _ = CGRequestListenEventAccess()

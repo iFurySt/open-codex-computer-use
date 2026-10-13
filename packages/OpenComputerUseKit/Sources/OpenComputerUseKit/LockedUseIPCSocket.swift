@@ -4,6 +4,14 @@ import LockedUseNative
 
 public enum LockedUseIPCEndpoint: String, Sendable {
     case agent, guardian, plugin, observer, admin
+    var responseTimeout: TimeInterval { 2 }
+    func timeout(operation: LockedUseIPCMessage.Operation, firstReply: Bool) -> TimeInterval {
+        if firstReply, self != .plugin,
+           [.status, .begin, .beginRecoveryProbe, .guardianHello, .guardianRecoveryHello,
+            .watchdogHello, .watchdogRecoveryHello, .ownerRecoveryHello, .disable,
+            .beginUnshieldedDiagnostic].contains(operation) { return 8 }
+        return responseTimeout
+    }
     public var path: String {
         "/Library/Application Support/OpenComputerUse/LockedUse/run/\(rawValue).sock"
     }
@@ -17,6 +25,8 @@ public final class LockedUseIPCClient: @unchecked Sendable {
     private var descriptor: Int32
     private var decoder = LockedUseIPCFrame()
     private let brokerRequirement: String
+    private let endpoint: LockedUseIPCEndpoint
+    private var receivedReply = false
     public let broker: LockedUsePeerIdentity
 
     public init(endpoint: LockedUseIPCEndpoint, brokerRequirement: String, clientSocket: Int32? = nil) throws {
@@ -35,6 +45,7 @@ public final class LockedUseIPCClient: @unchecked Sendable {
             }
             broker = peer
             self.brokerRequirement = brokerRequirement
+            self.endpoint = endpoint
             descriptor = fd
         } catch { Darwin.close(fd); throw error }
     }
@@ -50,7 +61,7 @@ public final class LockedUseIPCClient: @unchecked Sendable {
                 throw LockedUseClientApprovals.Failure.unapproved
             }
             _ = try message.validated()
-            let deadline = ProcessInfo.processInfo.systemUptime + 2
+            let deadline = ProcessInfo.processInfo.systemUptime + endpoint.timeout(operation: message.operation, firstReply: !receivedReply)
             try LockedUseIPCSocket.writeAll(try LockedUseIPCFrame.encode(message), descriptor: descriptor, deadline: deadline)
             var bytes = [UInt8](repeating: 0, count: 4096)
             while true {
@@ -67,6 +78,7 @@ public final class LockedUseIPCClient: @unchecked Sendable {
                     let reply = try JSONDecoder().decode(LockedUseIPCReply.self, from: frame)
                     guard reply.version == 1, reply.id == message.id,
                           reply.token == nil || reply.token?.count == 32 else { throw LockedUseIPCFrame.Failure.malformed }
+                    receivedReply = true
                     return reply
                 }
             }

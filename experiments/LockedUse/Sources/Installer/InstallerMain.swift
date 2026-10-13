@@ -192,7 +192,7 @@ struct InstallerMain {
             try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: daemon, options: [.withoutOverwriting])
             guard chmod(daemon.path, 0o644) == 0 else { throw InstallError.untrusted }
             try run("/bin/launchctl", ["bootstrap", "system", daemon.path])
-            print("Installed Locked Use with preserved native fallback. Profile: \(validation ? "explicit validation" : "production; backend remains unvalidated").")
+            print("Installed Locked Use with preserved native fallback. Profile: \(validation ? "explicit validation" : "enabled").")
         } catch {
             if let current = try? readRight(screensaver), let original = try? LockedUseAuthorizationRules.planUninstallation(current: current, plan: plan) {
                 try? setRight(screensaver, data: original, authorization: reference)

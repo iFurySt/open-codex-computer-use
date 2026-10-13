@@ -18,11 +18,11 @@ enum BrokerMain {
             let configuration = try LockedUseBrokerConfiguration.loadInstalled()
             let validation = CommandLine.arguments[1] == "--serve-validation"
             let team = try LockedUseSigningIdentity.current().teamIdentifier!
-            let evidence = try LockedUseComponentValidation.current(team: team)
-            let matched = configuration.matchesValidation(osBuild: evidence.osBuild,
-                brokerHash: evidence.brokerHash, guardianHash: evidence.guardianHash, pluginHash: evidence.pluginHash)
+            // Administrator enrollment enables the backend; all installed code
+            // still has to pass the same-team strict signature verification.
+            _ = try LockedUseComponentValidation.current(team: team)
             let server = try BrokerServer(approvals: approvals, enabled: configuration.enabled,
-                backendValidated: validation || matched, validationMode: validation)
+                backendValidated: true, validationMode: validation)
             try server.start()
             withExtendedLifetime(server) { dispatchMain() }
         } catch {
@@ -43,6 +43,9 @@ private final class BrokerServer: @unchecked Sendable {
     private var coordinator: LockedUseBrokerCoordinator
     private var listeners: [DispatchSourceRead] = []
     private var connections: [UUID: BrokerConnection] = [:]
+    private let peerAuthenticator = LockedUsePeerAuthenticator()
+    private var pendingAdmissions: [UUID: Int32] = [:]
+    private var cancelledAdmissions: Set<UUID> = []
     private var timer: DispatchSourceTimer?
     private var lastPolicyCheck: TimeInterval = 0
     private var policyInvalidated = false
@@ -156,31 +159,54 @@ private final class BrokerServer: @unchecked Sendable {
         for _ in 0..<16 {
             let client = Darwin.accept(fd, nil, nil)
             if client < 0 { return }
-            guard connections.count < 64 else { Darwin.close(client); continue }
+            guard connections.count + pendingAdmissions.count < 64 else { Darwin.close(client); continue }
             do {
                 try LockedUseIPCSocket.configure(client)
                 guard fcntl(client, F_SETFL, O_NONBLOCK) == 0 else { throw BrokerError.message("client socket unavailable") }
-                if endpoint == .observer { logger.notice("observerStage=accepting") }
-                let identity = try authenticate(fd: client, endpoint: endpoint)
-                if endpoint == .observer { logger.notice("observerStage=authenticated") }
-                let role: LockedUseBrokerCoordinator.Role = endpoint == .agent ? .agent : endpoint == .guardian ? .guardian : (endpoint == .observer || endpoint == .admin) ? .observer : .plugin
-                let old = [coordinator.recordedOwner, coordinator.recordedGuardian, coordinator.recordedWatchdog]
-                    .compactMap { $0 }.first { $0.role == role && $0.auditToken == identity.auditToken && $0.codeHash == identity.codeDirectoryHash }
-                let context = LockedUseBrokerCoordinator.Context(id: old?.id ?? UUID(), role: role,
-                    userID: identity.userID, auditSessionID: identity.auditSessionID, auditToken: identity.auditToken,
-                    processID: identity.processID, codeHash: identity.codeDirectoryHash)
-                if let previous = connections[context.id] { close(previous) }
-                let connection = BrokerConnection(fd: client, endpoint: endpoint, identity: identity, context: context)
-                connections[context.id] = connection
-                let source = DispatchSource.makeReadSource(fileDescriptor: client, queue: queue)
-                source.setEventHandler { [weak self, weak connection] in
-                    guard let connection, !connection.closed else { return }
-                    self?.read(connection)
+            } catch { Darwin.close(client); continue }
+            let admission = UUID()
+            let deadline = ProcessInfo.processInfo.systemUptime + 8
+            pendingAdmissions[admission] = client
+            queue.asyncAfter(deadline: .now() + 8) { [self] in
+                guard pendingAdmissions[admission] == client else { return }
+                cancelledAdmissions.insert(admission)
+                // Keep descriptor ownership until the worker returns. Closing
+                // now could reuse the fd while the verifier is inspecting it.
+                shutdown(client, SHUT_RDWR)
+            }
+            peerAuthenticator.verify({ [self] in try authenticate(fd: client, endpoint: endpoint) }) { [self] result in
+                queue.async { [self] in
+                    pendingAdmissions.removeValue(forKey: admission)
+                    let cancelled = cancelledAdmissions.remove(admission) != nil
+                    guard !cancelled, ProcessInfo.processInfo.systemUptime < deadline,
+                          case let .success(identity) = result else {
+                        logger.notice("peerRejected endpoint=\(endpoint.rawValue, privacy: .public)")
+                        Darwin.close(client)
+                        return
+                    }
+                    admit(fd: client, endpoint: endpoint, identity: identity)
                 }
-                connection.readSource = source
-                source.resume()
-            } catch { logger.notice("peerRejected endpoint=\(endpoint.rawValue, privacy: .public)"); Darwin.close(client) }
+            }
         }
+    }
+
+    private func admit(fd: Int32, endpoint: LockedUseIPCEndpoint, identity: LockedUsePeerIdentity) {
+        let role: LockedUseBrokerCoordinator.Role = endpoint == .agent ? .agent : endpoint == .guardian ? .guardian : (endpoint == .observer || endpoint == .admin) ? .observer : .plugin
+        let old = [coordinator.recordedOwner, coordinator.recordedGuardian, coordinator.recordedWatchdog]
+            .compactMap { $0 }.first { $0.role == role && $0.auditToken == identity.auditToken && $0.codeHash == identity.codeDirectoryHash }
+        let context = LockedUseBrokerCoordinator.Context(id: old?.id ?? UUID(), role: role,
+            userID: identity.userID, auditSessionID: identity.auditSessionID, auditToken: identity.auditToken,
+            processID: identity.processID, codeHash: identity.codeDirectoryHash)
+        if let previous = connections[context.id] { close(previous) }
+        let connection = BrokerConnection(fd: fd, endpoint: endpoint, identity: identity, context: context)
+        connections[context.id] = connection
+        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
+        source.setEventHandler { [weak self, weak connection] in
+            guard let connection, !connection.closed else { return }
+            self?.read(connection)
+        }
+        connection.readSource = source
+        source.resume()
     }
 
     private func authenticate(fd: Int32, endpoint: LockedUseIPCEndpoint) throws -> LockedUsePeerIdentity {
@@ -346,10 +372,12 @@ private final class BrokerServer: @unchecked Sendable {
             return
         }
         let observation = policyMonitor.status()
-        if observation == .invalid || observation == .stale {
+        if observation == .invalid {
             try coordinator.invalidateInstallation()
             policyInvalidated = true
             logger.error("installationPolicyInvalidated")
+        } else if observation == .stale {
+            try coordinator.suspendForPolicyObservation()
         }
         if requireFresh, observation != .valid {
             throw BrokerError.message("authentication policy observation unavailable")
@@ -413,7 +441,13 @@ private final class BrokerServer: @unchecked Sendable {
         shutdown(connection.fd, SHUT_RDWR); Darwin.close(connection.fd)
         connections.removeValue(forKey: connection.context.id)
     }
-    private func stopAll() { for connection in Array(connections.values) { close(connection) } }
+    private func stopAll() {
+        for connection in Array(connections.values) { close(connection) }
+        for (admission, fd) in pendingAdmissions {
+            cancelledAdmissions.insert(admission)
+            shutdown(fd, SHUT_RDWR)
+        }
+    }
 
     private static func validateRunDirectory() throws {
         var fd = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC)

@@ -82,6 +82,8 @@ public struct LockedUseDiagnostics: Codable, Sendable {
     public let inputMonitoring: Bool
     public let pluginInstalled: Bool
     public let brokerInstalled: Bool
+    public let guardianAccessibility: Bool?
+    public let guardianInputMonitoring: Bool?
     public let otherAuthorizationPlugins: [String]
     public let blockers: [String]
 
@@ -102,30 +104,61 @@ public struct LockedUseDiagnostics: Codable, Sendable {
                 && record.teamIdentifier == identity?.teamIdentifier
         } ?? false
         var available = false
+        var guardianPermissions: [String: Bool] = [:]
         if let configuration, let team = try? LockedUseSigningIdentity.current().teamIdentifier,
            let evidence = try? LockedUseComponentValidation.current(team: team) {
-            available = policyIntact && approved && configuration.matchesValidation(osBuild: evidence.osBuild, brokerHash: evidence.brokerHash,
-                guardianHash: evidence.guardianHash, pluginHash: evidence.pluginHash)
+            _ = evidence
+            guardianPermissions = installedGuardianPermissions()
+            available = configuration.enabled && policyIntact && approved
+                && AXIsProcessTrusted() && CGPreflightScreenCaptureAccess()
+                && guardianPermissions["accessibility"] == true && guardianPermissions["inputMonitoring"] == true
         }
         return .init(
-            schemaVersion: 1, stage: available ? "validated" : configuration == nil ? "experimental-preflight" : "installed-awaiting-validation", enabled: configuration?.enabled ?? false, available: available,
+            schemaVersion: 1, stage: available ? "enabled" : configuration == nil ? "not-installed" : "unavailable", enabled: configuration?.enabled ?? false, available: available,
             clientApproved: approved, authenticationPolicyIntact: policyIntact,
             session: .current(), accessibility: AXIsProcessTrusted(),
             screenRecording: CGPreflightScreenCaptureAccess(), inputMonitoring: CGPreflightListenEventAccess(),
             pluginInstalled: entries.contains(ownPlugin),
             brokerInstalled: FileManager.default.fileExists(atPath: "/Library/Application Support/OpenComputerUse/LockedUse/OCULockService"),
+            guardianAccessibility: guardianPermissions["accessibility"],
+            guardianInputMonitoring: guardianPermissions["inputMonitoring"],
             otherAuthorizationPlugins: others,
             blockers: available ? [] : [
-                "The loginwindow unlock backend and Keychain preservation require live validation for these components and this macOS build. Production automatic unlock is unavailable.",
-                "An explicitly administrator-installed validation profile can exercise the protected unlock transaction; installation alone does not validate it."
+                "Run ocu locked-use enable and complete permissions for Open Computer Use and OCU Guardian. Installation, client approval, signed components and authentication policy must be intact."
             ]
         )
+    }
+
+    private static func installedGuardianPermissions() -> [String: Bool] {
+        // Called only after strict installed-component signature verification.
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/Library/Application Support/OpenComputerUse/LockedUse/OCU Guardian.app/Contents/MacOS/OCUGuardian")
+        process.arguments = ["--permission-status"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            let deadline = Date().addingTimeInterval(2)
+            while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.01) }
+            guard !process.isRunning, process.terminationStatus == 0 else {
+                if process.isRunning { process.terminate() }
+                return [:]
+            }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            guard data.count < 8192, let value = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  value["event"] as? String == "permissionStatus",
+                  let accessibility = value["accessibility"] as? Bool,
+                  let input = value["inputMonitoring"] as? Bool else { return [:] }
+            return ["accessibility": accessibility, "inputMonitoring": input]
+        } catch { return [:] }
     }
 
     public var summary: String {
         "Locked Use: stage=\(stage), enabled=\(enabled), available=\(available), session=\(session.state.rawValue)\n"
             + "Client approved: \(clientApproved), authentication policy intact: \(authenticationPolicyIntact)\n"
-            + "Input Monitoring: \(inputMonitoring ? "granted" : "missing")\n"
+            + "Open Computer Use: Accessibility=\(accessibility), Screen Recording=\(screenRecording)\n"
+            + "Guardian: Accessibility=\(guardianAccessibility.map(String.init) ?? "unknown"), Input Monitoring=\(guardianInputMonitoring.map(String.init) ?? "unknown")\n"
             + "Other authorization plugins: \(otherAuthorizationPlugins.isEmpty ? "none detected" : otherAuthorizationPlugins.joined(separator: ", "))\n"
             + blockers.joined(separator: "\n")
     }

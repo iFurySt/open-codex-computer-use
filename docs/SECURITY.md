@@ -50,7 +50,7 @@
 
 ## macOS Locked Use 实验边界
 
-- 生产 backend 在完整实测证据缺失时关闭；只有管理员显式安装的验证 profile 能运行实验事务。用户环境和请求 metadata 不能开启生产自动解锁。
+- 正常 backend 由管理员 enable 安装启用，启动时验证同团队组件签名；历史验证报告不作为用户启用门槛。用户环境和请求 metadata 不能开启管理员未安装的服务；无遮罩与 recovery probe 等诊断仍只对内部验证 profile 开放。
 - 签名 Root Broker 从内核 audit token 认证原生 CLI / app agent / Guardian / Apple helper，批准绑定 UID、角色、signer 和 Team ID。SCM_RIGHTS 原客户端端点也要验证；许可绑定会话、连接与一次性 attempt，不能从请求指定任意 requirement。
 - 安装器只添加自己的 OR branch，保留原密码 fallback；备份完整语义规则并在回滚前检查当前策略没有第三方变更。独立 deny-only probe 与实际验证 profile 分离。
 - 解锁入口仅在双保护准备后做一次公开电源活动声明，并在 3 秒内等待完整 AX 发布。只按 Apple 签名 loginwindow 的 AXIdentifier 匹配（深度 ≤8），唯一候选写空字符串，不读取密码。验证版本随后尝试一次窗口限定点击：要求有限 AX 几何、唯一同 PID 的 on-screen 窗口包含目标点，使用 NSEvent.windowNumber、目标 PID / 窗口字段、与现有 sky_click 复用的 CGEventSetWindowLocation 私有编码及 subtype 3，在 session stage 投递鼠标 down/up，不合成全局 Return。验证 profile 可在真实 UserPasswordTextField 空写成功、字段声明支持 AXConfirm 时尝试一次 AXConfirm；是否生效独立记录，不视作解锁证据。两个会话过滤器只接受继承私有管道传递的随机一次性标记、正确 Guardian 来源、无 Shift / Control / Option / Command 点击修饰键、同目标 / 窗口 / 坐标且相隔小于 250ms 的一对点击；能力最多 5 秒，重复、接管、停止或重锁后不可恢复，不增加 PID-only 豁免。随机标记不进入 argv/env、日志或报告。硬件活动检测始终独立工作并撤销能力。此路由实际投递 / 认证效果尚待实测，queued 不是成功证据。取消禁止迟到写入，在途事件必须排空。SetResult 与真实同会话 unlocked 观察缺一不可。

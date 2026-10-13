@@ -277,7 +277,7 @@ final class LockedUseTests: XCTestCase {
             XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["locked-use", action]), command)
             XCTAssertFalse(shouldUseMacOSAppAgentProxy(command: command, proxyDisabled: false, appBundleAvailable: true, runningFromLaunchServicesAppInstance: false))
         }
-        XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["locked-use", "enable", "--validation"]), .lockedUseManagement(action: "enable", validation: true))
+        XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["locked-use", "enable", "--validation"]))
         for arguments in [["status", "--json", "--json"], ["disable", "--validation"], ["enable", "--validation", "extra"], ["authorize-client", "test"], ["uninstall"], ["unknown"], []] {
             XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["locked-use"] + arguments))
         }

@@ -1,4 +1,19 @@
-# macOS Locked Use（实验阶段）
+# macOS Locked Use
+
+正常使用只需要三个命令：
+
+```sh
+ocu locked-use enable
+ocu locked-use status
+ocu locked-use disable
+```
+
+`enable` 安装签名组件、保留系统密码认证方式，并请求主 App 和 Guardian 的权限。正常启用不需要开发验证参数或历史验证报告。完整安装位置和权限说明见[中文使用指南](locked-use.zh-CN.md) / [English](locked-use.en.md)。
+
+## 研发记录（历史行为）
+
+以下保留研发过程与测试边界，包含旧版本的 profile、验证门槛及未完成的测试。这些记录不代表当前 enable 的开启要求；实际使用以上面的使用指南为准。
+
 
 目标是在已登录用户的屏幕锁定后，允许已授权客户端临时解锁 GUI 会话，同时遮蔽所有物理显示器，继续通过 AX / ScreenCaptureKit / 输入执行任务，最后重锁。
 
@@ -166,7 +181,7 @@ OPEN_COMPUTER_USE_INCLUDE_LOCKED_USE=1 scripts/build-open-computer-use-app.sh de
 
 安装 UI 将 artifacts 复制到 root 保护的 staging，验证签名 Installer 后才执行它。Installer 再验证全部组件、签名团队、hardened runtime、无注入 entitlement 和 root 目录 / ACL；登记当前用户的原生 CLI client、app agent 与 Guardian。当前登记范围是本 app 的原生客户端，不能将其描述为已认证 Node / Codex 父进程。原生客户端 socket 通过 SCM_RIGHTS 转交，Broker 仅检验内核 peer，不读该 socket 的业务数据；UID / audit session 必须与 agent 一致。规则备份先写入 root 目录；只为现有 OR policy 增加独立 remote branch，保留原生 / 第三方 fallback。Installer 并发操作用独立 flock 排斥。
 
-`locked-use enable` 安装生产 profile，缺少匹配实测证据时不能自动解锁。仅开发实测显式使用 `locked-use enable --validation`；它通过管理员安装的 launchd profile 开放验证事务，不等于生产验证通过。`locked-use disable` 先冻结 Broker 的新租约，只有 idle / awaitingManualUnlock 时恢复匹配的原规则、停止服务并移除自身插件及 staged 副本；第三方策略改变时拒绝覆盖。安装失败会保留 recovery plan，`locked-use recover` 可恢复部分安装，但只有实例锁和 root journal 证明旧保护已释放时才移除组件；未排空的崩溃事务必须先恢复 Broker。此路径仍待系统验证。
+`locked-use enable` 安装生产 profile，缺少匹配实测证据时不能自动解锁。仅开发实测显式使用 `locked-use enable`；它通过管理员安装的 launchd profile 开放验证事务，不等于生产验证通过。`locked-use disable` 先冻结 Broker 的新租约，只有 idle / awaitingManualUnlock 时恢复匹配的原规则、停止服务并移除自身插件及 staged 副本；第三方策略改变时拒绝覆盖。安装失败会保留 recovery plan，`locked-use recover` 可恢复部分安装，但只有实例锁和 root journal 证明旧保护已释放时才移除组件；未排空的崩溃事务必须先恢复 Broker。此路径仍待系统验证。
 
 普通 app-agent GUI 调用在完成登录的锁定 console session 请求租约；库存 / 协议查询不触发解锁。Guardian 从锁屏启动，通过私有 inherited pipe 接收 challenge；准备覆盖、tap、硬件活动 monitor 与独立 watchdog 后，收到 root 的一次 requestUnlock，调用公开 IOPMAssertionDeclareUserActivity 唤醒显示器。随后等待系统发起 screensaver 认证事务，remote 插件显式 SetResult 放行已消费的一次性许可。唤醒成功不证明事务已开始或会话已解锁；3 秒预算内重试完整 AX 发布，然后在已验证 Apple 签名的 loginwindow 上遍历 AXChildren（深度 ≤8、最多 300 节点、0.75 秒扫描预算），优先匹配 `UserPasswordTextField`，回退 `FocusedUser`。完整扫描且候选唯一时空字符串写入，不读取字段内容。仅 fallback 使用一次窗口限定、双过滤器能力验证的点击；点击后重新查找真正的密码框。管理员验证 profile 才允许在密码框空写成功、明确声明支持 AXConfirm 时执行一次确认，采用 Root hello 的实验开关；生产及旧协议缺少开关时不执行。没有全局键盘合成。空写、点击、AXConfirm 返回均不能替代许可消费与真实同会话解锁证据。两套保护分别持有有界 display-sleep assertion，退出 / 最大租约期限时由 powerd 释放。原生会话真实 unlocked 且根服务确认全部保护健康后，才启用 GUI dispatch。各输入 / AX mutation / snapshot session gate 再向根服务核验当前连接。其他连接用只读 observer endpoint 检查租约，不能借用临时解锁的桌面。Secure Event Input 下 IOHID 活动交付尚待实机验证。参考方案的核对与尚未证实的系统行为见 [解锁入口复核](references/macos-locked-use-solution-review.md)。
 

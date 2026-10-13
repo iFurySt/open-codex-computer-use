@@ -154,15 +154,15 @@ public func openComputerUseHelpText(command: String? = nil) -> String {
           open-computer-use locked-use status [--json]
 
         Read-only macOS session, permission, and system-component diagnostics.
-          open-computer-use locked-use enable [--validation]
+          open-computer-use locked-use enable
           open-computer-use locked-use disable
           open-computer-use locked-use recover
           open-computer-use locked-use certify
           open-computer-use locked-use settings
 
         Installation and removal require macOS administrator authentication.
-        --validation installs an experimental profile for supervised testing.
-        Production unlock requires evidence matching this OS and component build.
+        enable installs signed components and requests macOS permissions.
+        Automatic unlock requires an approved client and both display guards.
         recover restores an interrupted installation only after safe drainage.
         """
     case "list-apps":
@@ -502,7 +502,6 @@ private func parseLockedUse(arguments: [String]) throws -> OpenComputerUseCLICom
     }
     if arguments == ["status"] { return .lockedUseStatus(json: false) }
     if arguments == ["status", "--json"] { return .lockedUseStatus(json: true) }
-    if arguments == ["enable", "--validation"] { return .lockedUseManagement(action: "enable", validation: true) }
     if arguments.count == 1, let action = arguments.first,
        ["enable", "disable", "recover", "certify", "settings"].contains(action) {
         return .lockedUseManagement(action: action, validation: false)

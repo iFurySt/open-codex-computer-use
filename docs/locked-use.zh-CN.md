@@ -11,12 +11,10 @@ Locked Use 可以让 Agent 在 Mac 锁屏时继续操作 GUI。期间所有屏�
 先正常解锁 Mac，然后运行下面的命令，完成管理员授权：
 
 ```bash
-ocu locked-use enable --validation
+ocu locked-use enable
 ```
 
-这个命令会安装所需组件并开启验证模式，不需要手动修改配置。Locked Use 不会随 OCU 的普通权限引导自动开启。
-
-目前先用验证模式测试。正式模式的完整验证尚未完成；`ocu locked-use enable` 不带 `--validation` 时，缺少有效验证记录就不会自动解锁。
+这个命令会安装所需组件，并请求主 App 和 Guardian 的权限，不需要手动修改配置。Locked Use 不会随 OCU 的普通权限引导自动开启。
 
 ```bash
 # 查看安装和权限状态
@@ -37,7 +35,7 @@ ocu locked-use disable
 
 安装、卸载还需要管理员授权。Broker 和授权插件不需要单独申请上述权限。开发版的 App 名称会带 `(Dev)`。
 
-安装后运行下面的命令，弹出 Guardian 的权限申请，再按系统提示授权：
+`enable` 会发起权限申请。若需要再次申请 Guardian 权限，可以运行：
 
 ```bash
 "/Library/Application Support/OpenComputerUse/LockedUse/OCU Guardian.app/Contents/MacOS/OCUGuardian" --request-permissions

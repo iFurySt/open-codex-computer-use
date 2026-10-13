@@ -1,4 +1,6 @@
 import AppKit
+@preconcurrency import ApplicationServices
+import CoreGraphics
 import Darwin
 import Foundation
 import OpenComputerUseKit
@@ -11,8 +13,8 @@ enum LockedUseSettings {
     static func handle(arguments: [String]) throws -> Bool {
         guard arguments.first == "locked-use", arguments.count > 1,
               ["enable", "disable", "recover", "certify", "settings"].contains(arguments[1]) else { return false }
-        guard arguments.count == 2 || arguments == ["locked-use", "enable", "--validation"] else {
-            throw OpenComputerUseCLIError(message: "Usage: ocu locked-use enable [--validation] | disable | recover | certify | settings")
+        guard arguments.count == 2 else {
+            throw OpenComputerUseCLIError(message: "Usage: ocu locked-use enable | disable | recover | certify | settings")
         }
         let action = arguments[1]
         if action == "settings" {
@@ -20,18 +22,18 @@ enum LockedUseSettings {
             app.setActivationPolicy(.accessory)
             let alert = NSAlert()
             alert.messageText = "Locked Use"
-            alert.informativeText = "在锁屏时继续使用已登录的 Mac。所有显示器会被遮蔽；移动鼠标或按键立即返回锁屏。启用需要管理员授权和已验证的解锁组件。"
+            alert.informativeText = "在锁屏时继续使用已登录的 Mac。所有显示器会被遮蔽；移动鼠标或按键立即返回锁屏。启用需要管理员授权、辅助功能、屏幕录制和输入监控权限。"
             alert.addButton(withTitle: "启用")
             alert.addButton(withTitle: "停用并移除")
             alert.addButton(withTitle: "取消")
             switch alert.runModal() {
-            case .alertFirstButtonReturn: try enable(validation: false)
+            case .alertFirstButtonReturn: try enable()
             case .alertSecondButtonReturn: try disable()
             default: break
             }
-        } else if action == "enable" { try enable(validation: arguments.last == "--validation") }
+        } else if action == "enable" { try enable() }
         else if action == "certify" { try certify() }
-        else if action == "recover" { try enable(validation: false, recovering: true) }
+        else if action == "recover" { try enable(recovering: true) }
         else { try disable() }
         return true
     }
@@ -51,7 +53,7 @@ enum LockedUseSettings {
         guard process.terminationStatus == 0 else { throw OpenComputerUseCLIError(message: "Locked Use administrator installation did not complete. Existing recovery records were retained.") }
         print(text, terminator: "")
     }
-    private static func enable(validation: Bool, recovering: Bool = false) throws {
+    private static func enable(recovering: Bool = false) throws {
         guard LockedUseSession.current().state == .unlocked else { throw OpenComputerUseCLIError(message: "Unlock the Mac normally before administrator installation or recovery.") }
         let identity = try LockedUseSigningIdentity.current()
         guard identity.userID > 0, ["com.ifuryst.opencomputeruse", "com.ifuryst.opencomputeruse.dev"].contains(identity.signingIdentifier),
@@ -80,8 +82,26 @@ enum LockedUseSettings {
             "/bin/chmod -RN " + quote(stage) + "\n" +
             "/bin/chmod -R go-w " + quote(stage) + "\n" +
             "/usr/bin/codesign --verify --strict -R " + quote(requirement) + " " + quote(stage + "/OCULockInstaller") + "\n" +
-            quote(stage + "/OCULockInstaller") + (recovering ? " recover" : " install " + quote(stage) + " " + String(identity.userID) + " " + (validation ? "validation" : "production"))
+            quote(stage + "/OCULockInstaller") + (recovering ? " recover" : " install " + quote(stage) + " " + String(identity.userID) + " " + "production")
         try elevate(shell)
+        if !recovering { try requestPermissions() }
+    }
+
+    private static func requestPermissions() throws {
+        let team = try LockedUseSigningIdentity.current().teamIdentifier!
+        // Verify the administrator-installed components before launching Guardian.
+        _ = try LockedUseComponentValidation.current(team: team)
+        let guardian = Process()
+        guardian.executableURL = URL(fileURLWithPath: "/Library/Application Support/OpenComputerUse/LockedUse/OCU Guardian.app/Contents/MacOS/OCUGuardian")
+        guardian.arguments = ["--request-permissions"]
+        try guardian.run()
+        guardian.waitUntilExit()
+        guard guardian.terminationStatus == 0 else {
+            throw OpenComputerUseCLIError(message: "Locked Use is installed, but Guardian permission setup failed. Run locked-use status before using it.")
+        }
+        _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
+        if !CGPreflightScreenCaptureAccess() { _ = CGRequestScreenCaptureAccess() }
+        print("Locked Use installed. Complete Open Computer Use and OCU Guardian permissions in System Settings, then run ocu locked-use status.")
     }
     private static func certify() throws {
         guard LockedUseSession.current().state == .unlocked else {

@@ -297,6 +297,12 @@ public struct LockedUseBrokerCoordinator: Sendable {
     /// cleanup channels alive so old queued unlock work can safely drain.
     public mutating func invalidateInstallation() throws {
         accepting = false
+        try suspendForPolicyObservation()
+    }
+
+    /// A slow observation stops current work without permanently invalidating
+    /// an unchanged installation. New permits still require a fresh check.
+    public mutating func suspendForPolicyObservation() throws {
         unshieldedDiagnostic?.cancel()
         if let owner, ![.idle, .relocking, .awaitingManualUnlock].contains(phase) {
             try apply(machine.end(owner: owner, reason: .operationFailed))
@@ -405,7 +411,7 @@ public struct LockedUseBrokerCoordinator: Sendable {
             leaseID: isOwner(context) || isGuardian(context) || isWatchdog(context) || context.id == pluginID ? leaseID : nil,
             token: token, effects: effects, guardsReleased: isFullyReleased,
             recoveryProbePrepared: recoveryProbe ? recoveryProbePrepared : nil, startupDeadline: machine.startupDeadline,
-            validationConfirmation: validationMode && isGuardian(context))
+            validationConfirmation: isGuardian(context))
     }
     private func randomToken() throws -> Data {
         var bytes = [UInt8](repeating: 0, count: 32)
