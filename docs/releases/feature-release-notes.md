@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-10-10 | macOS Locked Use 验证版 | 可在已登录 Mac 锁屏时，通过全屏遮罩继续 GUI 自动化，并在结束或本地接管后安全重锁。 | 正式组件采用 OCU Guardian / OCULockService / OCULockInstaller / OCULockAuth 短名称，开发 App 保留 Dev 区分；新增签名 Broker / 授权插件、双进程显示器保护、一次性许可、租约排空 / 恢复及构建和实机验证脚本；管理员显式启用 validation profile，生产 backend 在完整验证前保持关闭。 |
 | 2026-10-10 | macOS 定向 AX 查询 | 知道控件文案时，可以直接查询并操作，不必先获取截图和完整 AX tree。 | 新增 native `query` 和 JS `app.query()`，按文字、角色和窗口查找元素，返回完整性元数据；查询索引仅在同一会话内有效，操作前重新验证目标和位置。 |
 | 2026-10-10 | macOS 截图配置 | 普通用户可用 `ocu config` 持久化截图偏好，无需维护 shell ENV。 | 新增用户 JSON、ENV 覆盖、PNG/JPG/WebP 格式、明确的超大缩小/丢弃开关、最小总像素数过滤、质量/SCK 超时；取消字节预算缩小，支持关闭长边上限，省略截图时说明原因，保留 #65 捕获路径与坐标映射。 |
 | 2026-10-10 | 结构化权限查询 | 宿主可以读取和轮询 macOS 授权状态，无需解析文本或重复弹引导。 | 新增 `ocu doctor --json`，输出权限布尔值、`allGranted` 和缺失权限列表；普通 `doctor` 保留权限引导，Linux/Windows 明确返回不支持。 |

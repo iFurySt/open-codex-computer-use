@@ -101,6 +101,8 @@ npx skills update open-computer-use -g -y
 
 ## 更多
 
+Locked Use 的开启方式、安装组件和权限见[文档](docs/locked-use.zh-CN.md)。
+
 除了直接用上面的 MCP JSON 配置，你也可以用一些内置子命令：
 
 ```bash

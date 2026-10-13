@@ -123,6 +123,7 @@ enum SkyKeyboardDispatcher {
         try deliver(to: target, spi: spi) {
             if let equivalent = skyMenuKeyEquivalent(for: parsed),
                let item = menuItem(matching: equivalent, pid: target.pid) {
+                try requireUsableComputerUseSession()
                 let result = AXUIElementPerformAction(item, kAXPressAction as CFString)
                 guard result == .success else {
                     throw ComputerUseError.message(
@@ -142,6 +143,7 @@ enum SkyKeyboardDispatcher {
         spi: SkyLightSPI,
         _ body: () throws -> Void
     ) throws {
+        try requireUsableComputerUseSession()
         guard spi.capability.isAvailable else {
             throw ComputerUseError.message(
                 "key_method 'sky_key' is unavailable: \(spi.capability.unavailableReason)"

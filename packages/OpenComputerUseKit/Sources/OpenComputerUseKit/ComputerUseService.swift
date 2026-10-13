@@ -765,6 +765,7 @@ public final class ComputerUseService {
             throw ComputerUseError.stateUnavailable("element \(elementIndex) has no backing accessibility object")
         }
 
+        try requireUsableComputerUseSession()
         let result = AXUIElementPerformAction(element, rawAction as CFString)
         guard result == .success else {
             throw ComputerUseError.message("AXUIElementPerformAction failed with \(result.rawValue)")
@@ -799,6 +800,7 @@ public final class ComputerUseService {
            let rawAction = record.rawActions.first(where: { $0.caseInsensitiveCompare("AXScroll\(normalized.capitalized)ByPage") == .orderedSame }),
            let element = record.element {
             for _ in 0..<repeatCount {
+                try requireUsableComputerUseSession()
                 _ = AXUIElementPerformAction(element, rawAction as CFString)
                 Thread.sleep(forTimeInterval: 0.05)
             }
@@ -939,6 +941,7 @@ public final class ComputerUseService {
         moveVisualCursor(to: cursorTarget)
 
         do {
+            try requireUsableComputerUseSession()
             let result = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, value as CFString)
             guard result == .success else {
                 throw ComputerUseError.message("AXUIElementSetAttributeValue failed with \(result.rawValue)")
@@ -974,11 +977,13 @@ public final class ComputerUseService {
         guard text.map({ $0.utf16.count <= 1000 }) ?? true, role.map({ $0.utf16.count <= 1000 }) ?? true else {
             throw ComputerUseError.invalidArguments("query text and role must be at most 1000 UTF-16 code units")
         }
+        try requireUsableComputerUseSession()
         let app = try AppDiscovery.resolveRunning(query)
         let context = try SnapshotBuilder.resolveTargetWindow(for: app, windowID: windowID)
         let criteria = TargetedAX.Criteria(text: text, exact: exact, role: role,
                                           limit: min(100, max(1, limit)), maxNodes: min(5000, max(1, maxNodes)))
         let result = try SnapshotBuilder.targetedSearch(criteria, in: context)
+        try requireUsableComputerUseSession()
         let matches = result.records.map { registerTargetedElement(record: $0, context: context, criteria: criteria) }
         return ["matches": matches, "truncated": result.truncated,
                 "stop_reason": result.stopReason ?? "complete", "visited_nodes": result.visitedNodes,
@@ -1051,6 +1056,14 @@ public final class ComputerUseService {
 
     private func currentSnapshot(for query: String) throws -> AppSnapshot {
         if let snapshot = snapshotsByApp[query.lowercased()] {
+            if snapshot.mode != .fixture {
+                do {
+                    try requireUsableComputerUseSession()
+                } catch {
+                    snapshotsByApp.removeAll()
+                    throw error
+                }
+            }
             return snapshot
         }
 
@@ -1175,6 +1188,7 @@ public final class ComputerUseService {
             return false
         }
 
+        try requireUsableComputerUseSession()
         let result = AXUIElementSetAttributeValue(
             target.list,
             kAXSelectedChildrenAttribute as CFString,
@@ -1307,6 +1321,7 @@ public final class ComputerUseService {
 
         let attempts = max(repeatCount, 1)
         for index in 0..<attempts {
+            try requireUsableComputerUseSession()
             let result = AXUIElementPerformAction(element, action as CFString)
             switch result {
             case .success:
@@ -1344,6 +1359,7 @@ public final class ComputerUseService {
     }
 
     private func setBoolAttribute(named attribute: String, on element: AXUIElement) throws -> Bool {
+        try requireUsableComputerUseSession()
         let result = AXUIElementSetAttributeValue(element, attribute as CFString, kCFBooleanTrue)
         switch result {
         case .success:
@@ -1633,6 +1649,7 @@ public final class ComputerUseService {
         }
 
         let baseValue = editableBaseValue(for: element)
+        try requireUsableComputerUseSession()
         let result = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, (baseValue + text) as CFString)
         switch result {
         case .success:

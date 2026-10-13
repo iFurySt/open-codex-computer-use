@@ -38,6 +38,8 @@ enum OpenComputerUseMain {
         }
 
         switch command {
+        case .lockedUseManagement:
+            _ = try LockedUseSettings.handle(arguments: arguments)
         case .mcp:
             let service = ComputerUseService()
             let server = StdioMCPServer(service: service)
@@ -51,9 +53,15 @@ enum OpenComputerUseMain {
         case let .doctor(json):
             let permissions = PermissionDiagnostics.current()
             print(try json ? permissions.jsonText() : permissions.summary)
+            if !json {
+                print(LockedUseDiagnostics.current().summary)
+            }
             if !json && !permissions.missingPermissions.isEmpty {
                 PermissionOnboardingApp.launch()
             }
+        case let .lockedUseStatus(json):
+            let diagnostics = LockedUseDiagnostics.current()
+            print(try json ? diagnostics.jsonText() : diagnostics.summary)
         case .listApps:
             let service = ComputerUseService()
             print(service.listApps().primaryText ?? "")
