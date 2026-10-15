@@ -874,6 +874,9 @@ def perform_operation(operation):
     else:
         raise RuntimeError('unsupportedTool("{}")'.format(tool))
 
+    if operation.get("skip_read_back", False):
+        return {"ok": True}
+
     time.sleep(0.12)
     return {"ok": True, "snapshot": build_snapshot(operation.get("app", ""))}
 
@@ -883,6 +886,9 @@ def main():
         raise RuntimeError("runtime.py requires an operation JSON path")
     require_desktop_session()
     Atspi.init()
+    if sys.argv[1] == "--serve":
+        serve(sys.stdin, sys.stdout)
+        return
     with open(sys.argv[1], "r", encoding="utf-8") as file:
         operation = json.load(file)
     try:
@@ -890,6 +896,32 @@ def main():
     except Exception as exc:
         response = {"ok": False, "error": str(exc)}
     print(json.dumps(response, separators=(",", ":")))
+
+
+def drain_accessibility_events():
+    from gi.repository import GLib
+    context = GLib.MainContext.default()
+    deadline = time.monotonic() + 0.02
+    for _ in range(1000):
+        if not context.pending() or time.monotonic() >= deadline:
+            break
+        context.iteration(False)
+
+
+def serve(input_stream, output_stream):
+    for line in input_stream:
+        try:
+            operation = json.loads(line)
+            if not isinstance(operation, dict):
+                raise ValueError("operation must be a JSON object")
+            # Keep libatspi's event-driven state moving between requests rather
+            # than treating a long-lived GI process as a stateless subprocess.
+            drain_accessibility_events()
+            response = perform_operation(operation)
+        except Exception as exc:
+            response = {"ok": False, "error": str(exc)}
+        output_stream.write(json.dumps(response, separators=(",", ":")) + "\n")
+        output_stream.flush()
 
 
 if __name__ == "__main__":

@@ -16,6 +16,108 @@ func TestToolDefinitionCount(t *testing.T) {
 	}
 }
 
+func TestActionReadBackEnabled(t *testing.T) {
+	for _, value := range []string{"", "1", "true", "yes", "on", "unexpected"} {
+		t.Setenv("OPEN_COMPUTER_USE_ACTION_READ_BACK", value)
+		if !actionReadBackEnabled() {
+			t.Errorf("read-back should be enabled for %q", value)
+		}
+	}
+	for _, value := range []string{"0", "false", "no", "off", " OFF ", "False"} {
+		t.Setenv("OPEN_COMPUTER_USE_ACTION_READ_BACK", value)
+		if actionReadBackEnabled() {
+			t.Errorf("read-back should be disabled for %q", value)
+		}
+	}
+}
+
+// Exercise the Go/bridge JSON boundary without requiring a live AT-SPI desktop.
+func fakePythonResponse(t *testing.T, response string) string {
+	t.Helper()
+	dir := t.TempDir()
+	requestPath := filepath.Join(dir, "request.json")
+	script := "#!/bin/sh\ncat \"$2\" > \"$OCU_TEST_REQUEST\"\nprintf '%s\\n' \"$OCU_TEST_PYTHON_RESPONSE\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "python3"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("OCU_TEST_REQUEST", requestPath)
+	t.Setenv("OCU_TEST_PYTHON_RESPONSE", response)
+	return requestPath
+}
+
+func TestActionWithoutReadBackPreservesObservedSnapshot(t *testing.T) {
+	t.Setenv("OPEN_COMPUTER_USE_ACTION_READ_BACK", "0")
+	requestPath := fakePythonResponse(t, `{"ok":true}`)
+	s := newService()
+	observed := &appSnapshot{App: appDescriptor{Name: "Editor", PID: 42}, Elements: []elementRecord{{Index: 7}}}
+	s.rememberSnapshot("Editor", observed)
+	result := s.pressKey("Editor", "Return", "auto")
+	if result.IsError || len(result.Content) != 1 || result.Content[0].Text != "ok" {
+		t.Fatalf("action result = %#v", result)
+	}
+	for _, alias := range []string{"Editor", "42"} {
+		if s.currentSnapshot(alias) != observed {
+			t.Fatalf("action replaced the observed snapshot for %s", alias)
+		}
+	}
+	data, err := os.ReadFile(requestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var request linuxRequest
+	if err := json.Unmarshal(data, &request); err != nil {
+		t.Fatal(err)
+	}
+	if !request.SkipReadBack || request.Tool != "press_key" || request.Key != "Return" {
+		t.Fatalf("bridge request = %#v", request)
+	}
+}
+
+func TestActionReadBackStillRefreshesSnapshotByDefault(t *testing.T) {
+	t.Setenv("OPEN_COMPUTER_USE_ACTION_READ_BACK", "")
+	requestPath := fakePythonResponse(t, `{"ok":true,"snapshot":{"app":{"name":"Editor","pid":42},"treeLines":["updated"],"screenshotPngBase64":"aW1hZ2U="}}`)
+	s := newService()
+	s.rememberSnapshot("Editor", &appSnapshot{App: appDescriptor{Name: "Editor", PID: 42}})
+	result := s.pressKey("Editor", "Return", "auto")
+	if result.IsError || len(result.Content) != 2 || result.Content[1].Type != "image" {
+		t.Fatalf("default action result = %#v", result)
+	}
+	if got := s.currentSnapshot("Editor").TreeLines; len(got) != 1 || got[0] != "updated" {
+		t.Fatalf("snapshot was not refreshed: %#v", got)
+	}
+	data, err := os.ReadFile(requestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "skip_read_back") {
+		t.Fatalf("default action unexpectedly requested no read-back: %s", data)
+	}
+}
+
+func TestReadBackFlagDoesNotSuppressExplicitObservation(t *testing.T) {
+	t.Setenv("OPEN_COMPUTER_USE_ACTION_READ_BACK", "0")
+	fakePythonResponse(t, `{"ok":true,"snapshot":{"app":{"name":"Editor","pid":42}}}`)
+	s := newService()
+	_, result := s.refreshSnapshot("Editor", linuxRequest{Tool: "get_app_state", App: "Editor"})
+	if result.IsError || s.currentSnapshot("Editor") == nil {
+		t.Fatalf("explicit observation failed: %#v", result)
+	}
+}
+
+func TestActionWithoutReadBackPropagatesBridgeErrors(t *testing.T) {
+	for _, response := range []string{`{"ok":false,"error":"input failed"}`, `not json`} {
+		t.Run(response, func(t *testing.T) {
+			t.Setenv("OPEN_COMPUTER_USE_ACTION_READ_BACK", "0")
+			fakePythonResponse(t, response)
+			s := newService()
+			if result := s.actionResult("Editor", linuxRequest{Tool: "press_key"}); !result.IsError {
+				t.Fatalf("bridge failure reported as success: %#v", result)
+			}
+		})
+	}
+}
+
 func TestClickMethodSchemaAndParser(t *testing.T) {
 	tool := findToolDefinition(t, "click")
 	properties := tool.InputSchema["properties"].(map[string]any)

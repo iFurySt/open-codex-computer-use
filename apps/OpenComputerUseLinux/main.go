@@ -161,6 +161,7 @@ type linuxRequest struct {
 	TextLimit    any            `json:"text_limit,omitempty"`
 	MaxTreeNodes int            `json:"max_tree_nodes,omitempty"`
 	MaxTreeDepth int            `json:"max_tree_depth,omitempty"`
+	SkipReadBack bool           `json:"skip_read_back,omitempty"`
 }
 
 type textLimit struct {
@@ -184,6 +185,7 @@ type linuxResponse struct {
 
 type service struct {
 	snapshots map[string]*appSnapshot
+	bridge    *pythonBridge
 }
 
 func newService() *service {
@@ -270,7 +272,7 @@ func (s *service) callTool(name string, args map[string]any) toolCallResult {
 }
 
 func (s *service) listApps() toolCallResult {
-	response, err := runPython(linuxRequest{Tool: "list_apps"})
+	response, err := s.runPython(linuxRequest{Tool: "list_apps"})
 	if err != nil {
 		return textResult(err.Error(), true)
 	}
@@ -467,6 +469,18 @@ func (s *service) setValue(app, elementIndex, value string) toolCallResult {
 }
 
 func (s *service) actionResult(app string, request linuxRequest) toolCallResult {
+	if !actionReadBackEnabled() {
+		request.SkipReadBack = true
+		response, err := s.runPython(request)
+		if err != nil {
+			return textResult(err.Error(), true)
+		}
+		if !response.OK {
+			return textResult(response.Error, true)
+		}
+		// Keep the last explicitly observed indexes until get_app_state refreshes them.
+		return textResult("ok", false)
+	}
 	snapshot, result := s.refreshSnapshot(app, request)
 	if result.IsError {
 		return result
@@ -474,12 +488,22 @@ func (s *service) actionResult(app string, request linuxRequest) toolCallResult 
 	return snapshot.result()
 }
 
+// Match the macOS runtime: only explicit false values disable action read-back.
+func actionReadBackEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("OPEN_COMPUTER_USE_ACTION_READ_BACK"))) {
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
+}
+
 func (s *service) currentSnapshot(app string) *appSnapshot {
 	return s.snapshots[strings.ToLower(app)]
 }
 
 func (s *service) refreshSnapshot(app string, request linuxRequest) (*appSnapshot, toolCallResult) {
-	response, err := runPython(request)
+	response, err := s.runPython(request)
 	if err != nil {
 		return nil, textResult(err.Error(), true)
 	}
@@ -1648,6 +1672,10 @@ func readJSONSource(inline, file string) (string, error) {
 
 func runMCP(stdin io.Reader, stdout io.Writer) error {
 	svc := newService()
+	if value := strings.ToLower(strings.TrimSpace(os.Getenv("OPEN_COMPUTER_USE_LINUX_PERSISTENT_BRIDGE"))); value == "1" || value == "true" || value == "yes" || value == "on" {
+		svc.bridge = &pythonBridge{}
+		defer func() { svc.bridge.close() }()
+	}
 	decoder := json.NewDecoder(stdin)
 	encoder := json.NewEncoder(stdout)
 	for {
@@ -1683,7 +1711,14 @@ func handleMCPRequest(request map[string]any, svc *service) map[string]any {
 			"capabilities": map[string]any{"tools": map[string]any{"listChanged": false}},
 			"instructions": serverInstructions,
 		})
-	case "notifications/initialized", "notifications/turn-ended":
+	case "notifications/initialized":
+		return nil
+	case "notifications/turn-ended":
+		if svc.bridge != nil {
+			svc.bridge.close()
+			svc.bridge = &pythonBridge{}
+			svc.snapshots = map[string]*appSnapshot{}
+		}
 		return nil
 	case "ping":
 		return jsonRPCResult(id, map[string]any{})

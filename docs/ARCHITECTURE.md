@@ -129,7 +129,10 @@
 
 ### 7. Linux Runtime
 
+- Add an opt-in session-owned Linux Python bridge：[persistent-bridge](linux-persistent-bridge.md)。
+
 - Linux runtime 位于 `apps/OpenComputerUseLinux`，以 Go 维护 CLI、`call --calls` sequence、MCP JSON-RPC、tool schema 和进程内 snapshot cache。
+- Linux 支持与 macOS 一致的 `OPEN_COMPUTER_USE_ACTION_READ_BACK`：默认保持动作后等待并返回完整快照；设置为 `0`、`false`、`no` 或 `off`（忽略大小写与首尾空白）时，成功动作只返回 `ok`，跳过回读等待、AX、焦点/选区和截图采集，也不覆盖最后一次显式观察的索引缓存。REPL adapter 已自动设置此开关；调用方应在需要观察时显式调用 `get_app_state` / `getAXState()`，并在界面变化后刷新索引。`ok` 仅表示动作调用完成，不代表界面已完成更新或任务成功。显式观察不受开关影响，仍返回完整快照。
 - 构建入口是 `scripts/build-open-computer-use-linux.sh --arch arm64|amd64`，默认输出到 `dist/linux/<arch>/open-computer-use`；npm release package 会把两个 Linux artifact 内置到已有 root/alias packages，Node launcher 按 `process.platform/process.arch` 自动选择。
 - Go runtime 通过 `go:embed` 带上 `runtime.py`，执行 tool call 时临时落盘并调用 `python3`。Python bridge 使用 GNOME/GObject Introspection 暴露的 AT-SPI2 接口做 app/window discovery、accessibility tree rendering、semantic action、editable text、value set，以及 best-effort 的 key/mouse fallback；文本能力通过 `Accessible.get_interfaces()` 检测 `Text` / `EditableText`，不依赖不同 PyGObject 版本未必存在的便捷属性。
 - Linux 上最接近 macOS AX 的是 AT-SPI2/D-Bus accessibility，而不是一套统一的后台键鼠输入模型。第一版优先使用元素暴露的 AT-SPI action、EditableText 和 Value 接口；coordinate `click` / `drag` 与 `press_key` 使用 AT-SPI event synthesis fallback，在 Wayland 下只能按 best-effort 处理。`press_key` 的具名键以 keysym 配合 `KeySynthType.SYM` 发送，修饰键以 X modifier mask 配合 `LOCKMODIFIERS` / `UNLOCKMODIFIERS` 保持；`PRESS` / `RELEASE` / `PRESSRELEASE` 只接受硬件 keycode，不能传 keysym。
