@@ -26,4 +26,5 @@
 - Swift 334 项，8 项跳过、0 失败；额外跳过项要求正常解锁的 console session，其余为 opt-in live 测试。内核 hash/token/无效 fd 反例、borrowed fd 在途释放与原连接可用性、版本提示和轮询边界通过。
 - 签名 native App 与四组件、remote ABI/重放/取消/load-check 失败反例、kernel verifier 正负例通过。
 - 本机旧组件正常卸载，修正版普通 enable 成功，权限和认证规则完整，status available=true。没有改变 SIP 或 Apple 签名。
-- 受保护 normal MCP 实测：自动解锁并捕获，AX Counter 0→1、截图变化、保持五秒、重锁与双保护释放 ACK 均通过；连接在 turn-ended 后继续可用。人工解锁观察等待超时，物理遮蔽/无桌面闪现和最终人工解锁确认仍待用户回复。未进行完整故障矩阵、Intel 实机或系统凭据保持验收。
+- 最后一轮受保护 normal MCP 实测完整通过：自动解锁并捕获，AX Counter 0→1、截图变化、保持五秒、重锁与双保护释放 ACK，随后观察到人工解锁且 Counter 仍为 1；连接在 turn-ended 后继续可用。用户确认两块物理屏幕全程遮蔽、无桌面闪现、正常解锁后可见 Counter: 1。演示窗口保留。
+- 未进行完整故障矩阵、Intel 实机或系统凭据保持验收；本轮结果不代表系统整体卡顿已经消除。已提交 [PR #99](https://github.com/iFurySt/open-codex-computer-use/pull/99)。
