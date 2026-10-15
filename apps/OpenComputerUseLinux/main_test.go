@@ -16,6 +16,67 @@ func TestToolDefinitionCount(t *testing.T) {
 	}
 }
 
+func TestExplicitTextDeliverySerializesLiteralText(t *testing.T) {
+	for _, method := range []string{"auto", "keyboard", "paste"} {
+		t.Run(method, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "request.json")
+			script := "#!/bin/sh\ncat \"$2\" > \"$OCU_TEXT_REQUEST\"\nprintf '%s\\n' '{\"ok\":true,\"snapshot\":{\"app\":{\"name\":\"Editor\",\"pid\":42},\"elements\":[{\"index\":7}]}}'\n"
+			if err := os.WriteFile(filepath.Join(dir, "python3"), []byte(script), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Setenv("OCU_TEXT_REQUEST", path)
+			s := newService()
+			s.rememberSnapshot("Editor", &appSnapshot{App: appDescriptor{Name: "Editor", PID: 42}, Elements: []elementRecord{{Index: 7}}})
+			text := "  中文🙂\n\t "
+			args := map[string]any{"app": "Editor", "text": text, "text_method": method}
+			if method == "paste" {
+				args["paste_key"] = "ctrl+shift+v"
+			}
+			if result := s.callTool("type_text", args); result.IsError {
+				t.Fatalf("type_text: %#v", result)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var request linuxRequest
+			if err := json.Unmarshal(data, &request); err != nil {
+				t.Fatal(err)
+			}
+			if request.Text != text || request.TextMethod != method {
+				t.Fatalf("payload changed: %#v", request)
+			}
+			if method == "paste" && request.PasteKey != "ctrl+shift+v" {
+				t.Fatal("paste shortcut lost")
+			}
+			if result := s.callTool("set_value", map[string]any{"app": "Editor", "element_index": "7", "value": text}); result.IsError {
+				t.Fatalf("set_value: %#v", result)
+			}
+			data, _ = os.ReadFile(path)
+			if err := json.Unmarshal(data, &request); err != nil {
+				t.Fatal(err)
+			}
+			if request.Value != text {
+				t.Fatal("set_value trimmed literal whitespace")
+			}
+		})
+	}
+}
+
+func TestInvalidTextDeliveryIsRejectedBeforeInput(t *testing.T) {
+	for _, args := range []map[string]any{
+		{"text_method": "unknown"}, {"text_method": false}, {"text_method": "keyboard", "paste_key": "ctrl+v"},
+	} {
+		args["app"] = "Editor"
+		args["text"] = "hello"
+		if result := newService().callTool("type_text", args); !result.IsError {
+			t.Fatalf("invalid input accepted: %#v", args)
+		}
+	}
+}
+
 func TestClickMethodSchemaAndParser(t *testing.T) {
 	tool := findToolDefinition(t, "click")
 	properties := tool.InputSchema["properties"].(map[string]any)

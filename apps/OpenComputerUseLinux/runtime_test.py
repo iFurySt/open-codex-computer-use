@@ -171,5 +171,74 @@ class RuntimeKeyTests(unittest.TestCase):
         self.assertEqual(self.events, [])
 
 
+class TextDeliveryTests(unittest.TestCase):
+    def setUp(self):
+        self.runtime = load_runtime()
+        self.runtime.Atspi.StateType = types.SimpleNamespace(ACTIVE="active")
+        self.runtime.Gdk.unicode_to_keyval = lambda codepoint: codepoint
+
+    def perform(self, method, text="  中文🙂\n\t ", active=True):
+        with mock.patch.object(self.runtime, "resolve_app"), \
+             mock.patch.object(self.runtime, "main_window", return_value=(0, object())), \
+             mock.patch.object(self.runtime, "extents"), \
+             mock.patch.object(self.runtime, "find_element"), \
+             mock.patch.object(self.runtime, "state_contains", return_value=active), \
+             mock.patch.object(self.runtime, "build_snapshot", return_value={}), \
+             mock.patch.object(self.runtime.time, "sleep"):
+            return self.runtime.perform_operation({"tool": "type_text", "app": "Editor", "text": text, "text_method": method})
+
+    def test_keyboard_and_paste_do_not_search_for_other_editable_controls(self):
+        for method, handler in (("keyboard", "send_text"), ("paste", "paste_text")):
+            with self.subTest(method=method), \
+                 mock.patch.object(self.runtime, "insert_text") as insert, \
+                 mock.patch.object(self.runtime, handler) as delivery:
+                self.perform(method)
+                self.assertEqual(delivery.call_args.args[0], "  中文🙂\n\t ")
+                insert.assert_not_called()
+
+    def test_default_auto_retains_legacy_fallback(self):
+        with mock.patch.object(self.runtime, "insert_text", return_value=False) as insert, \
+             mock.patch.object(self.runtime, "send_text") as keyboard:
+            self.perform("auto", "hello")
+        insert.assert_called_once()
+        keyboard.assert_called_once_with("hello")
+
+    def test_explicit_delivery_refuses_inactive_window_and_does_not_fallback(self):
+        for method in ("keyboard", "paste"):
+            with self.subTest(method=method), \
+                 mock.patch.object(self.runtime, "send_text") as keyboard, \
+                 mock.patch.object(self.runtime, "paste_text") as paste, \
+                 mock.patch.object(self.runtime, "insert_text") as insert:
+                with self.assertRaisesRegex(RuntimeError, "active"):
+                    self.perform(method, active=False)
+                keyboard.assert_not_called(); paste.assert_not_called(); insert.assert_not_called()
+
+    def test_paste_preserves_unicode_and_uses_explicit_shortcut(self):
+        clipboard = mock.Mock()
+        self.runtime.Atspi.ModifierType = FakeModifierType
+        with mock.patch.object(self.runtime, "x11_clipboard", return_value=(object(), clipboard)), \
+             mock.patch.object(self.runtime, "send_key") as key, \
+             mock.patch.object(self.runtime, "service_clipboard") as service:
+            self.runtime.paste_text("  中文🙂\n\t ", "ctrl+shift+v")
+        clipboard.set_text.assert_called_once_with("  中文🙂\n\t ", -1)
+        key.assert_called_once_with("ctrl+shift+v")
+        service.assert_called_once()
+        clipboard.store.assert_called_once()
+
+    def test_paste_failure_is_not_retried_as_keyboard_or_ax(self):
+        with mock.patch.object(self.runtime, "paste_text", side_effect=RuntimeError("clipboard unavailable")), \
+             mock.patch.object(self.runtime, "send_text") as keyboard, \
+             mock.patch.object(self.runtime, "insert_text") as insert:
+            with self.assertRaisesRegex(RuntimeError, "clipboard unavailable"):
+                self.perform("paste")
+        keyboard.assert_not_called(); insert.assert_not_called()
+
+    def test_invalid_shortcut_does_not_replace_clipboard(self):
+        with mock.patch.object(self.runtime, "x11_clipboard") as clipboard:
+            with self.assertRaisesRegex(RuntimeError, "Unsupported modifier"):
+                self.runtime.paste_text("secret", "invalid+v")
+        clipboard.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

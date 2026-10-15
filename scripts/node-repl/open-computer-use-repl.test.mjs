@@ -102,6 +102,19 @@ test("app-bound API composes actions and state in one js call", async () => {
   assert.ok(result.content.some(item => item.type === "text" && item.text === "state:Text"));
 });
 
+test("explicit Linux text options are forwarded without changing legacy calls", async () => {
+  const native = mockNative();
+  const session = new PersistentJavaScriptSession({ native });
+  const result = await session.run(`
+    var editor = await cua.getApp("Text", { initialState: false });
+    await editor.typeText("  中文🙂\\n\\t ", { textMethod: "paste", pasteKey: "ctrl+shift+v" });
+    await editor.typeText("hello");
+  `);
+  assert.equal(result.isError, false);
+  assert.deepEqual(native.calls[0].arguments, { app: "Text", text: "  中文🙂\n\t ", text_method: "paste", paste_key: "ctrl+shift+v" });
+  assert.deepEqual(native.calls[1].arguments, { app: "Text", text: "hello" });
+});
+
 test("app-bound API forwards background-operation options", async () => {
   const native = mockNative();
   const session = new PersistentJavaScriptSession({ native });

@@ -44,7 +44,7 @@ The runtime exposes an asynchronous app-bound API:
 - \`await app.click(elementIndexOrPoint, { mouseButton?, clickCount?, clickMethod? })\`
 - \`await app.scroll(elementIndex, direction, pages?)\`
 - \`await app.drag([fromX, fromY], [toX, toY])\`
-- \`await app.typeText(text, { keyMethod? })\`
+- \`await app.typeText(text, { keyMethod?, textMethod?, pasteKey? })\`: Linux opt-in textMethod is keyboard (active window) or paste (X11 clipboard, default ctrl+v; pasteKey can be ctrl+shift+v). auto preserves legacy AX-first behavior. Use setValue for an explicitly observed editable element. Paste changes the clipboard; observe the result before declaring success.
 - \`await app.pressKey(key, { keyMethod? })\`
 - \`await app.setValue(elementIndex, value)\`
 - \`await app.performSecondaryAction(elementIndex, action)\`
@@ -348,7 +348,12 @@ export function createCuaApi(native, activeOutput) {
         await call("scroll", { app, element_index: target, direction, pages });
       },
       async setValue(elementIndex, value) { await call("set_value", { app, element_index: elementIndex, value }); },
-      async typeText(text, options = {}) { await call("type_text", { app, text, ...optionsToKeyArgs(options) }); },
+      async typeText(text, options = {}) {
+        const args = { app, text, ...optionsToKeyArgs(options) };
+        if (options.textMethod !== undefined) args.text_method = options.textMethod;
+        if (options.pasteKey !== undefined) args.paste_key = options.pasteKey;
+        await call("type_text", args);
+      },
       async performSecondaryAction(elementIndex, action) { await call("perform_secondary_action", { app, element_index: elementIndex, action }); },
     });
   }

@@ -129,6 +129,8 @@
 
 ### 7. Linux Runtime
 
+- Add explicit Linux keyboard and X11 paste delivery：[explicit-text-input](linux-explicit-text-input.md)。
+
 - Linux runtime 位于 `apps/OpenComputerUseLinux`，以 Go 维护 CLI、`call --calls` sequence、MCP JSON-RPC、tool schema 和进程内 snapshot cache。
 - 构建入口是 `scripts/build-open-computer-use-linux.sh --arch arm64|amd64`，默认输出到 `dist/linux/<arch>/open-computer-use`；npm release package 会把两个 Linux artifact 内置到已有 root/alias packages，Node launcher 按 `process.platform/process.arch` 自动选择。
 - Go runtime 通过 `go:embed` 带上 `runtime.py`，执行 tool call 时临时落盘并调用 `python3`。Python bridge 使用 GNOME/GObject Introspection 暴露的 AT-SPI2 接口做 app/window discovery、accessibility tree rendering、semantic action、editable text、value set，以及 best-effort 的 key/mouse fallback；文本能力通过 `Accessible.get_interfaces()` 检测 `Text` / `EditableText`，不依赖不同 PyGObject 版本未必存在的便捷属性。

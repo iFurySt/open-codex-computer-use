@@ -708,6 +708,50 @@ def send_text(text):
     Atspi.generate_keyboard_event(0, str(text), Atspi.KeySynthType.STRING)
 
 
+def x11_clipboard():
+    gi.require_version("Gtk", "3.0")
+    from gi.repository import Gtk
+    initialized = Gtk.init_check(None)
+    if not (initialized[0] if isinstance(initialized, tuple) else initialized):
+        raise RuntimeError("paste requires a GTK X11 desktop session")
+    display = Gdk.Display.get_default() if Gdk is not None else None
+    if display is None or display.__gtype__.name != "GdkX11Display":
+        raise RuntimeError("paste is currently supported on X11 only")
+    return Gtk, Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+
+
+def service_clipboard(Gtk):
+    # One-shot bridges must remain alive to serve the target's paste request.
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline:
+        if Gtk.events_pending():
+            Gtk.main_iteration_do(False)
+        else:
+            time.sleep(0.01)
+
+
+def paste_text(text, paste_key="ctrl+v"):
+    # Validate before replacing clipboard contents. Do not silently fall back to
+    # another text target or delivery method after a paste error.
+    parts = [part for part in str(paste_key).split("+") if part]
+    if not parts:
+        raise RuntimeError("paste_key must be a keyboard shortcut")
+    for part in parts[:-1]:
+        name = MODIFIER_BITS.get(part.lower())
+        if name is None:
+            raise RuntimeError("Unsupported modifier: " + part)
+        int(getattr(Atspi.ModifierType, name))
+    keyval(KEY_ALIASES.get(parts[-1].lower(), parts[-1]))
+    Gtk, clipboard = x11_clipboard()
+    if clipboard is None:
+        raise RuntimeError("X11 clipboard is unavailable")
+    clipboard.set_text(str(text), -1)
+    clipboard.set_can_store(None)
+    send_key(paste_key)
+    service_clipboard(Gtk)
+    clipboard.store()
+
+
 def find_editable_text(root):
     def is_editable(node):
         return supports_interface(node, "EditableText") and supports_interface(
@@ -862,8 +906,21 @@ def perform_operation(operation):
         to_x, to_y = screen_point(bounds, None, operation.get("to_x"), operation.get("to_y"))
         send_drag(from_x, from_y, to_x, to_y)
     elif tool == "type_text":
-        if not insert_text(window, operation.get("text", "")):
-            send_text(operation.get("text", ""))
+        method = operation.get("text_method", "auto")
+        text = operation.get("text", "")
+        if method == "auto":
+            if not insert_text(window, text):
+                send_text(text)
+        elif method == "keyboard":
+            if not state_contains(window, Atspi.StateType.ACTIVE):
+                raise RuntimeError("keyboard text requires the requested app window to be active")
+            send_text(text)
+        elif method == "paste":
+            if not state_contains(window, Atspi.StateType.ACTIVE):
+                raise RuntimeError("paste requires the requested app window to be active")
+            paste_text(text, operation.get("paste_key") or "ctrl+v")
+        else:
+            raise RuntimeError("text_method must be auto, keyboard or paste")
     elif tool == "press_key":
         send_key(operation.get("key", ""))
     elif tool == "set_value":

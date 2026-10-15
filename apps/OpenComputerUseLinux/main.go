@@ -139,6 +139,9 @@ func (s *appSnapshot) result() toolCallResult {
 }
 
 type linuxRequest struct {
+	TextMethod string `json:"text_method,omitempty"`
+	PasteKey   string `json:"paste_key,omitempty"`
+
 	Tool         string         `json:"tool"`
 	App          string         `json:"app,omitempty"`
 	Element      *elementRecord `json:"element,omitempty"`
@@ -251,11 +254,29 @@ func (s *service) callTool(name string, args map[string]any) toolCallResult {
 			requiredFloat(args, "to_y"),
 		)
 	case "type_text":
+		for _, key := range []string{"text_method", "paste_key"} {
+			if value, exists := args[key]; exists {
+				if _, ok := value.(string); !ok {
+					return textResult(key+" must be a string", true)
+				}
+			}
+		}
 		keyMethod, err := parseKeyMethod(optionalString(args, "key_method"))
 		if err != nil {
 			return textResult(err.Error(), true)
 		}
-		return s.typeText(requiredString(args, "app"), requiredString(args, "text"), keyMethod)
+		textMethod := strings.ToLower(strings.TrimSpace(optionalString(args, "text_method")))
+		if textMethod == "" {
+			textMethod = "auto"
+		}
+		if textMethod != "auto" && textMethod != "keyboard" && textMethod != "paste" {
+			return textResult("text_method must be auto, keyboard or paste", true)
+		}
+		pasteKey := optionalString(args, "paste_key")
+		if pasteKey != "" && textMethod != "paste" {
+			return textResult("paste_key requires text_method=paste", true)
+		}
+		return s.typeTextWithMethod(requiredString(args, "app"), optionalString(args, "text"), keyMethod, textMethod, pasteKey)
 	case "press_key":
 		keyMethod, err := parseKeyMethod(optionalString(args, "key_method"))
 		if err != nil {
@@ -263,7 +284,7 @@ func (s *service) callTool(name string, args map[string]any) toolCallResult {
 		}
 		return s.pressKey(requiredString(args, "app"), requiredString(args, "key"), keyMethod)
 	case "set_value":
-		return s.setValue(requiredString(args, "app"), requiredElementIndex(args), requiredString(args, "value"))
+		return s.setValue(requiredString(args, "app"), requiredElementIndex(args), optionalString(args, "value"))
 	default:
 		return textResult(fmt.Sprintf("unsupportedTool(%q)", name), true)
 	}
@@ -417,6 +438,10 @@ func (s *service) drag(app string, fromX, fromY, toX, toY *float64) toolCallResu
 }
 
 func (s *service) typeText(app, text, keyMethod string) toolCallResult {
+	return s.typeTextWithMethod(app, text, keyMethod, "auto", "")
+}
+
+func (s *service) typeTextWithMethod(app, text, keyMethod, textMethod, pasteKey string) toolCallResult {
 	if app == "" {
 		return textResult("Missing required argument: app", true)
 	}
@@ -429,7 +454,7 @@ func (s *service) typeText(app, text, keyMethod string) toolCallResult {
 	if s.currentSnapshot(app) == nil {
 		return textResult("No app state is available for "+app+". Run get_app_state before action tools.", true)
 	}
-	return s.actionResult(app, linuxRequest{Tool: "type_text", App: app, Text: text})
+	return s.actionResult(app, linuxRequest{Tool: "type_text", App: app, Text: text, TextMethod: textMethod, PasteKey: pasteKey})
 }
 
 func (s *service) pressKey(app, key, keyMethod string) toolCallResult {
@@ -1279,6 +1304,9 @@ func toolDefinitions() []toolDefinition {
 			Description: "Type literal text using keyboard input. This tool is part of plugin `Computer Use`.",
 			Annotations: defaultAnnotations(),
 			InputSchema: objectSchema(map[string]any{
+				"text_method": enumStringProperty("Linux delivery: auto (legacy AX-first fallback), keyboard (focused control), or paste (explicit X11 clipboard paste). Defaults to auto.", []string{"auto", "keyboard", "paste"}),
+				"paste_key":   stringProperty("Shortcut for explicit paste, defaults to ctrl+v; terminals commonly use ctrl+shift+v. Changes the desktop clipboard."),
+
 				"app":        stringProperty("App name or bundle identifier"),
 				"text":       stringProperty("Literal text to type"),
 				"key_method": enumStringProperty("Keyboard delivery: auto (default) or sky_key. sky_key is the macOS SkyLight background-window path and is not supported on Linux.", keyMethodValues),
