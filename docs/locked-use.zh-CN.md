@@ -14,7 +14,7 @@ Locked Use 可以让 Agent 在 Mac 锁屏时继续操作 GUI。期间所有屏�
 ocu locked-use enable
 ```
 
-这个命令会安装所需组件，并请求主 App 和 Guardian 的权限，不需要手动修改配置。Locked Use 不会随 OCU 的普通权限引导自动开启。
+这个命令会安装所需组件，先确认授权插件能被 macOS 加载，再请求主 App 和 Guardian 的权限。加载检查失败时，不会把插件接入系统锁屏认证。不需要手动修改配置。Locked Use 不会随 OCU 的普通权限引导自动开启。
 
 ```bash
 # 查看安装和权限状态
@@ -23,6 +23,8 @@ ocu locked-use status
 # 停用并卸载，恢复原来的系统锁屏认证规则
 ocu locked-use disable
 ```
+
+更新 OCU 不会自动替换 `enable` 安装的系统组件。如果 `status` 显示已安装和 App 内置的插件版本不同，先完成未结束的恢复，再执行 `ocu locked-use disable`、`ocu locked-use enable`，重新安装。
 
 ## 需要什么权限
 
@@ -64,4 +66,4 @@ Guardian 还有一个独立的 watchdog 进程，使用同一个 App，负责主
 
 ![Locked Use 架构](assets/locked-use-architecture.png)
 
-图中的 OCU Locked Use Broker 对应 `OCULockService`，Authz Plugin 对应 `OCULockAuth.bundle`；`loginwindow`、`SecurityAgentHelper` 和 `launchd` 都是 macOS 自带组件。图中未单独画出 watchdog。
+图中的 OCU Locked Use Broker 对应 `OCULockService`，Authz Plugin 对应 `OCULockAuth.bundle`；`loginwindow` 和 `launchd` 都是 macOS 自带组件。图中的 `SecurityAgentHelper` 是旧路径标注；无 UI 授权机制现在使用系统的 `authorizationhosthelper`（privileged host）。图中未单独画出 watchdog。

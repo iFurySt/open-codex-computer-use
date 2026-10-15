@@ -69,3 +69,13 @@
 
 
 受保护 Return 验证实验不开放通用 keyboard exemption。与 click 不同的随机 tag 只经继承管道交给独立 watchdog；两套 gate 对原锁定 session、来源、目标、固定 keyCode 36、无 modifiers / autorepeat、5 秒有效期及 250ms down/up 进行独立一次性检查。真实硬件输入监控继续生效，停止 / 接管同时撤销 mouse 与 Return gate。只有管理员 validation profile 创建 Return 能力，生产等待完整实测。
+
+### Authorization host loading
+
+The non-UI remote mechanism uses Apple's documented `,privileged` host. Broker only accepts root peers signed by Apple with the two fixed authorizationhosthelper identifiers; audit-session matching and single-use guard-bound permits remain required. Installation first runs a separate load-check right in the same host. Success requires the plug-in's extractable fixed context marker, not merely errAuthorizationDenied, before modifying system.login.screensaver. Legacy nonprivileged rules are accepted only for conservative uninstall/recovery.
+
+A third-party plug-in cannot solve a platform host's Library Validation failure by re-signing the Apple host or adding private entitlements. A valid bundle signature alone is not proof of successful host loading. Reference: [Apple authorization plug-ins](https://developer.apple.com/documentation/security/extending-authorization-services-with-plug-ins).
+
+After full peer admission, macOS 14.4+ revalidation pins the kernel audit token, signing identifier, exact CodeDirectoryHash and live valid/signed flags. Static entitlements and the original administrator requirement remain bound to that exact admitted code; neither a supplied identifier nor a disk-path replacement can authorize a different task. A modern kernel failure does not fall back. Older systems keep full SecCode verification. Forwarded client admission uses the bounded signature worker pool, retains fd ownership until completion, and cannot grant actions while pending.
+
+The load-check grants only its isolated right, with `shared=false` and a fresh AuthorizationRef that is destroyed afterwards. authd does not export context on a denied result. It reads/writes no credentials and never evaluates system.login.screensaver; successful marker export is required before installation changes that policy.

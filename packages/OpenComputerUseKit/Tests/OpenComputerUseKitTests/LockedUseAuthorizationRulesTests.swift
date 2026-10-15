@@ -10,6 +10,22 @@ final class LockedUseAuthorizationRulesTests: XCTestCase {
         try XCTUnwrap(PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any])
     }
 
+    func testOnlyPrivilegedNonUIRuleIsAcceptedForRuntimeButLegacyCanBeRemoved() {
+        let current: [String: Any] = ["class": "evaluate-mechanisms", "shared": false,
+                                      "mechanisms": [LockedUseAuthorizationRules.remoteMechanism]]
+        XCTAssertTrue(LockedUseAuthorizationRules.isOwnedRemoteRule(current))
+        var old = current
+        old["mechanisms"] = ["OCULockAuth:remote"]
+        XCTAssertFalse(LockedUseAuthorizationRules.isOwnedRemoteRule(old))
+        XCTAssertTrue(LockedUseAuthorizationRules.isOwnedRemoteRule(old, allowLegacy: true))
+        old["mechanisms"] = ["OCULockAuth:load-check,privileged"]
+        XCTAssertFalse(LockedUseAuthorizationRules.isOwnedRemoteRule(old, allowLegacy: true))
+        old["mechanisms"] = [LockedUseAuthorizationRules.remoteMechanism, "other:allow"]
+        XCTAssertFalse(LockedUseAuthorizationRules.isOwnedRemoteRule(old, allowLegacy: true))
+        old = current; old["shared"] = true
+        XCTAssertFalse(LockedUseAuthorizationRules.isOwnedRemoteRule(old, allowLegacy: true))
+    }
+
     func testDefaultFallbackAndUnrelatedFieldsSurviveRoundTrip() throws {
         let before = try data(["class": "rule", "rule": ["use-login-window-ui"], "version": 1,
             "comment": "existing comment", "shared": false, "created": 10.5, "modified": 20.5])

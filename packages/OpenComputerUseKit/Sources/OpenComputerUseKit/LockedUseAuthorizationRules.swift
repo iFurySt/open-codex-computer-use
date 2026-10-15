@@ -6,6 +6,16 @@ import Security
 /// or system writes occur here. The installer must retain the original plan in
 /// root-owned storage and re-read immediately before and after each mutation.
 public enum LockedUseAuthorizationRules {
+    // Non-UI mechanism uses Apple's documented privileged authorization host.
+    public static let remoteMechanism = "OCULockAuth:remote,privileged"
+    public static let loadCheckRight = "dev.opencomputeruse.locked-use.load-check"
+    public static let loadCheckMechanism = "OCULockAuth:load-check,privileged"
+    public static func isOwnedRemoteRule(_ rule: [String: Any], allowLegacy: Bool = false) -> Bool {
+        guard rule["class"] as? String == "evaluate-mechanisms",
+              (rule["shared"] as? NSNumber)?.boolValue == false,
+              let mechanisms = rule["mechanisms"] as? [String] else { return false }
+        return mechanisms == [remoteMechanism] || (allowLegacy && mechanisms == ["OCULockAuth:remote"])
+    }
     public static let remoteRight = "dev.opencomputeruse.locked-use.remote"
     public enum Failure: Error { case malformed, unsupported, alreadyPresent, changedSincePlanning }
 
@@ -62,9 +72,7 @@ public enum LockedUseAuthorizationRules {
         var remote: CFDictionary?
         guard AuthorizationRightGet(remoteRight, &remote) == errAuthorizationSuccess,
               let rule = remote as? [String: Any] else { return false }
-        return rule["class"] as? String == "evaluate-mechanisms"
-            && rule["mechanisms"] as? [String] == ["OCULockAuth:remote"]
-            && (rule["shared"] as? NSNumber)?.boolValue == false
+        return isOwnedRemoteRule(rule)
     }
 
     private static func validate(_ plan: Plan) throws {

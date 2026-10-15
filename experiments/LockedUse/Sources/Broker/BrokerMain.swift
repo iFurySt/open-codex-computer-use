@@ -46,7 +46,9 @@ private final class BrokerServer: @unchecked Sendable {
     private let peerAuthenticator = LockedUsePeerAuthenticator()
     private var pendingAdmissions: [UUID: Int32] = [:]
     private var cancelledAdmissions: Set<UUID> = []
+    private var forwardedAdmissions: Set<UUID> = []
     private var timer: DispatchSourceTimer?
+    private var timerInterval: TimeInterval?
     private var lastPolicyCheck: TimeInterval = 0
     private var policyInvalidated = false
     private let policyMonitor = LockedUsePolicyMonitor {
@@ -111,12 +113,13 @@ private final class BrokerServer: @unchecked Sendable {
             } catch { Darwin.close(fd); throw error }
         }
         let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now(), repeating: .milliseconds(100), leeway: .milliseconds(10))
+        // Cadence is selected after the source is assigned below.
         timer.setEventHandler { [weak self] in
             guard let self else { return }
             do {
                 let previousPhase = self.coordinator.phase
                 defer {
+                    self.updateTimerCadence()
                     if previousPhase != self.coordinator.phase {
                         self.logger.notice("phase=\(self.coordinator.phase.rawValue, privacy: .public) stopReason=\(self.coordinator.stopReason?.rawValue ?? "none", privacy: .public)")
                         self.logProtectionLoss()
@@ -132,7 +135,7 @@ private final class BrokerServer: @unchecked Sendable {
                     self.close(connection)
                 }
                 if let owner = self.coordinator.owner,
-                   let connection = self.connections[owner.connectionID], !connection.clientInvalidated {
+                   let connection = self.connections[owner.connectionID], !connection.clientInvalidated, connection.clientDescriptor >= 0, !connection.clientAdmissionPending {
                     do { try self.verifyOriginalClient(connection) }
                     catch {
                         connection.clientInvalidated = true
@@ -152,7 +155,17 @@ private final class BrokerServer: @unchecked Sendable {
             catch { self.stopAll() }
         }
         self.timer = timer
+        updateTimerCadence()
         timer.resume()
+    }
+
+    private func updateTimerCadence() {
+        let interval = LockedUseBrokerPolling.interval(phase: coordinator.phase, fullyReleased: coordinator.isFullyReleased)
+        guard interval != timerInterval, let timer else { return }
+        timerInterval = interval
+        // An incoming begin must restore watchdog cadence immediately, rather
+        // than waiting for the next idle tick.
+        timer.schedule(deadline: .now(), repeating: .milliseconds(Int(interval * 1000)), leeway: .milliseconds(10))
     }
 
     private func accept(fd: Int32, endpoint: LockedUseIPCEndpoint) {
@@ -228,11 +241,11 @@ private final class BrokerServer: @unchecked Sendable {
             guard peer.userID == 0, peer.hardenedRuntime, !peer.permitsCodeInjection else { throw BrokerError.message("untrusted installer") }
             return peer
         case .plugin:
-            // SecurityAgent is Apple signed, not signed by the application's
+            // The privileged authorization host is Apple signed, not signed by our
             // Developer ID team. Never substitute a user-provided requirement.
-            let requirement = "anchor apple and (identifier \"com.apple.SecurityAgentHelper.arm64\" or identifier \"com.apple.SecurityAgentHelper.x86_64\")"
+            let requirement = "anchor apple and (identifier \"com.apple.authorizationhosthelper.arm64\" or identifier \"com.apple.authorizationhosthelper.x86_64\")"
             let peer = try LockedUsePeerIdentity.verified(socket: fd, requirement: requirement)
-            guard peer.auditSessionID > 0, !peer.permitsCodeInjection else { throw BrokerError.message("untrusted authorization helper") }
+            guard peer.userID == 0, peer.auditSessionID > 0, !peer.permitsCodeInjection else { throw BrokerError.message("untrusted authorization helper") }
             return peer
         }
     }
@@ -247,11 +260,41 @@ private final class BrokerServer: @unchecked Sendable {
                 guard ocu_copy_peer_identity(fd, &native) == 0, native.effective_user_id == connection.identity.userID,
                       native.audit_session_id == connection.identity.auditSessionID else { throw BrokerError.message("client session mismatch") }
                 let token = withUnsafeBytes(of: native.audit_token) { Data($0) }
-                let client = try? approvals.verifiedPeer(socket: fd, role: .client)
-                guard client != nil || coordinator.recordedOwner?.auditToken == connection.identity.auditToken && ownerClientToken == token else {
-                    throw BrokerError.message("client not approved for this epoch")
+                let borrowed = LockedUseBorrowedSocket(descriptor: fd)
+                connection.clientSocket = borrowed
+                connection.clientAdmissionPending = true
+                connection.readSource?.suspend()
+                let admission = UUID()
+                let deadline = ProcessInfo.processInfo.systemUptime + 8
+                pendingAdmissions[admission] = fd
+                forwardedAdmissions.insert(admission)
+                queue.asyncAfter(deadline: .now() + 8) { [self, connection] in
+                    guard pendingAdmissions[admission] == fd else { return }
+                    cancelledAdmissions.insert(admission)
+                    close(connection) // Retain borrowed fd until the worker returns.
                 }
-                connection.clientDescriptor = fd; connection.clientIdentity = client; connection.clientAuditToken = token
+                peerAuthenticator.verify({ [self] in
+                    try borrowed.withDescriptor { try? approvals.verifiedPeer(socket: $0, role: .client) }
+                }) { [self, connection] result in
+                    queue.async { [self, connection] in
+                        pendingAdmissions.removeValue(forKey: admission)
+                        forwardedAdmissions.remove(admission)
+                        let cancelled = cancelledAdmissions.remove(admission) != nil
+                        connection.clientAdmissionPending = false
+                        if connection.closed {
+                            connection.clientSocket = nil
+                            return
+                        }
+                        connection.readSource?.resume()
+                        guard !cancelled, ProcessInfo.processInfo.systemUptime < deadline,
+                              case let .success(client) = result,
+                              client != nil || coordinator.recordedOwner?.auditToken == connection.identity.auditToken && ownerClientToken == token else {
+                            close(connection); return
+                        }
+                        connection.clientIdentity = client
+                        connection.clientAuditToken = token
+                    }
+                }
             } catch { Darwin.close(fd); close(connection) }
             return
         }
@@ -261,7 +304,7 @@ private final class BrokerServer: @unchecked Sendable {
         guard count > 0 else { close(connection); return }
         do {
             if connection.endpoint == .observer { logger.notice("observerStage=readStarted") }
-            let current = try authenticate(fd: connection.fd, endpoint: connection.endpoint)
+            let current = try connection.identity.revalidated(socket: connection.fd)
             if connection.endpoint == .observer { logger.notice("observerStage=verified") }
             guard current.auditToken == connection.identity.auditToken,
                   current.codeDirectoryHash == connection.identity.codeDirectoryHash else { throw BrokerError.message("peer changed") }
@@ -290,6 +333,7 @@ private final class BrokerServer: @unchecked Sendable {
                     reply = .init(id: request.id, result: .denied, phase: coordinator.phase,
                         detail: "Request denied by Broker policy")
                 }
+                updateTimerCadence()
                 if previousPhase != coordinator.phase {
                     logger.notice("phase=\(self.coordinator.phase.rawValue, privacy: .public) stopReason=\(self.coordinator.stopReason?.rawValue ?? "none", privacy: .public)")
                     logProtectionLoss()
@@ -400,7 +444,7 @@ private final class BrokerServer: @unchecked Sendable {
         guard peeked > 0 || (peeked < 0 && [EAGAIN, EWOULDBLOCK, EINTR].contains(errno)) else {
             throw BrokerError.message("client disconnected")
         }
-        let client = try approvals.verifiedPeer(socket: connection.clientDescriptor, role: .client)
+        let client = try previous.revalidated(socket: connection.clientDescriptor)
         guard client.auditToken == previous.auditToken,
               client.codeDirectoryHash == previous.codeDirectoryHash else { throw BrokerError.message("client changed") }
     }
@@ -434,7 +478,9 @@ private final class BrokerServer: @unchecked Sendable {
     private func close(_ connection: BrokerConnection) {
         guard !connection.closed else { return }
         connection.closed = true
-        if connection.clientDescriptor >= 0 { Darwin.close(connection.clientDescriptor); connection.clientDescriptor = -1 }
+        if connection.clientAdmissionPending { connection.readSource?.resume() }
+        connection.clientSocket?.close()
+        connection.clientSocket = nil
         try? coordinator.disconnected(connection.context)
         try? persistRecovery()
         connection.readSource?.cancel(); connection.writeSource?.cancel()
@@ -445,7 +491,7 @@ private final class BrokerServer: @unchecked Sendable {
         for connection in Array(connections.values) { close(connection) }
         for (admission, fd) in pendingAdmissions {
             cancelledAdmissions.insert(admission)
-            shutdown(fd, SHUT_RDWR)
+            if !forwardedAdmissions.contains(admission) { shutdown(fd, SHUT_RDWR) }
         }
     }
 
@@ -511,7 +557,9 @@ private final class BrokerConnection: @unchecked Sendable {
     let created = ProcessInfo.processInfo.systemUptime
     var clientAuditToken: Data?
     var clientInvalidated = false
-    var clientDescriptor: Int32 = -1
+    var clientAdmissionPending = false
+    var clientSocket: LockedUseBorrowedSocket?
+    var clientDescriptor: Int32 { clientSocket?.descriptor ?? -1 }
     var clientIdentity: LockedUsePeerIdentity?
     init(fd: Int32, endpoint: LockedUseIPCEndpoint, identity: LockedUsePeerIdentity,
          context: LockedUseBrokerCoordinator.Context) {

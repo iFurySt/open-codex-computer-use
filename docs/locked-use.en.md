@@ -14,7 +14,7 @@ Unlock your Mac normally, then run this command and complete the administrator p
 ocu locked-use enable
 ```
 
-This installs the components and requests permissions for the main app and Guardian. No manual configuration is needed. OCU's regular permission setup does not enable Locked Use automatically.
+This installs the components, checks that macOS can load the authorization plug-in, and requests permissions for the main app and Guardian. If the load check fails, the plug-in is not attached to system lock-screen authentication. No manual configuration is needed. OCU's regular permission setup does not enable Locked Use automatically.
 
 ```bash
 # Check installation and permissions
@@ -23,6 +23,8 @@ ocu locked-use status
 # Disable and uninstall, restoring the original system lock-screen policy
 ocu locked-use disable
 ```
+
+Updating OCU does not replace the system components installed by `enable`. If `status` reports different installed and bundled plug-in versions, finish any recovery, run `ocu locked-use disable`, then `ocu locked-use enable` from the updated signed app.
 
 ## Required permissions
 
@@ -64,4 +66,4 @@ Guardian also has a separate watchdog process that uses the same app. It provide
 
 ![Locked Use architecture](assets/locked-use-architecture.png)
 
-In the diagram, OCU Locked Use Broker is `OCULockService`, and Authz Plugin is `OCULockAuth.bundle`. `loginwindow`, `SecurityAgentHelper`, and `launchd` are macOS components. The watchdog is not shown separately.
+In the diagram, OCU Locked Use Broker is `OCULockService`, and Authz Plugin is `OCULockAuth.bundle`. `loginwindow` and `launchd` are macOS components. The diagram’s `SecurityAgentHelper` label shows the previous path; the non-UI mechanism now uses the system `authorizationhosthelper` (privileged host). The watchdog is not shown separately.

@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-10-15 | Locked Use 安装与性能修复 | 减少认证和 IPC 开销，旧系统组件也能正常移除并重装。 | 非 UI 插件使用 privileged host，安装前验证真实加载；修复系统缓存卸载与转交 socket 的生命周期，降低空闲唤醒，status 提示组件版本差异。 |
 | 2026-10-14 | 1.1.0 正式发布 | 用户可直接安装 Locked Use，在锁屏遮罩期间继续 GUI 操作，也可用定向查询和持久截图配置减少工具开销。 | 统一版本为 1.1.0；签名 universal macOS App 内嵌服务、Guardian、安装器和授权插件，普通 enable 请求权限，补齐冷启动握手隔离和发布制品检查；新增 app.query()、doctor --json 与 ocu config。 |
 | 2026-10-10 | macOS Locked Use 验证版 | 可在已登录 Mac 锁屏时，通过全屏遮罩继续 GUI 自动化，并在结束或本地接管后安全重锁。 | 正式组件采用 OCU Guardian / OCULockService / OCULockInstaller / OCULockAuth 短名称，开发 App 保留 Dev 区分；新增签名 Broker / 授权插件、双进程显示器保护、一次性许可、租约排空 / 恢复及构建和实机验证脚本；管理员显式启用 validation profile，生产 backend 在完整验证前保持关闭。 |
 | 2026-10-10 | macOS 定向 AX 查询 | 知道控件文案时，可以直接查询并操作，不必先获取截图和完整 AX tree。 | 新增 native `query` 和 JS `app.query()`，按文字、角色和窗口查找元素，返回完整性元数据；查询索引仅在同一会话内有效，操作前重新验证目标和位置。 |

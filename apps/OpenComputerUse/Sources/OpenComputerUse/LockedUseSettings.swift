@@ -117,6 +117,32 @@ enum LockedUseSettings {
     }
     private static func installedAction(_ action: String) throws {
         let team = try LockedUseSigningIdentity.current().teamIdentifier!
+        let bundled = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/LockedUse/OCULockInstaller")
+        if action == "uninstall", FileManager.default.fileExists(atPath: bundled.path) {
+            // Upgrade/removal must run the current fix, not an older installed
+            // installer that may fail while deleting the OS-managed cache.
+            let parent = "/Library/Application Support/OpenComputerUseLockedUseStaging"
+            let stage = parent + "/" + UUID().uuidString
+            let requirement = "=identifier \"dev.opencomputeruse.locked-use.installer\" and anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
+            let commands = "set -eu\numask 077\n" +
+                "/bin/test ! -L " + quote(parent) + "\n" +
+                "/bin/mkdir -p " + quote(parent) + "\n" +
+                "/usr/sbin/chown root:wheel " + quote(parent) + "\n" +
+                "/bin/chmod -N " + quote(parent) + "\n" +
+                "/bin/chmod 700 " + quote(parent) + "\n" +
+                "/bin/mkdir " + quote(stage) + "\n" +
+                "trap " + quote("/bin/rm -rf " + quote(stage)) + " EXIT\n" +
+                "/usr/bin/ditto " + quote(bundled.path) + " " + quote(stage + "/OCULockInstaller") + "\n" +
+                "/bin/test ! -L " + quote(stage + "/OCULockInstaller") + "\n" +
+                "/bin/test -f " + quote(stage + "/OCULockInstaller") + "\n" +
+                "/usr/sbin/chown root:wheel " + quote(stage + "/OCULockInstaller") + "\n" +
+                "/bin/chmod -N " + quote(stage + "/OCULockInstaller") + "\n" +
+                "/bin/chmod 700 " + quote(stage + "/OCULockInstaller") + "\n" +
+                "/usr/bin/codesign --verify --strict -R " + quote(requirement) + " " + quote(stage + "/OCULockInstaller") + "\n" +
+                quote(stage + "/OCULockInstaller") + " uninstall"
+            try elevate(commands)
+            return
+        }
         let base = "/Library/Application Support/OpenComputerUse/LockedUse/"
         let current = base + "OCULockInstaller"
         let legacy = base + "OpenComputerUseLockedUseInstaller"

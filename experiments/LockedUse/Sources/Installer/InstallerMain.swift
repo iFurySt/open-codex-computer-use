@@ -12,7 +12,7 @@ private let daemon = URL(fileURLWithPath: "/Library/LaunchDaemons/dev.opencomput
 private let plugin = URL(fileURLWithPath: "/Library/Security/SecurityAgentPlugins/" + pluginName)
 private let screensaver = "system.login.screensaver"
 
-private enum InstallError: Error { case invalidArguments, untrusted, existingInstallation, authentication(OSStatus), changedPolicy, process(Int32) }
+private enum InstallError: Error { case stalePluginCache, pluginLoadFailed(OSStatus), invalidArguments, untrusted, existingInstallation, authentication(OSStatus), changedPolicy, process(Int32) }
 
 @main
 struct InstallerMain {
@@ -138,9 +138,60 @@ struct InstallerMain {
     }
     private static func remoteDefinition() throws -> Data {
         try PropertyListSerialization.data(fromPropertyList: ["class": "evaluate-mechanisms",
-            "mechanisms": ["OCULockAuth:remote"], "shared": false,
+            "mechanisms": [LockedUseAuthorizationRules.remoteMechanism], "shared": false,
             "timeout": 0, "tries": 1, "comment": "Open Computer Use single-use protected-session authorization"], format: .xml, options: 0)
     }
+    private static func waitForStagedPlugin(team: String) throws {
+        let staged = plugin.deletingLastPathComponent().appendingPathComponent("StagedPlugins/" + pluginName)
+        guard let expected = try verify(plugin, id: "dev.opencomputeruse.locked-use.authorization", team: team)[kSecCodeInfoUnique as String] as? Data else { throw InstallError.untrusted }
+        let deadline = ProcessInfo.processInfo.systemUptime + 15
+        // Only wait when an old OS-managed copy actually exists. authd may
+        // remove or refresh it after source replacement; never mutate its cache.
+        while FileManager.default.fileExists(atPath: staged.path) {
+            if let info = try? verify(staged, id: "dev.opencomputeruse.locked-use.authorization", team: team),
+               info[kSecCodeInfoUnique as String] as? Data == expected { return }
+            guard ProcessInfo.processInfo.systemUptime < deadline else { throw InstallError.stalePluginCache }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+    }
+
+    private static func verifyPluginLoads(authorization: AuthorizationRef) throws {
+        let right = LockedUseAuthorizationRules.loadCheckRight
+        var existing: CFDictionary?
+        guard AuthorizationRightGet(right, &existing) == errAuthorizationDenied else { throw InstallError.existingInstallation }
+        let definition = try PropertyListSerialization.data(fromPropertyList: [
+            "class": "evaluate-mechanisms", "mechanisms": [LockedUseAuthorizationRules.loadCheckMechanism],
+            "shared": false, "tries": 1, "timeout": 0
+        ], format: .xml, options: 0)
+        try setRight(right, data: definition, authorization: authorization)
+        var removed = false
+        defer { if !removed { _ = AuthorizationRightRemove(authorization, right) } }
+        var probe: AuthorizationRef?
+        let created = AuthorizationCreate(nil, nil, [], &probe)
+        guard created == errSecSuccess, let probe else { throw InstallError.authentication(created) }
+        defer { AuthorizationFree(probe, [.destroyRights]) }
+        let result = right.withCString { name in
+            var item = AuthorizationItem(name: name, valueLength: 0, value: nil, flags: 0)
+            return withUnsafeMutablePointer(to: &item) { pointer in
+                var rights = AuthorizationRights(count: 1, items: pointer)
+                return AuthorizationCopyRights(probe, &rights, nil, [.extendRights], nil)
+            }
+        }
+        var info: UnsafeMutablePointer<AuthorizationItemSet>?
+        let copied = right.withCString { AuthorizationCopyInfo(probe, $0, &info) }
+        defer { if let info { AuthorizationFreeItemSet(info) } }
+        let expected = Data("OCULockAuth-loaded-v1\0".utf8)
+        let removal = AuthorizationRightRemove(authorization, right)
+        guard removal == errSecSuccess else { throw InstallError.authentication(removal) }
+        removed = true
+        guard result == errSecSuccess, copied == errSecSuccess, let info,
+              info.pointee.count == 1, let item = info.pointee.items, let value = item.pointee.value,
+              item.pointee.valueLength == expected.count,
+              Data(bytes: value, count: expected.count) == expected else {
+            throw InstallError.pluginLoadFailed(result)
+        }
+    }
+
     private static func install(source: URL, uid: UInt32, team: String, validation: Bool) throws {
         try trustedTree(source)
         let broker = source.appendingPathComponent("OCULockService")
@@ -181,6 +232,9 @@ struct InstallerMain {
         // Preserve a recoverable plan before writes; never blindly repair a
         // concurrently modified authentication policy in a failure handler.
         do {
+            // Never attach an unloadable plug-in to every manual unlock.
+            try waitForStagedPlugin(team: team)
+            try verifyPluginLoads(authorization: reference)
             try setRight(LockedUseAuthorizationRules.remoteRight, data: remoteDefinition(), authorization: reference)
             guard try LockedUseAuthorizationRules.installationStillApplicable(current: readRight(screensaver), plan: plan) else { throw InstallError.changedPolicy }
             try setRight(screensaver, data: plan.installed, authorization: reference)
@@ -340,16 +394,25 @@ struct InstallerMain {
         var existing: CFDictionary?
         let found = AuthorizationRightGet(LockedUseAuthorizationRules.remoteRight, &existing)
         if found == errSecSuccess {
-            guard let right = existing as? [String: Any], right["class"] as? String == "evaluate-mechanisms",
-                  right["mechanisms"] as? [String] == ["OCULockAuth:remote"] else { throw InstallError.changedPolicy }
+            guard let right = existing as? [String: Any],
+                  LockedUseAuthorizationRules.isOwnedRemoteRule(right, allowLegacy: true) else { throw InstallError.changedPolicy }
             let result = AuthorizationRightRemove(authorization, LockedUseAuthorizationRules.remoteRight)
             guard result == errSecSuccess else { throw InstallError.authentication(result) }
         } else if found != errAuthorizationDenied { throw InstallError.authentication(found) }
-        for candidate in [plugin, plugin.deletingLastPathComponent().appendingPathComponent("StagedPlugins/" + pluginName)] {
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                _ = try verify(candidate, id: "dev.opencomputeruse.locked-use.authorization", team: team)
-                try FileManager.default.removeItem(at: candidate)
-            }
+        var check: CFDictionary?
+        let checkFound = AuthorizationRightGet(LockedUseAuthorizationRules.loadCheckRight, &check)
+        if checkFound == errSecSuccess {
+            guard let rule = check as? [String: Any], rule["class"] as? String == "evaluate-mechanisms",
+                  rule["mechanisms"] as? [String] == [LockedUseAuthorizationRules.loadCheckMechanism],
+                  (rule["shared"] as? NSNumber)?.boolValue == false else { throw InstallError.changedPolicy }
+            let result = AuthorizationRightRemove(authorization, LockedUseAuthorizationRules.loadCheckRight)
+            guard result == errSecSuccess else { throw InstallError.authentication(result) }
+        } else if checkFound != errAuthorizationDenied { throw InstallError.authentication(checkFound) }
+        // StagedPlugins is OS-managed and protected even from administrator
+        // removal. authd watches the source and removes its own staged copy.
+        if FileManager.default.fileExists(atPath: plugin.path) {
+            _ = try verify(plugin, id: "dev.opencomputeruse.locked-use.authorization", team: team)
+            try FileManager.default.removeItem(at: plugin)
         }
         if FileManager.default.fileExists(atPath: daemon.path) { try FileManager.default.removeItem(at: daemon) }
         try trustedTreeShallow(root)

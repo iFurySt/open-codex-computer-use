@@ -2,6 +2,7 @@ import Darwin
 import Foundation
 import LockedUseNative
 import Security
+import LightweightCodeRequirements
 
 /// Identity extracted from the connected socket, validated against a designated
 /// signing requirement. Same UID, a PID, or a claimed bundle ID is insufficient.
@@ -19,6 +20,37 @@ public struct LockedUsePeerIdentity: Sendable {
     public let permitsCodeInjection: Bool
 
     public enum Failure: Error { case peerUnavailable(Int32), signingUnavailable(OSStatus), invalidSignature(OSStatus), malformedIdentity }
+
+    /// Revalidate an already admitted peer against its exact kernel code hash.
+    /// The first admission still evaluates the full administrator requirement.
+    /// Modern rechecks avoid network/disk assessment on the heartbeat queue.
+    public func revalidated(socket descriptor: Int32) throws -> LockedUsePeerIdentity {
+        var native = OCUPeerIdentity()
+        guard ocu_copy_peer_identity(descriptor, &native) == 0 else { throw Failure.peerUnavailable(errno) }
+        let token = withUnsafeBytes(of: native.audit_token) { Data($0) }
+        guard token == auditToken else { throw Failure.malformedIdentity }
+        if #available(macOS 14.4, *) {
+            var audit = audit_token_t()
+            _ = withUnsafeMutableBytes(of: &audit) { token.copyBytes(to: $0) }
+            guard let task = SecTaskCreateWithAuditToken(nil, audit) else { throw Failure.malformedIdentity }
+            let requirement = try ProcessCodeRequirement.allOf {
+                CodeDirectoryHash(codeDirectoryHash)
+                SigningIdentifier(signingIdentifier)
+                ProcessCodeSigningFlags.isSuperset(of: [.isDynamicallyValid, .isSigned])
+            }
+            guard try SecTaskValidateForRequirement(task: task, requirement: requirement) else {
+                throw Failure.invalidSignature(errSecCSReqFailed)
+            }
+            return self
+        }
+        // Legacy systems keep the original full verification; modern failures
+        // never fall back to disk-only or identifier-only checks.
+        let current = try Self.verified(socket: descriptor, requirement: designatedRequirement)
+        guard current.auditToken == auditToken, current.codeDirectoryHash == codeDirectoryHash else {
+            throw Failure.malformedIdentity
+        }
+        return current
+    }
 
     /// The requirement must come from administrator-owned installation config
     /// or an explicit client approval. Never accept it in the peer's payload.

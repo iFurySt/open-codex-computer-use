@@ -80,6 +80,8 @@ public struct LockedUseDiagnostics: Codable, Sendable {
     public let accessibility: Bool
     public let screenRecording: Bool
     public let inputMonitoring: Bool
+    public let installedPluginVersion: String?
+    public let bundledPluginVersion: String?
     public let pluginInstalled: Bool
     public let brokerInstalled: Bool
     public let guardianAccessibility: Bool?
@@ -118,6 +120,8 @@ public struct LockedUseDiagnostics: Codable, Sendable {
             clientApproved: approved, authenticationPolicyIntact: policyIntact,
             session: .current(), accessibility: AXIsProcessTrusted(),
             screenRecording: CGPreflightScreenCaptureAccess(), inputMonitoring: CGPreflightListenEventAccess(),
+            installedPluginVersion: Bundle(url: URL(fileURLWithPath: pluginsPath + "/" + ownPlugin))?.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+            bundledPluginVersion: Bundle(url: Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/LockedUse/OCULockAuth.bundle"))?.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
             pluginInstalled: entries.contains(ownPlugin),
             brokerInstalled: FileManager.default.fileExists(atPath: "/Library/Application Support/OpenComputerUse/LockedUse/OCULockService"),
             guardianAccessibility: guardianPermissions["accessibility"],
@@ -154,11 +158,18 @@ public struct LockedUseDiagnostics: Codable, Sendable {
         } catch { return [:] }
     }
 
+    public static func versionAdvice(installed: String?, bundled: String?) -> String? {
+        guard let installed, let bundled, !installed.isEmpty, !bundled.isEmpty, installed != bundled else { return nil }
+        return "Installed Locked Use components differ from this OCU app. Updating OCU does not update system components. Run ocu locked-use disable, then ocu locked-use enable to reinstall; incomplete tasks must finish recovery first."
+    }
+
     public var summary: String {
         "Locked Use: stage=\(stage), enabled=\(enabled), available=\(available), session=\(session.state.rawValue)\n"
             + "Client approved: \(clientApproved), authentication policy intact: \(authenticationPolicyIntact)\n"
             + "Open Computer Use: Accessibility=\(accessibility), Screen Recording=\(screenRecording)\n"
             + "Guardian: Accessibility=\(guardianAccessibility.map(String.init) ?? "unknown"), Input Monitoring=\(guardianInputMonitoring.map(String.init) ?? "unknown")\n"
+            + "Authorization plugin: installed=\(installedPluginVersion ?? "unknown"), bundled=\(bundledPluginVersion ?? "unknown")\n"
+            + (Self.versionAdvice(installed: installedPluginVersion, bundled: bundledPluginVersion).map { $0 + "\n" } ?? "")
             + "Other authorization plugins: \(otherAuthorizationPlugins.isEmpty ? "none detected" : otherAuthorizationPlugins.joined(separator: ", "))\n"
             + blockers.joined(separator: "\n")
     }

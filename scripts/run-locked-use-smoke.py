@@ -45,6 +45,7 @@ def main():
     fixture = None
     locked = False
     completed = False
+    protection_released = False
     started = time.time()
     events = []
     trace = runner.LiveAuthenticationTrace(started)
@@ -92,6 +93,7 @@ def main():
         rpc.notify("notifications/turn-ended")
         runner.wait_for(args.guardian, "locked", timeout=5)
         runner.wait_for_release(rpc)
+        protection_released = True
         record("relockedAndBothGuardsReleased")
         print("Unlock normally. The Counter: 1 window will remain open.", flush=True)
         runner.wait_for(args.guardian, "unlocked", timeout=120)
@@ -101,7 +103,7 @@ def main():
         completed = True
         record("manualUnlockAndCounterPassed", counter=final)
     finally:
-        if locked and not completed:
+        if locked and not completed and not protection_released:
             try:
                 rpc.notify("notifications/turn-ended")
                 runner.wait_for_release(rpc)
@@ -109,7 +111,9 @@ def main():
             except Exception:
                 record("failureRecoveryPending")
         rpc.close()
-        if fixture and (not completed or not args.confirm_lock_test):
+        # A manual-unlock observation timeout must not discard the already
+        # verified counter. This retains only the demo, never a lease/guard.
+        if fixture and (not protection_released or not args.confirm_lock_test):
             fixture.terminate()
         live_events, trace_status = trace.finish()
         path = runner.write_report(pathlib.Path(__file__).resolve().parent.parent, started, events,

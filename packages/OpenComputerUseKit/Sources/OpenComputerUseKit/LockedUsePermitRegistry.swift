@@ -46,7 +46,7 @@ public struct LockedUsePermitRegistry: Sendable {
         return permit
     }
 
-    /// Authentication of the plugin's Apple SecurityAgent identity must precede
+    /// Authentication of the plugin's Apple authorization-host identity must precede
     /// this operation. A consumed/expired/revoked attempt is never reusable.
     public mutating func consume(attemptID: UUID, session: Session, nonce: Data,
                                  guardsHealthy: Bool, now: TimeInterval) throws -> Permit {

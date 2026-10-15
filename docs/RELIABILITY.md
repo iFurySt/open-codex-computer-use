@@ -70,3 +70,9 @@ CI/CD 流程结构和 release 自动化的默认方案，统一写在 `docs/CICD
 
 - `python3 scripts/run-locked-use-smoke.py --app <signed-app> --guardian <guardian-binary> --fixture <demo-app> --confirm-lock-test` 通过正常 MCP 读取 / 点击 / 截图验证普通 enable 的闭环，不使用测试解锁 RPC 或 Keychain。成功后保留 Counter 窗口，失败先结束租约并等待双方保护释放。
 - 首次原生连接握手的响应预算为 8 秒，冷签名校验由独立的有界工作队列完成；动作、保护和插件 RPC 仍为 2 秒。策略观察过期停止当前工作并等待新观察，不永久禁用安装；确认认证策略变化才永久禁用当前服务 epoch。
+
+Locked Use Broker uses a one-second timer only when idle or awaiting manual unlock with both guards fully released. Any active / incomplete recovery state retains the 100 ms watchdog cadence; incoming state transitions restore it immediately. Policy observations remain once per second with the existing two-second freshness gate. This reduces idle wakeups without extending guard / permit deadlines.
+
+Known-peer heartbeat/message revalidation on macOS 14.4+ uses kernel code-hash requirements instead of repeated certificate/disk assessment on the control queue. Forwarded SCM_RIGHTS clients also enter through the signature worker pool with an eight-second deadline; cancellation releases only the borrowed descriptor after in-flight verification finishes, preventing descriptor reuse races without shutting down the caller’s live transport.
+
+Installer removal leaves StagedPlugins to authd. Installation waits only for an existing mismatched cache to disappear or match the expected signature hash, for at most 15 seconds. The smoke controller retains its verified demo after relock/dual release even if manual-unlock observation times out; that timeout remains a failed manual check.

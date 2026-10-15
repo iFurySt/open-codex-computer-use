@@ -12,6 +12,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <os/log.h>
+#include <bsm/libbsm.h>
 
 #ifndef OCU_SIGNING_TEAM
 #error "Remote mechanism requires a fixed Developer ID signing team"
@@ -129,6 +130,7 @@ static NSDictionary *exchange(int fd, NSString *operation, NSDictionary *extra, 
 @property(nonatomic, assign) int descriptor;
 @property(nonatomic, assign) BOOL cancelled;
 @property(nonatomic, assign) BOOL invoked;
+@property(nonatomic, assign) BOOL loadCheck;
 @end
 @implementation OCUMechanism
 @end
@@ -144,12 +146,13 @@ static OSStatus mechanismCreate(AuthorizationPluginRef pluginRef, AuthorizationE
     if (!out) return errAuthorizationInvalidPointer;
     *out = NULL;
     if (!pluginRef || !engine || !name) return errAuthorizationInvalidRef;
-    if (strcmp(name, "remote") != 0) return errAuthorizationInternal;
+    if (strcmp(name, "remote") != 0 && strcmp(name, "load-check") != 0) return errAuthorizationInternal;
     OCUMechanism *mechanism = [OCUMechanism new];
     mechanism.plugin = (__bridge OCUPlugin *)pluginRef;
     mechanism.mutex = [NSRecursiveLock new];
     mechanism.engine = engine;
     mechanism.descriptor = -1;
+    mechanism.loadCheck = strcmp(name, "load-check") == 0;
     *out = (AuthorizationMechanismRef)CFBridgingRetain(mechanism);
     return errAuthorizationSuccess;
 }
@@ -165,6 +168,30 @@ static OSStatus mechanismInvoke(AuthorizationMechanismRef ref) {
             [mechanism.mutex unlock]; return errAuthorizationInternal;
         }
         mechanism.invoked = YES;
+        if (mechanism.loadCheck) {
+            // Installer-only, separate right. Context is exported by authd
+            // only on success: grant this load-check right, never a session
+            // unlock right or reusable credential. Remote still requires a
+            // guard-bound Broker permit; this mechanism is not its fallback.
+            const char marker[] = "OCULockAuth-loaded-v1";
+            AuthorizationValue value = {.length = sizeof(marker), .data = (void *)marker};
+            OSStatus markerStatus = mechanism.plugin.callbacks->SetContextValue
+                ? mechanism.plugin.callbacks->SetContextValue(mechanism.engine,
+                    "dev.opencomputeruse.locked-use.load-check", kAuthorizationContextFlagExtractable, &value)
+                : errAuthorizationInternal;
+            auditinfo_addr_t audit = {0};
+            if (markerStatus == errAuthorizationSuccess && getaudit_addr(&audit, sizeof(audit)) == 0) {
+                uint32_t session = (uint32_t)audit.ai_asid;
+                AuthorizationValue sessionValue = {.length = sizeof(session), .data = &session};
+                (void)mechanism.plugin.callbacks->SetContextValue(mechanism.engine,
+                    "dev.opencomputeruse.locked-use.load-check.audit-session", kAuthorizationContextFlagExtractable, &sessionValue);
+            }
+            OSStatus result = mechanism.plugin.callbacks->SetResult(mechanism.engine,
+                markerStatus == errAuthorizationSuccess ? kAuthorizationResultAllow : kAuthorizationResultDeny);
+            os_log_with_type(logger, OS_LOG_TYPE_DEFAULT, "loadCheck markerStatus=%{public}d resultStatus=%{public}d", (int)markerStatus, (int)result);
+            [mechanism.mutex unlock];
+            return result;
+        }
         int fd = socket(AF_UNIX, SOCK_STREAM, 0);
         mechanism.descriptor = fd;
         [mechanism.mutex unlock];

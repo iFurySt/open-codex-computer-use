@@ -5,6 +5,31 @@ import LockedUseNative
 import XCTest
 
 final class LockedUseIPCTests: XCTestCase {
+    func testReleasingForwardedDescriptorKeepsOriginalTransportUsable() throws {
+        var channel: [Int32] = [-1, -1]
+        var original: [Int32] = [-1, -1]
+        XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &channel), 0)
+        XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &original), 0)
+        defer { channel.forEach { Darwin.close($0) }; original.forEach { Darwin.close($0) } }
+        XCTAssertEqual(ocu_send_peer_socket(channel[0], original[0]), 0)
+        let borrowed = ocu_receive_peer_socket(channel[1])
+        XCTAssertGreaterThanOrEqual(borrowed, 0)
+        let socket = LockedUseBorrowedSocket(descriptor: borrowed)
+        try socket.withDescriptor { descriptor in
+            socket.close() // Closing during verification keeps its fd pinned.
+            var identity = OCUPeerIdentity()
+            XCTAssertEqual(ocu_copy_peer_identity(descriptor, &identity), 0)
+        }
+        XCTAssertEqual(socket.descriptor, -1)
+        socket.close() // Idempotent; must not close a subsequently reused fd.
+        XCTAssertThrowsError(try socket.withDescriptor { _ in XCTFail("Closed socket reused") })
+        var sent: UInt8 = 42
+        var received: UInt8 = 0
+        XCTAssertEqual(Darwin.write(original[0], &sent, 1), 1)
+        XCTAssertEqual(Darwin.read(original[1], &received, 1), 1)
+        XCTAssertEqual(received, sent)
+    }
+
     func testTransferredSocketRetainsKernelPeerAndIsCloseOnExec() throws {
         var channel: [Int32] = [-1, -1], peer: [Int32] = [-1, -1]
         XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &channel), 0)
