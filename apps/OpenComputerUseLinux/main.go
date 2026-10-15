@@ -139,6 +139,7 @@ func (s *appSnapshot) result() toolCallResult {
 }
 
 type linuxRequest struct {
+	HoldMS       *int           `json:"hold_ms,omitempty"`
 	Tool         string         `json:"tool"`
 	App          string         `json:"app,omitempty"`
 	Element      *elementRecord `json:"element,omitempty"`
@@ -257,11 +258,15 @@ func (s *service) callTool(name string, args map[string]any) toolCallResult {
 		}
 		return s.typeText(requiredString(args, "app"), requiredString(args, "text"), keyMethod)
 	case "press_key":
+		hold, err := optionalPositiveInt(args, "hold_ms")
+		if err != nil || (hold != nil && *hold > 5000) {
+			return textResult("hold_ms must be an integer from 1 to 5000", true)
+		}
 		keyMethod, err := parseKeyMethod(optionalString(args, "key_method"))
 		if err != nil {
 			return textResult(err.Error(), true)
 		}
-		return s.pressKey(requiredString(args, "app"), requiredString(args, "key"), keyMethod)
+		return s.pressKeyWithHold(requiredString(args, "app"), requiredString(args, "key"), keyMethod, hold)
 	case "set_value":
 		return s.setValue(requiredString(args, "app"), requiredElementIndex(args), requiredString(args, "value"))
 	default:
@@ -433,6 +438,10 @@ func (s *service) typeText(app, text, keyMethod string) toolCallResult {
 }
 
 func (s *service) pressKey(app, key, keyMethod string) toolCallResult {
+	return s.pressKeyWithHold(app, key, keyMethod, nil)
+}
+
+func (s *service) pressKeyWithHold(app, key, keyMethod string, hold *int) toolCallResult {
 	if app == "" {
 		return textResult("Missing required argument: app", true)
 	}
@@ -445,7 +454,7 @@ func (s *service) pressKey(app, key, keyMethod string) toolCallResult {
 	if s.currentSnapshot(app) == nil {
 		return textResult("No app state is available for "+app+". Run get_app_state before action tools.", true)
 	}
-	return s.actionResult(app, linuxRequest{Tool: "press_key", App: app, Key: key})
+	return s.actionResult(app, linuxRequest{Tool: "press_key", App: app, Key: key, HoldMS: hold})
 }
 
 func (s *service) setValue(app, elementIndex, value string) toolCallResult {
@@ -1250,6 +1259,7 @@ func toolDefinitions() []toolDefinition {
 			InputSchema: objectSchema(map[string]any{
 				"app":        stringProperty("App name or bundle identifier"),
 				"key":        stringProperty("Key or key-combination to press"),
+				"hold_ms":    map[string]any{"type": "integer", "minimum": 1, "maximum": 5000, "description": "Opt-in X11 physical key hold in milliseconds; omitted preserves the existing instantaneous press. Useful for frame-polled applications such as games."},
 				"key_method": enumStringProperty("Keyboard delivery: auto (default) or sky_key. sky_key is the macOS SkyLight background-window path and is not supported on Linux.", keyMethodValues),
 			}, []string{"app", "key"}),
 		},

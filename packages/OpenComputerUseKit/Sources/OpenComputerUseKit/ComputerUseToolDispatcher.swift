@@ -107,6 +107,9 @@ public final class ComputerUseToolDispatcher {
                 keyMethod: try parseKeyMethod(optionalString("key_method", in: arguments))
             )
         case "press_key":
+            if arguments["hold_ms"] != nil {
+                throw ComputerUseError.invalidArguments("hold_ms is currently supported on Linux X11 only")
+            }
             return try service.pressKey(
                 app: requireString("app", in: arguments),
                 key: requireString("key", in: arguments),

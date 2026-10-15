@@ -465,3 +465,10 @@ func TestDoctorJSONRejectsUnsupportedPermissionDiagnostics(t *testing.T) {
 		t.Fatal("unsupported JSON mode must not emit text on stdout")
 	}
 }
+
+func TestWindowsRejectsExplicitKeyHold(t *testing.T) {
+	result := newService().callTool("press_key", map[string]any{"app": "Game", "key": "x", "hold_ms": 80})
+	if !result.IsError || result.Content[0].Text != "hold_ms is currently supported on Linux X11 only" {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+}

@@ -416,6 +416,25 @@ func TestLinuxKeyMethodSchemaAndUnsupportedSkyKey(t *testing.T) {
 	}
 }
 
+func TestExplicitKeyHoldValidationAndWireFormat(t *testing.T) {
+	service := newService()
+	for _, value := range []any{0, -1, true, "50", 1.5, 5001, nil} {
+		result := service.callTool("press_key", map[string]any{"app": "Game", "key": "x", "hold_ms": value})
+		if !result.IsError || result.Content[0].Text != "hold_ms must be an integer from 1 to 5000" {
+			t.Fatalf("invalid hold %#v: %#v", value, result)
+		}
+	}
+	legacy, _ := json.Marshal(linuxRequest{Tool: "press_key", Key: "x"})
+	if bytes.Contains(legacy, []byte("hold_ms")) {
+		t.Fatalf("legacy request changed: %s", legacy)
+	}
+	hold := 50
+	held, _ := json.Marshal(linuxRequest{Tool: "press_key", Key: "x", HoldMS: &hold})
+	if !bytes.Contains(held, []byte(`"hold_ms":50`)) {
+		t.Fatalf("hold missing: %s", held)
+	}
+}
+
 func TestLinuxWindowPlacementSchemaAndUnsupportedAgentDisplay(t *testing.T) {
 	tool := findToolDefinition(t, "get_app_state")
 	properties := tool.InputSchema["properties"].(map[string]any)

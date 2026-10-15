@@ -76,6 +76,23 @@ await chrome.pressKey("cmd+a", { keyMethod: "sky_key" });
 await chrome.getAXState({ windowPlacement: "restore" });
 ```
 
+On Linux X11, games and other frame-polled applications may miss an instantaneous
+press. Use the optional `holdMs` to keep a physical key down before releasing it:
+
+```js
+var game = await cua.getApp("mGBA");
+await game.pressKey("x", { holdMs: 80 });
+await game.getScreenshot();
+```
+
+Native MCP/CLI callers use `press_key` with `hold_ms: 80`. The accepted range is
+1–5000 integer milliseconds. Omitting it preserves existing delivery. Held keys
+use the active X11 desktop, so focus the intended window first. This path supports
+keymap group 0, levels 0/1; unsupported mappings and platforms return an error.
+Release is attempted on exceptions and SIGTERM; SIGKILL cannot run cleanup.
+Use a modest duration and observe before repeating: a longer hold can trigger
+key repeat. `holdMs` is not a delay between separate calls.
+
 `windowPlacement` and `keyMethod: "sky_key"` are macOS-only native
 capabilities. A parked window is also restored when the MCP/REPL connection
 closes or the host reports the end of the assistant turn.

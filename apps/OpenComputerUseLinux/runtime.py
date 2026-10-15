@@ -4,6 +4,7 @@ import base64
 import json
 import math
 import os
+import signal
 import sys
 import time
 import traceback
@@ -674,7 +675,7 @@ def keyval(name):
     raise RuntimeError("Unsupported key: " + name)
 
 
-def send_key(key):
+def send_key(key, hold_ms=None):
     parts = [part for part in str(key).split("+") if part]
     if not parts:
         raise RuntimeError("Unsupported key: " + str(key))
@@ -686,10 +687,40 @@ def send_key(key):
             raise RuntimeError("Unsupported modifier: " + modifier)
         mask |= 1 << int(getattr(Atspi.ModifierType, name))
     normalized = KEY_ALIASES.get(main.lower(), main)
+    hardware = None
+    if hold_ms is not None:
+        if isinstance(hold_ms, bool) or not isinstance(hold_ms, int) or not 1 <= hold_ms <= 5000:
+            raise RuntimeError("hold_ms must be an integer from 1 to 5000")
+        display = Gdk.Display.get_default() if Gdk is not None else None
+        if display is None or display.__gtype__.name != "GdkX11Display":
+            raise RuntimeError("hold_ms is currently supported on X11 only")
+        found, entries = Gdk.Keymap.get_for_display(display).get_entries_for_keyval(keyval(normalized))
+        # Only the active default X11 group and its shift level are supported.
+        entries = [e for e in entries if e.group == 0 and e.level in (0, 1)] if found else []
+        if not entries:
+            raise RuntimeError("No supported X11 hardware key for: " + normalized)
+        entry = min(entries, key=lambda e: e.level)
+        hardware = entry.keycode
+        if entry.level == 1:
+            mask |= 1 << int(Atspi.ModifierType.SHIFT)
     if mask:
         Atspi.generate_keyboard_event(mask, None, Atspi.KeySynthType.LOCKMODIFIERS)
     try:
-        if len(normalized) == 1 and not mask:
+        if hardware is not None:
+            def terminate_hold(_signal, _frame):
+                raise KeyboardInterrupt("Key hold terminated")
+            previous_terminate = signal.signal(signal.SIGTERM, terminate_hold)
+            try:
+                if not Atspi.generate_keyboard_event(hardware, None, Atspi.KeySynthType.PRESS):
+                    raise RuntimeError("X11 key press failed")
+                time.sleep(hold_ms / 1000)
+            finally:
+                try:
+                    if not Atspi.generate_keyboard_event(hardware, None, Atspi.KeySynthType.RELEASE):
+                        raise RuntimeError("X11 key release failed; key state may remain pressed")
+                finally:
+                    signal.signal(signal.SIGTERM, previous_terminate)
+        elif len(normalized) == 1 and not mask:
             Atspi.generate_keyboard_event(0, normalized, Atspi.KeySynthType.STRING)
         else:
             # SYM takes a keysym. PRESS, RELEASE, and PRESSRELEASE take a
@@ -865,7 +896,7 @@ def perform_operation(operation):
         if not insert_text(window, operation.get("text", "")):
             send_text(operation.get("text", ""))
     elif tool == "press_key":
-        send_key(operation.get("key", ""))
+        send_key(operation.get("key", ""), operation.get("hold_ms"))
     elif tool == "set_value":
         if element is None:
             raise RuntimeError("unknown element_index")

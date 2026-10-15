@@ -45,7 +45,7 @@ The runtime exposes an asynchronous app-bound API:
 - \`await app.scroll(elementIndex, direction, pages?)\`
 - \`await app.drag([fromX, fromY], [toX, toY])\`
 - \`await app.typeText(text, { keyMethod? })\`
-- \`await app.pressKey(key, { keyMethod? })\`
+- \`await app.pressKey(key, { keyMethod?, holdMs? })\`: optional holdMs (1–5000) holds the physical key on Linux X11; useful for games that poll keys once per frame. Omit to preserve legacy delivery.
 - \`await app.setValue(elementIndex, value)\`
 - \`await app.performSecondaryAction(elementIndex, action)\`
 
@@ -342,7 +342,7 @@ export function createCuaApi(native, activeOutput) {
         await call("click", { app, ...targetArgs, ...optionsToClickArgs(options) });
       },
       async drag(from, to) { await call("drag", { app, from_x: from[0], from_y: from[1], to_x: to[0], to_y: to[1] }); },
-      async pressKey(key, options = {}) { await call("press_key", { app, key, ...optionsToKeyArgs(options) }); },
+      async pressKey(key, options = {}) { await call("press_key", { app, key, ...optionsToKeyArgs(options), ...(options.holdMs !== undefined ? {hold_ms: options.holdMs} : {}) }); },
       async scroll(target, direction, pages = 1) {
         if (Array.isArray(target)) throw new Error("coordinate scroll is not supported by this Open Computer Use runtime");
         await call("scroll", { app, element_index: target, direction, pages });

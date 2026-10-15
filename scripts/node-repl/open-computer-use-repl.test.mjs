@@ -102,6 +102,15 @@ test("app-bound API composes actions and state in one js call", async () => {
   assert.ok(result.content.some(item => item.type === "text" && item.text === "state:Text"));
 });
 
+test("explicit physical key hold is forwarded and omission stays absent", async () => {
+  const native = mockNative();
+  const session = new PersistentJavaScriptSession({ native });
+  const result = await session.run(`var game = await cua.getApp("Game"); await game.pressKey("x", {holdMs:50}); await game.pressKey("x");`);
+  assert.equal(result.isError, false);
+  assert.deepEqual(native.calls[1].arguments, {app:"Game", key:"x", hold_ms:50});
+  assert.deepEqual(native.calls[2].arguments, {app:"Game", key:"x"});
+});
+
 test("app-bound API forwards background-operation options", async () => {
   const native = mockNative();
   const session = new PersistentJavaScriptSession({ native });
