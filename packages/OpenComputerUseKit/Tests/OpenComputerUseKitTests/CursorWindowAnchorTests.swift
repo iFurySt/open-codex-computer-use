@@ -52,6 +52,8 @@ final class CursorWindowAnchorTests: XCTestCase {
     func testAnchorRejectsALiveFrameWithoutSize() {
         XCTAssertNil(anchor().screenStatePoint(liveFrame: .zero))
         XCTAssertNil(anchor().screenStatePoint(liveFrame: CGRect(x: 10, y: 10, width: 0, height: 40)))
+        XCTAssertNil(anchor().screenStatePoint(liveFrame: .infinite))
+        XCTAssertNil(anchor().screenStatePoint(liveFrame: CGRect(x: CGFloat.nan, y: 0, width: 50, height: 50)))
     }
 
     func testTrackerPrefersTheRegisteredLiveFrame() {
@@ -64,11 +66,81 @@ final class CursorWindowAnchorTests: XCTestCase {
         XCTAssertNil(CursorWindowFrameTracker.liveFrame(for: 1))
     }
 
-    /// Registering nothing must not produce a frame out of thin air; the
-    /// window list is the only remaining source and an unknown id has no entry.
+    /// An unknown window must not produce a frame out of thin air.
     func testTrackerReportsNothingForAnUnknownWindow() {
         CursorWindowFrameTracker.forgetAll()
 
         XCTAssertNil(CursorWindowFrameTracker.liveFrame(for: CGWindowID(0)))
+    }
+
+    func testFailedRefreshKeepsLastUsableFrame() throws {
+        let reads = DispatchSemaphore(value: 0), failedRead = DispatchSemaphore(value: 0)
+        let frame = mainDisplayFrame
+        CursorWindowFrameTracker.forgetAll()
+        CursorWindowFrameTracker.installFrameReaderForTesting { _ in
+            reads.signal()
+            return frame
+        }
+        defer {
+            CursorWindowFrameTracker.forgetAll()
+            CursorWindowFrameTracker.installFrameReaderForTesting(nil)
+        }
+        CursorWindowFrameTracker.register(windowID: 1, element: nil)
+        _ = CursorWindowFrameTracker.liveFrame(for: 1)
+        XCTAssertEqual(reads.wait(timeout: .now() + 1), .success)
+        let deadline = ProcessInfo.processInfo.systemUptime + 1
+        while CursorWindowFrameTracker.liveFrame(for: 1) == nil && ProcessInfo.processInfo.systemUptime < deadline {
+            Thread.sleep(forTimeInterval: 0.001)
+        }
+        XCTAssertEqual(CursorWindowFrameTracker.liveFrame(for: 1), frame)
+        CursorWindowFrameTracker.installFrameReaderForTesting { _ in
+            failedRead.signal()
+            return nil
+        }
+        Thread.sleep(forTimeInterval: 0.04)
+        XCTAssertEqual(CursorWindowFrameTracker.liveFrame(for: 1), frame)
+        XCTAssertEqual(failedRead.wait(timeout: .now() + 1), .success)
+        Thread.sleep(forTimeInterval: 0.01)
+        XCTAssertEqual(CursorWindowFrameTracker.liveFrame(for: 1), frame)
+    }
+
+    func testSlowReadDoesNotBlockOrQueueWorkAndCannotPublishAfterReplacement() throws {
+        let entered = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+        let first = builtInDisplayFrame, second = mainDisplayFrame
+        CursorWindowFrameTracker.forgetAll()
+        CursorWindowFrameTracker.installFrameReaderForTesting { id in
+            if id == 1 {
+                entered.signal()
+                _ = release.wait(timeout: .now() + 2)
+                return first
+            }
+            return second
+        }
+        defer {
+            release.signal()
+            CursorWindowFrameTracker.forgetAll()
+            CursorWindowFrameTracker.installFrameReaderForTesting(nil)
+        }
+        CursorWindowFrameTracker.register(windowID: 1, element: nil)
+        XCTAssertNil(CursorWindowFrameTracker.liveFrame(for: 1))
+        XCTAssertEqual(entered.wait(timeout: .now() + 1), .success)
+        let start = ProcessInfo.processInfo.systemUptime
+        for _ in 0..<1000 { XCTAssertNil(CursorWindowFrameTracker.liveFrame(for: 1)) }
+        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 0.25)
+        CursorWindowFrameTracker.forgetAll()
+        CursorWindowFrameTracker.register(windowID: 2, element: nil)
+        XCTAssertNil(CursorWindowFrameTracker.liveFrame(for: 1))
+        XCTAssertNil(CursorWindowFrameTracker.liveFrame(for: 2))
+        release.signal()
+        let deadline = ProcessInfo.processInfo.systemUptime + 1
+        var observed: CGRect?
+        while observed == nil && ProcessInfo.processInfo.systemUptime < deadline {
+            observed = CursorWindowFrameTracker.liveFrame(for: 2)
+            Thread.sleep(forTimeInterval: 0.001)
+        }
+        XCTAssertEqual(observed, second)
+        XCTAssertNil(CursorWindowFrameTracker.liveFrame(for: 1))
+        // No stale queued requests from the 1,000 render ticks may remain.
+        XCTAssertEqual(entered.wait(timeout: .now() + 0.05), .timedOut)
     }
 }

@@ -230,15 +230,18 @@ When the gate is not enabled, treat window-server drags as unavailable and reach
 
 ## Software Cursor
 
-The software cursor follows the target window when it moves. Its point is derived from the snapshot, so it
-also carries an anchor: the same point expressed relative to the window frame the snapshot reported. Before
-drawing, and on every frame of a travel, the overlay re-derives the point from the window's live frame, so a
-window dragged to another display mid-action takes the cursor with it instead of leaving it on the display
-the window just left.
+The software cursor keeps a window-relative anchor for its target point. During travel, settle, click
+feedback and idle, it follows changes to the target window's frame. If the window moves during travel,
+the visible tip lands at the new position immediately, without continuing toward the old position.
 
-The live frame comes from the window's accessibility element — the element the snapshot already holds — and
-only falls back to `CGWindowListCopyWindowInfo`, which can keep reporting the pre-move origin for about a
-second (measured: 83 identical frames at the travel's 120 Hz pump).
+Window frames are read on a background worker at up to 30 Hz, with at most one read in flight. Rendering
+uses the latest cached frame, so a slow Accessibility response does not block the cursor. The snapshot's
+AX window element is preferred; `CGWindowListCopyWindowInfo` is used only when no AX element is available,
+because it can report an old origin after a move. A failed read keeps the last usable frame. Tracking is
+released when the cursor is cleared or its idle timeout expires.
+
+This follows the window's position, not layout changes inside it. Refresh app state after a layout change
+before choosing another target. Input delivery continues to use the existing action paths.
 
 ## Platform Notes
 

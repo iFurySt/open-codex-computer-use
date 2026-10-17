@@ -196,8 +196,13 @@ enum OpenComputerUseSmokeSuite {
         try client.initialize()
 
         let tools = try client.listTools()
-        guard tools.count == 9 else {
-            throw SmokeError.message("Expected 9 tools, got \(tools.count)")
+        let expectedTools: Set<String> = [
+            "list_apps", "get_app_state", "query", "click", "perform_secondary_action",
+            "scroll", "drag", "type_text", "press_key", "set_value",
+        ]
+        let toolNames = Set(tools.compactMap { $0["name"] as? String })
+        guard tools.count == expectedTools.count, toolNames == expectedTools else {
+            throw SmokeError.message("Expected tools \(expectedTools.sorted()), got \(toolNames.sorted())")
         }
 
         print("1. list_apps")
