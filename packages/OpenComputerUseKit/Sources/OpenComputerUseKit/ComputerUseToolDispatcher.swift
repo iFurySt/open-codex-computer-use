@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 func normalizedElementIndexArgument(_ value: Any?) -> String? {
@@ -47,6 +48,17 @@ public final class ComputerUseToolDispatcher {
         switch name {
         case "list_apps":
             return service.listApps()
+        case "query":
+            let matches = try service.query(
+                app: requireString("app", in: arguments),
+                text: try validatedQueryString(arguments["text"], key: "text"),
+                role: try validatedQueryString(arguments["role"], key: "role"),
+                exact: try validatedQueryExact(arguments["exact"]),
+                limit: try optionalPositiveInt("limit", in: arguments) ?? 20,
+                maxNodes: try optionalPositiveInt("max_nodes", in: arguments) ?? 500,
+                windowID: try validatedQueryWindowID(arguments["window_id"])
+            )
+            return .text(try renderedQueryMatches(matches))
         case "get_app_state":
             return try service.getAppState(
                 app: requireString("app", in: arguments),
@@ -131,6 +143,24 @@ public final class ComputerUseToolDispatcher {
         }
 
         return value
+    }
+
+    private func optionalBool(_ key: String, in arguments: [String: Any]) -> Bool? {
+        switch arguments[key] {
+        case let value as Bool: return value
+        case let value as NSNumber: return value.boolValue
+        case let value as String: return Bool(value.lowercased())
+        default: return nil
+        }
+    }
+
+    /// Machine-readable matches with explicit completeness metadata.
+    private func renderedQueryMatches(_ matches: [String: Any]) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: matches, options: [.sortedKeys])
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw ComputerUseError.stateUnavailable("Query response could not be encoded")
+        }
+        return text
     }
 
     private func optionalString(_ key: String, in arguments: [String: Any]) -> String? {
@@ -406,4 +436,30 @@ private func decodeOpenComputerUseJSONObject(_ source: String) throws -> Any {
             helpCommand: "call"
         )
     }
+}
+
+func validatedQueryWindowID(_ value: Any?) throws -> CGWindowID? {
+    guard let value else { return nil }
+    guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+          number.doubleValue.isFinite, number.doubleValue >= 1,
+          number.doubleValue <= Double(UInt32.max), number.doubleValue.rounded(.down) == number.doubleValue else {
+        throw ComputerUseError.invalidArguments("window_id must be an integer from 1 to \(UInt32.max)")
+    }
+    return CGWindowID(number.doubleValue)
+}
+
+func validatedQueryString(_ value: Any?, key: String) throws -> String? {
+    guard let value else { return nil }
+    guard let string = value as? String, string.utf16.count <= 1000 else {
+        throw ComputerUseError.invalidArguments("\(key) must be a string of at most 1000 UTF-16 code units")
+    }
+    return string
+}
+
+func validatedQueryExact(_ value: Any?) throws -> Bool {
+    guard let value else { return false }
+    guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else {
+        throw ComputerUseError.invalidArguments("exact must be true or false")
+    }
+    return number.boolValue
 }

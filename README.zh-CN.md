@@ -101,6 +101,8 @@ npx skills update open-computer-use -g -y
 
 ## 更多
 
+Locked Use 的开启方式、安装组件和权限见[文档](docs/locked-use.zh-CN.md)。
+
 除了直接用上面的 MCP JSON 配置，你也可以用一些内置子命令：
 
 ```bash
@@ -135,10 +137,15 @@ open-computer-use call --calls-file examples/textedit-overlay-seq.json --sleep 0
 # 检查权限；只有缺失时才会拉起引导，已全部授权则只打印状态并退出
 open-computer-use doctor
 
+# macOS：只查询权限 JSON，不弹引导界面
+ocu doctor --json
+
 # 查看帮助
 open-computer-use -h
 ocu -h
 ```
+
+`ocu doctor --json`（仅 macOS）返回 `platform`、`accessibilityTrusted`、`screenCaptureGranted`、`allGranted` 和 `missingPermissions`。缺权限仍返回退出码 0；宿主应检查 `allGranted`，并在用户授权后再次查询。状态复用现有系统 API/TCC 检测，不代表实际操作已经成功；某些权限变更仍可能需要重启进程。
 
 ## Cursor Motion
 
@@ -159,6 +166,10 @@ Cursor Motion 是一个面向 macOS 的开源光标运动系统，基于 Softwar
 ## License
 
 [MIT](./LICENSE)。
+
+### 定向查找（macOS）
+
+知道控件文案或角色时，可以用 `app.query()` 查找，不用先截图和读取整棵 AX 树。详见[查询说明](docs/targeted-query.zh-CN.md)。
 
 ### 持久化配置
 

@@ -126,6 +126,7 @@ Commands:
   config               View or persist macOS screenshot settings.
   capabilities         Report Node, adapter, native, js, and repl availability.
   doctor               Print permission status and launch onboarding if needed on macOS.
+  locked-use           macOS status, settings, enable, disable, or recovery.
   list-apps            Print running or recently used apps.
   snapshot <app>       Print the current accessibility snapshot for an app.
   call <tool>          Call one tool, or run a JSON array of tool calls.

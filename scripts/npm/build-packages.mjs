@@ -536,6 +536,10 @@ function main() {
     ensureBuilt(options.configuration, options.arch);
   }
 
+  if (options.configuration === "release") {
+    run(path.join(repoRoot, "scripts", "verify-locked-use-bundle.sh"), [path.join(repoRoot, "dist", appBundleName)]);
+  }
+
   rmSync(options.outDir, { recursive: true, force: true });
   mkdirSync(options.outDir, { recursive: true });
 

@@ -112,6 +112,8 @@ jobs:
           } >> "${GITHUB_ENV}"
 
       - name: Build npm release artifacts
+        env:
+          OPEN_COMPUTER_USE_INCLUDE_LOCKED_USE: "1"
         run: npm run npm:pack
 
       - name: Notarize direct-download Open Computer Use app

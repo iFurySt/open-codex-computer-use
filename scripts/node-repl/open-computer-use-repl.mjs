@@ -24,7 +24,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 const SERVER_INSTRUCTIONS = `UI automation through a persistent JavaScript REPL using the initialized cua API.
 
-On the first call after startup or js_reset, bind the requested app with await cua.getApp("Example App"), or call await cua.getState() only when an app inventory is actually needed. App bindings persist across js calls. Batch deterministic actions and the resulting getAXState() in one js call, then verify the returned UI state. Use nodeRepl.write(value) for additional text and await nodeRepl.emitImage(image) for additional images. Ask the user before destructive or externally visible actions such as sending, deleting, or purchasing.`;
+On the first call after startup or js_reset, bind the requested app with await cua.getApp("Example App"), or call await cua.getState() only when an app inventory is actually needed. On macOS, use getApp(name, { initialState: false }) followed by app.query({ text, role }) for targeted lookup without an initial snapshot. App bindings persist across js calls. Batch deterministic actions and the resulting getAXState() in one js call, then verify the returned UI state. Use nodeRepl.write(value) for additional text and await nodeRepl.emitImage(image) for additional images. Ask the user before destructive or externally visible actions such as sending, deleting, or purchasing.`;
 
 const JS_DESCRIPTION = `Run JavaScript in a persistent Node.js REPL with top-level await and an initialized asynchronous cua API for Open Computer Use. Use this for all desktop interactions. Bind an app with let app = await cua.getApp("Example App"); then call await app.click(...), await app.typeText(...), and await app.getAXState(). Top-level bindings persist until js_reset, so prefer top-level var for names that may be assigned again. Batch deterministic actions and the resulting state read in one call to reduce round trips. Use nodeRepl.write(value) for extra text and await nodeRepl.emitImage(image) for extra images. If timeout_ms is omitted, execution times out after 30000 ms.`;
 
@@ -36,7 +36,8 @@ The runtime exposes an asynchronous app-bound API:
 
 - \`await cua.getState({ emit? })\`: list current apps.
 - \`await cua.listApps({ emit? })\`: list current apps.
-- \`await cua.getApp(nameOrBundleID)\`: bind an app and emit its initial accessibility state.
+- \`await cua.getApp(nameOrBundleID, { initialState? })\`: bind an app; initialState defaults to true. Use false for a lightweight binding before query.
+- \`await app.query({ text?, role?, exact?, limit?, maxNodes?, windowId? })\`: macOS-only AX lookup; returns matches and truncation metadata, with indexes usable in this native session.
 - \`await app.getAXState({ emit?, textLimit?, maxTreeNodes?, maxTreeDepth?, windowPlacement? })\`
 - \`await app.getScreenshot({ emit? })\`
 - \`await app.getAXStateAndScreenshot(options?)\`
@@ -95,18 +96,39 @@ function normalizeImage(value) {
 export class JsonLinePeer extends EventEmitter {
   constructor({ command, args = [], cwd, env = process.env, child } = {}) {
     super();
-    this.child = child ?? spawn(command, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+    this.options = { command, args, cwd, env };
+    this.injected = Boolean(child);
+    this.disposed = false;
+    this.reopening = null;
+    this.#start(child ?? spawn(command, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] }));
+  }
+
+  #start(child) {
+    this.child = child;
     this.nextId = 1;
     this.pending = new Map();
     this.buffer = "";
     this.stderr = "";
     this.closed = false;
-    this.child.stdout.setEncoding("utf8");
-    this.child.stderr.setEncoding("utf8");
-    this.child.stdout.on("data", chunk => this.#onData(chunk));
-    this.child.stderr.on("data", chunk => { this.stderr = (this.stderr + chunk).slice(-8192); });
-    this.child.on("error", error => this.#close(error));
-    this.child.on("exit", (code, signal) => this.#close(new Error(`native MCP exited (code=${code ?? "null"}, signal=${signal ?? "null"})${this.stderr ? `: ${this.stderr.trim()}` : ""}`)));
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", chunk => { if (this.child === child) this.#onData(chunk); });
+    child.stderr.on("data", chunk => { if (this.child === child) this.stderr = (this.stderr + chunk).slice(-8192); });
+    child.on("error", error => { if (this.child === child) this.#close(error); });
+    child.on("exit", (code, signal) => {
+      if (this.child === child) this.#close(new Error(`native MCP exited (code=${code ?? "null"}, signal=${signal ?? "null"})${this.stderr ? `: ${this.stderr.trim()}` : ""}`));
+    });
+  }
+
+  #reopen() {
+    if (!this.reopening) {
+      this.reopening = (async () => {
+        const { command, args, cwd, env } = this.options;
+        this.#start(spawn(command, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] }));
+        await this.initialize();
+      })().catch(error => { this.endSession(); throw error; }).finally(() => { this.reopening = null; });
+    }
+    return this.reopening;
   }
 
   #onData(chunk) {
@@ -141,11 +163,17 @@ export class JsonLinePeer extends EventEmitter {
   }
 
   request(method, params = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
+    if (this.reopening && method !== "initialize") return this.reopening.then(() => this.request(method, params, timeoutMs));
+    if (this.closed && !this.injected && !this.disposed) return this.#reopen().then(() => this.request(method, params, timeoutMs));
     if (this.closed) return Promise.reject(new Error("native MCP is closed"));
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       const timer = timeoutMs > 0
-        ? setTimeout(() => { this.pending.delete(String(id)); reject(new Error(`native MCP ${method} timed out after ${timeoutMs} ms`)); }, timeoutMs)
+        ? setTimeout(() => {
+          this.pending.delete(String(id));
+          reject(new Error(`native MCP ${method} timed out after ${timeoutMs} ms`));
+          this.endSession();
+        }, timeoutMs)
         : undefined;
       this.pending.set(String(id), { resolve, reject, timer });
       this.child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`, error => {
@@ -171,13 +199,21 @@ export class JsonLinePeer extends EventEmitter {
     return result;
   }
 
-  close() {
+  endSession() {
     if (this.closed) return;
-    this.child.stdin.end();
-    const timer = setTimeout(() => this.child.kill("SIGKILL"), 1_000);
+    const child = this.child;
+    this.#close(new Error("native Computer Use session ended"));
+    child.stdin.end();
+    const timer = setTimeout(() => child.kill("SIGKILL"), 1_000);
     timer.unref();
-    this.child.kill("SIGTERM");
+    child.kill("SIGTERM");
   }
+
+  close() {
+    this.disposed = true;
+    this.endSession();
+  }
+
 }
 
 function toolResultText(result) {
@@ -260,6 +296,25 @@ export function createCuaApi(native, activeOutput) {
   }
   function appBinding(app) {
     return Object.freeze({
+      async query(options = {}) {
+        if (!isPlainObject(options)) throw new Error("app.query expects an options object");
+        for (const key of Object.keys(options)) {
+          if (!["text", "role", "exact", "limit", "maxNodes", "windowId"].includes(key)) throw new Error(`Unknown query option: ${key}`);
+        }
+        for (const key of ["text", "role"]) {
+          if (options[key] !== undefined && (typeof options[key] !== "string" || options[key].length > 1000)) throw new Error(`${key} must be a string of at most 1000 UTF-16 code units`);
+        }
+        if (!options.text?.trim() && !options.role?.trim()) throw new Error("query requires text and/or role");
+        if (options.exact !== undefined && typeof options.exact !== "boolean") throw new Error("exact must be true or false");
+        for (const key of ["limit", "maxNodes", "windowId"]) {
+          if (options[key] !== undefined && (!Number.isSafeInteger(options[key]) || options[key] < 1 || (key === "windowId" && options[key] > 0xffffffff))) throw new Error(`${key} must be a positive integer${key === "windowId" ? " up to 4294967295" : ""}`);
+        }
+        const result = await call("query", { app, text: options.text, role: options.role, exact: options.exact,
+                                             limit: options.limit, max_nodes: options.maxNodes, window_id: options.windowId });
+        const response = JSON.parse(toolResultText(result));
+        if (!isPlainObject(response) || !Array.isArray(response.matches) || typeof response.truncated !== "boolean" || typeof response.stop_reason !== "string") throw new Error("Invalid query response");
+        return response;
+      },
       async getAXState(options = {}) {
         const result = await call("get_app_state", { app, ...optionsToSnapshotArgs(options) });
         const text = toolResultText(result);
@@ -318,10 +373,14 @@ export function createCuaApi(native, activeOutput) {
       if (options.emit !== false) activeOutput().write(state.apps, "cua.state");
       return state.apps;
     },
-    async getApp(app) {
+    async getApp(app, options = {}) {
+      if (typeof app !== "string" || !app.trim()) throw new Error("getApp requires an app name or bundle ID");
+      if (!isPlainObject(options) || (options.initialState !== undefined && typeof options.initialState !== "boolean")) throw new Error("initialState must be true or false");
       await emitDocs();
-      const result = await call("get_app_state", { app, text_limit: "max" });
-      await emitText(toolResultText(result));
+      if (options.initialState !== false) {
+        const result = await call("get_app_state", { app, text_limit: "max" });
+        await emitText(toolResultText(result));
+      }
       return appBinding(app);
     },
     async rewriteDocumentation() { activeOutput().write(COMPUTER_USE_GUIDANCE, "cua.core"); },
@@ -445,6 +504,7 @@ export class WorkerJavaScriptSession {
     this.nextId = 1;
     this.pending = new Map();
     this.runQueue = Promise.resolve();
+    this.invalidatedWorkers = new WeakSet();
     this.#start();
   }
 
@@ -452,11 +512,18 @@ export class WorkerJavaScriptSession {
     const worker = new Worker(new URL("./open-computer-use-kernel.mjs", import.meta.url));
     this.worker = worker;
     worker.on("message", message => void this.#onMessage(worker, message));
-    worker.on("error", error => this.#failWorker(worker, error));
+    worker.on("error", error => {
+      if (this.worker === worker && !this.invalidatedWorkers.has(worker)) {
+        this.invalidatedWorkers.add(worker);
+        this.native.endSession?.();
+      }
+      this.#failWorker(worker, error);
+    });
     worker.on("exit", code => { if (code !== 0) this.#failWorker(worker, new Error(`JavaScript kernel exited with code ${code}`)); });
   }
 
   async #onMessage(worker, message) {
+    if (this.worker !== worker || this.invalidatedWorkers.has(worker)) return;
     if (message.type === "result") {
       const pending = this.pending.get(message.id);
       if (!pending || pending.worker !== worker) return;
@@ -486,6 +553,8 @@ export class WorkerJavaScriptSession {
 
   async reset() {
     const old = this.worker;
+    this.invalidatedWorkers.add(old);
+    this.native.endSession?.();
     this.#failWorker(old, new Error("JavaScript session reset"));
     await old.terminate();
     if (this.worker === old) this.#start();
@@ -493,6 +562,8 @@ export class WorkerJavaScriptSession {
 
   async close() {
     const old = this.worker;
+    this.invalidatedWorkers.add(old);
+    this.native.endSession?.();
     this.#failWorker(old, new Error("JavaScript session closed"));
     await old.terminate();
   }
@@ -511,6 +582,8 @@ export class WorkerJavaScriptSession {
         const pending = this.pending.get(id);
         if (!pending || pending.worker !== worker) return;
         this.pending.delete(id);
+        this.invalidatedWorkers.add(worker);
+        this.native.endSession?.();
         await worker.terminate();
         if (this.worker === worker) this.#start();
         resolve({ content: [{ type: "text", text: `Error: js execution timed out after ${timeoutMs} ms; session reset` }], isError: true });
@@ -564,7 +637,7 @@ export async function runServer({ command, args }) {
     try { request = JSON.parse(line); } catch { return send({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Invalid JSON-RPC payload" } }); }
     const { id, method, params = {} } = request;
     if (id === undefined) {
-      if (method === "notifications/turn-ended") native.notify(method, params);
+      if (method === "notifications/turn-ended") { native.notify(method, params); native.endSession(); }
       return;
     }
     try {

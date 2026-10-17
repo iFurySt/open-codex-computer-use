@@ -175,6 +175,9 @@ gh run view -R iFurySt/open-codex-computer-use <run-id> --log-failed
 - `npm error need auth ... You need to authorize this machine using npm adduser`
   - 如果日志显示已经选择 `GitHub Actions OIDC trusted publishing`，优先检查 CI 里的 npm CLI 版本；trusted publishing 需要 npm `11.5.1+`，当前 release workflow 的 npm package job 使用 Node `24` 并显式检查 npm 版本。
   - 如果 npm CLI 版本满足要求仍报这个错误，说明 npmjs.com 包侧还没有把当前 GitHub repo / workflow 文件配置成 trusted publisher。
+- 发布成功后，`npm view` 仍显示旧版本或目标版本返回 404
+  - 先核对 CI 中每个包的 publish 成功日志。registry 元数据的 CDN 响应可能带有 `max-age=300`，短时间内仍返回旧内容；`--prefer-online` 也可能读到同一份边缘缓存。
+  - 可通过 `https://registry.npmjs.org/-/package/<package-name>/dist-tags` 核对实时 dist-tag；待缓存刷新后，再确认三个包的目标版本和 `latest` 一致，避免把传播延迟误判为发布失败。
 - 构建阶段失败
   - 优先看 `Build npm release artifacts`、`package-github-release-assets.sh` 的架构/归档校验、`Build Cursor Motion DMG` 或 Swift 编译错误。
 - GitHub Release 资产上传失败
@@ -184,10 +187,11 @@ gh run view -R iFurySt/open-codex-computer-use <run-id> --log-failed
 
 ## 当前已知边界
 
-- `Open Computer Use` 的 npm release 产物在没有配置 `OPEN_COMPUTER_USE_CODESIGN_P12_BASE64` / `OPEN_COMPUTER_USE_CODESIGN_P12_PASSWORD` 等 secrets 时，仍会退回 ad-hoc signing；配置后会先导入 `Developer ID Application` 证书，再按该 identity 统一签名。
+- `Open Computer Use` 的正式 npm / 直接下载制品需要配置 `OPEN_COMPUTER_USE_CODESIGN_P12_BASE64` / `OPEN_COMPUTER_USE_CODESIGN_P12_PASSWORD`；导入 Developer ID 身份后按同一 team 签名主 App 与 Locked Use 组件。缺少签名时正式发布失败；日常无签名构建可显式关闭 Locked Use 嵌入。
 - 如果 Open Computer Use 已使用 Developer ID 签名且 `APPLE_NOTARY_*` secrets 齐全，workflow 会 notarize 并 staple direct-download `.app` 后重新生成 app zip、checksums 和 manifest；缺少任一条件时跳过 notarization。
 - `Cursor Motion` 当前 release 资产会优先复用 `OPEN_COMPUTER_USE_CODESIGN_*` 对 app 做 `Developer ID Application` 签名；如果同时配置 `APPLE_NOTARY_API_KEY_P8_BASE64`、`APPLE_NOTARY_KEY_ID`、`APPLE_NOTARY_ISSUER_ID`、`APPLE_DEVELOPER_TEAM_ID`，workflow 会继续对 `.dmg` 执行 notarization 和 staple。
-- 如果上述 secrets 缺失，workflow 会分别退回 ad-hoc signing 或跳过 notarization，而不是阻塞整条 release。
+- Open Computer Use 的正式发布必须包含 Locked Use 签名组件，缺少 Apple 签名身份时构建失败，不能静默发布不完整的 App；公证凭据缺失仍可跳过 notarization。
+- 签名 release App 默认自动构建并内嵌与主 App 同架构的 Locked Use 组件；支持 native / arm64 / x86_64 / universal。CI 显式设置 OPEN_COMPUTER_USE_INCLUDE_LOCKED_USE=1，制品检查覆盖四个组件的架构和严格嵌套签名。
 - `open-computer-use` npm root 包会内置六个 `os-arch` native artifacts，包体积会比 macOS-only 版本更大；release 前要确认 staging 包里包含 `dist/Open Computer Use.app`、`dist/linux/` 和 `dist/windows/`，并确认 launcher 没有声明 `optionalDependencies`。
 - 直接下载的 Linux / Windows CLI archive 只包含 native CLI / MCP runtime；`ocu js` / `ocu repl` 所需的 Node adapter 继续通过 npm 包分发。
 - macOS direct download 必须保留完整 `.app` bundle；不要单独分发 `Contents/MacOS/OpenComputerUse`，否则无法可靠复用 app-scoped 权限身份。
@@ -220,3 +224,7 @@ git push origin :refs/tags/v0.1.14
 - 如果 release 流程本身有变化，这份 `docs/releases/RELEASE_GUIDE.md`
 
 如果一次 release 暴露出新的流程坑，就不要只在聊天里记住，直接补进这份文档。
+
+Locked Use 组件签名同样必须在 CI 临时 signing keychain 可搜索的上下文中执行；仅传 codesign --keychain 不能替代现有的临时搜索列表处理。helper 在成功和失败时均恢复列表，scripts/tests/locked-use-signing.test.sh 用模拟 keychain 回归此边界，不触碰真实用户 keychain。
+
+主 App 与 Locked Use 组件显式以 `codesign --options runtime,library` 签名，确保运行时有 `CS_REQUIRE_LV`；仅启用 Hardened Runtime 不能替代进程校验要求的 Library Validation 标志。构建时 kernel verifier 正例必须通过，不能跳过或放宽生产 requirement。

@@ -268,6 +268,7 @@ final class SkyLightSPI: WindowOcclusionControlling, @unchecked Sendable {
     }
 
     func postToPid(_ event: CGEvent, pid: pid_t) throws {
+        try requireUsableComputerUseSession()
         guard let postToPidFunction else {
             throw unavailableError()
         }

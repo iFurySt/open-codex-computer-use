@@ -66,13 +66,14 @@ test("staged npm launcher includes config module and persists without a native l
   const source = fileURLToPath(new URL("../../", import.meta.url));
   mkdirSync(root);
   for (const entry of ["scripts", "skills", "plugins", ".agents", "LICENSE", "THIRD_PARTY_NOTICES.md"]) cpSync(path.join(source, entry), path.join(root, entry), { recursive: true });
-  // Packaging fixtures only: config must never execute these native artifacts.
+  // Debug packaging fixtures only: config must never execute these native
+  // artifacts. Release packaging separately validates real signed binaries.
   for (const relative of ["Open Computer Use.app/Contents/MacOS/OpenComputerUse", "linux/arm64/open-computer-use", "linux/amd64/open-computer-use", "windows/arm64/open-computer-use.exe", "windows/amd64/open-computer-use.exe"]) {
     const file = path.join(root, "dist", relative);
     mkdirSync(path.dirname(file), { recursive: true });
     writeFileSync(file, "fixture", { mode: 0o755 });
   }
-  const build = spawnSync(process.execPath, [path.join(root, "scripts/npm/build-packages.mjs"), "--skip-build"], { encoding: "utf8" });
+  const build = spawnSync(process.execPath, [path.join(root, "scripts/npm/build-packages.mjs"), "--configuration", "debug", "--skip-build"], { encoding: "utf8" });
   assert.equal(build.status, 0, build.stderr);
   const launcher = path.join(root, "dist/npm/open-computer-use/bin/open-computer-use");
   const run = spawnSync(process.execPath, [launcher, "config", "set", "image.format", "jpg"], { env: { ...process.env, ...env }, encoding: "utf8" });
