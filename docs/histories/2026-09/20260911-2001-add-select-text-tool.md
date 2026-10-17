@@ -72,3 +72,5 @@
 - 文档与 diff whitespace 检查通过。无版本 bump。
 
 交付前再次合入 `0daece0` 的 Trusted Publishing 文档更新；该同步仅涉及文档，文档与 whitespace 检查通过。
+
+补测交付时同步主线 `531c9d4`（上游 1.1.2 版本及发布文档更新），初始化协议相关 2 项测试通过；本任务未额外 bump 版本。

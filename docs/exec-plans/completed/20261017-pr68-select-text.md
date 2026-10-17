@@ -25,7 +25,7 @@ Cover UTF-16 ranges, literal repeated/overlapping text and prefix/suffix disambi
 
 ## Evidence and outcome
 
-- Integrated current main through `0daece0`, including repository identity and trusted-publishing documentation updates. Preserve the original PR commit.
+- Integrated current main through `531c9d4`, including repository identity, trusted-publishing documentation and the upstream 1.1.2 release update. Preserve the original PR commit.
 - Added app.selectText for Persistent and Worker sessions. Native actions resolve query indexes, validate leases, require a settable range, detect changed UTF-16 text and require an exact applied range, even without full read-back. Results use read-only recovery.
 - Literal Unicode search fixes canonically equivalent spelling producing an incorrect range; exact overlapping counts use constant match-storage space.
 - Swift 374 tests, 8 skipped, 0 failures. Selection-specific 22/22 includes a real own NSTextView AX test. Node 42/42 passed; native tool/cursor smoke and Worker JS/native fixture selection smoke passed.
