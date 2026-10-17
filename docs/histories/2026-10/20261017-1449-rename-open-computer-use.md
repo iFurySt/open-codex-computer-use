@@ -17,6 +17,7 @@
 - 保留三个 npm 包名、CLI 别名、旧 MCP 配置迁移、App Bundle ID 和签名身份。
 - 发布 notes 校验接受规范地址与原始历史地址；新增回归，拒绝无关仓库、相似 URL 和错误 tag。
 - 同步发布指南和功能记录；histories、已完成计划、已发布 notes 和逆向样本保留原文。
+- 用户逐包完成安全密钥验证后，为三个 npm 包新增新仓库名的 Trusted Publisher，沿用原有权限；真实认证成功后，新连接均为 Valid，临时验证分支已清理。
 
 ### Design Intent
 
@@ -30,7 +31,8 @@
 - 基于已发布 1.1.1 runtime 生成并 pack 三个 npm 包，规范 repository / homepage / bugs 地址与四个 CLI 入口检查通过；universal App 的四个 Locked Use 组件签名验证通过，App 身份保持不变；`ocu capabilities --json` 全部可用。
 - 新旧 GitHub API / Git 地址指向同一仓库；已有 macOS Release 下载返回 HTTP 200。
 - 基础 CI 的 repo-hygiene 检查因 main 既有的 11 个模板文件缺失而失败；相关检查已分别执行，没有扩大本次改名范围。
-- npm 旧 Trusted Publisher 页面在改名后仍显示 Valid，但三个包的真实 OIDC token exchange 均返回 HTTP 404。正在迁移到新仓库名，保存连接需要账号所有者完成 npm 安全密钥验证。
+- npm 旧 Trusted Publisher 页面在改名后仍显示 Valid，但三个包的真实 OIDC token exchange 均返回 HTTP 404。新增新名称连接后，[最终复验 run 39012120822](https://github.com/iFurySt/open-computer-use/actions/runs/39012120822) 全部成功：三个包均返回 HTTP 201，随后页面均显示 Valid，最初的 Pending validation 已解除。没有发布新版本、保存返回的 token 或扩大原有权限。
+- 旧名失效连接保留为迁移记录，下次正式发版成功后可按需清理；现有 npm 版本仍为 1.1.1，规范仓库元信息随下一次正常发版生效。
 
 ### Files Modified
 
@@ -42,4 +44,4 @@
 - `apps/OpenComputerUseLinux/go.mod`、`apps/OpenComputerUseWindows/go.mod`
 - `skills/open-computer-use/references/installation.md`
 - `docs/releases/RELEASE_GUIDE.md`、`docs/releases/github/TEMPLATE.md`、`docs/releases/feature-release-notes.md`
-- `docs/exec-plans/active/20261017-repository-rename.md`
+- `docs/exec-plans/completed/20261017-repository-rename.md`
