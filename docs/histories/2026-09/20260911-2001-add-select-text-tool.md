@@ -67,7 +67,8 @@
 - Node REPL / CLI / 配置：42 项通过，包含 Persistent 和 Worker 两种会话的参数转发、错误传播和无快照调用。
 - 原有工具 smoke（含 select_text）及 cursor idle smoke 通过。
 - Worker JS → native MCP → 独立 fixture 全链通过：重复 / 不存在文本报错、前缀消歧、中文选区、两种 caret 模式、只返回 ok 的 no-read-back，以及显式读取选区。
-- 额外用正常本机签名的临时 native executable 尝试真实窗口 query / selectText，返回本机 Locked Use 观察连接的 Broken pipe，未计入通过证据，也未绕过保护。完整真实服务 / query 索引联调仍受本机测试宿主准入限制；上文真实 AX 控件测试与 fixture 全链应分别理解。
+- 首次临时 native probe 返回 Locked Use 观察连接的 Broken pipe；后续只读核对准入配置，确认开发版 signing identifier 未登记。改用仓库正常打包、签名的正式版后，真实服务链路通过，未修改系统准入配置或绕过保护。
+- 补测 Worker JS → native MCP → 真实 AX query 索引 → selectText，分别覆盖独立 AppKit 文本框的可编辑与只读模式。独立读取控件导出状态，确认中文选区 UTF-16 location/length 为 3/2，前后 caret 为 6/0、8/0；文本不变、歧义 / 缺失报错、no-read-back 只返回 ok。测试窗口禁止成为 key/main window，避免键盘输入干扰。此前完整真实服务链未验证的限制已消除，未发现新增功能问题。
 - 文档与 diff whitespace 检查通过。无版本 bump。
 
 交付前再次合入 `0daece0` 的 Trusted Publishing 文档更新；该同步仅涉及文档，文档与 whitespace 检查通过。
