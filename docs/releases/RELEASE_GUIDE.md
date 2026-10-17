@@ -25,7 +25,7 @@ npm staging 的 `repository.url` 必须与发布所在的 GitHub 仓库一致，
 
 publisher 即使已绑定仓库不可变身份、页面仍显示 Valid，也不能据此推断改名后的认证可用：本次迁移的旧名称连接在真实 token exchange 中返回 HTTP 404。应以新仓库名新增连接，沿用原有权限，并验证真实认证。创建连接需要账号所有者逐包完成 npm 的安全密钥二步验证。旧名连接保留为迁移记录，下次正式发版成功后可按需清理；它们不能作为新仓库认证的 fallback。参考 [npm 官方 Trusted Publishing 文档](https://docs.npmjs.com/trusted-publishers/)与 [npm Registry API](https://api-docs.npmjs.com/)。
 
-2026-10-17 的迁移已通过 [真实认证复验](https://github.com/iFurySt/open-computer-use/actions/runs/39012120822)：三个包的 token exchange 均返回 HTTP 201，新连接随后从 Pending validation 变为 Valid。此次没有发布新版本或保存返回的 token；npm 现有版本仍为 1.1.1，新仓库元信息会随下一次正常发版进入 registry。
+2026-10-17 的迁移已通过 [真实认证复验](https://github.com/iFurySt/open-computer-use/actions/runs/39012120822)：三个包的 token exchange 均返回 HTTP 201，新连接随后从 Pending validation 变为 Valid。该认证复验没有发布新版本或保存返回的 token，当时 npm 版本仍为 1.1.1。后续 [v1.1.2 正式发布](https://github.com/iFurySt/open-computer-use/actions/runs/39012969782) 已验证四个 job 成功、三个包通过 OIDC 发布，新仓库元信息与 provenance 已进入 registry。
 
 - 本地 staging / 打 tgz：`./scripts/release-package.sh`
 - 本地重新封装 GitHub Release assets：`./scripts/package-github-release-assets.sh --version <version>`
@@ -186,6 +186,9 @@ gh run view -R iFurySt/open-computer-use <run-id> --log-failed
 - 发布成功后，`npm view` 仍显示旧版本或目标版本返回 404
   - 先核对 CI 中每个包的 publish 成功日志。registry 元数据的 CDN 响应可能带有 `max-age=300`，短时间内仍返回旧内容；`--prefer-online` 也可能读到同一份边缘缓存。
   - 可通过 `https://registry.npmjs.org/-/package/<package-name>/dist-tags` 核对实时 dist-tag；待缓存刷新后，再确认三个包的目标版本和 `latest` 一致，避免把传播延迟误判为发布失败。
+  - v1.1.2 曾出现 tarball 已返回 HTTP 200，但版本元数据仍返回 404 的传播窗口。可只读核对带唯一查询参数的完整 packument 辅助定位，最终仍以普通 `npm view` 与实际安装确认，不能用单个缓存响应判断需要重发。
+- `gh attestation verify` 提示 `unsupported tlog public key type: PKIX_ED25519`
+  - 先用新版官方 GitHub CLI 复验。此次本机 `gh 2.49.0` 无法读取新的 Sigstore trusted root，而临时下载并核对官方 archive digest 的 `gh 2.102.0` 验证同一制品成功；旧验证器的不兼容不能据此判定 Release 签名失效。复验应同时限制 `--repo iFurySt/open-computer-use` 与 `--signer-workflow iFurySt/open-computer-use/.github/workflows/release.yml`。
 - 构建阶段失败
   - 优先看 `Build npm release artifacts`、`package-github-release-assets.sh` 的架构/归档校验、`Build Cursor Motion DMG` 或 Swift 编译错误。
 - GitHub Release 资产上传失败
