@@ -46,14 +46,14 @@ public enum TextSelectionResolver {
         let trailing = normalized(suffix)
         let needle = leading + text + trailing
         let haystack = value as NSString
-        let occurrences = occurrenceRanges(of: needle, in: haystack)
+        let (firstOccurrence, occurrenceCount) = occurrences(of: needle, in: haystack)
 
-        guard let first = occurrences.first else {
+        guard let first = firstOccurrence else {
             throw TextSelectionResolverError.notFound
         }
 
-        guard occurrences.count == 1 else {
-            throw TextSelectionResolverError.ambiguous(occurrenceCount: occurrences.count)
+        guard occurrenceCount == 1 else {
+            throw TextSelectionResolverError.ambiguous(occurrenceCount: occurrenceCount)
         }
 
         let matchedLocation = first.location + (leading as NSString).length
@@ -95,25 +95,21 @@ public enum TextSelectionResolver {
         return value
     }
 
-    private static func occurrenceRanges(of needle: String, in haystack: NSString) -> [NSRange] {
-        guard haystack.length > 0, !needle.isEmpty else {
-            return []
-        }
-
-        var ranges: [NSRange] = []
+    private static func occurrences(of needle: String, in haystack: NSString) -> (NSRange?, Int) {
+        guard haystack.length > 0, !needle.isEmpty else { return (nil, 0) }
+        var first: NSRange?
+        var count = 0
         var searchLocation = 0
-
         while searchLocation < haystack.length {
             let searchRange = NSRange(location: searchLocation, length: haystack.length - searchLocation)
-            let found = haystack.range(of: needle, options: [], range: searchRange)
-            guard found.location != NSNotFound else {
-                break
-            }
-
-            ranges.append(found)
+            // Exact code units keep prefix and target lengths aligned with AX.
+            // Canonically equivalent spellings can have different UTF-16 lengths.
+            let found = haystack.range(of: needle, options: .literal, range: searchRange)
+            guard found.location != NSNotFound else { break }
+            if first == nil { first = found }
+            count += 1
             searchLocation = found.location + 1
         }
-
-        return ranges
+        return (first, count)
     }
 }

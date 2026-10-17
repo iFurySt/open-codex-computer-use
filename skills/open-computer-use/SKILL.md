@@ -19,7 +19,7 @@ The macOS runtime additionally implements `select_text`, which selects the given
 element or places the text cursor before / after it (`selection`: `text`, `cursor_before`,
 `cursor_after`). Pass `text` exactly as it appears in the accessibility tree, plus `prefix` /
 `suffix` when it is not unique; an ambiguous target fails closed instead of silently selecting the
-first match. Windows and Linux runtimes do not implement this tool yet.
+first match. JavaScript exposes `app.selectText(elementIndex, text, options?)`. Unreadable or mismatched range verification throws, including when full action read-back is off. Windows and Linux runtimes do not implement this tool yet.
 
 macOS additionally exposes `query`: a targeted accessibility lookup that finds
 controls by text and/or role without rendering a tree or taking a screenshot.
@@ -44,7 +44,7 @@ controls by text and/or role without rendering a tree or taking a screenshot.
 - Treat the target desktop as the user's real session. Do not inspect password managers, unrelated private content, or sensitive apps unless the user explicitly asked for that task.
 - Ask before sending, deleting, purchasing, approving, uploading, or making other externally visible changes.
 - Do not assume Codex.app plugin helpers are available. Use the installed `open-computer-use` / `ocu` CLI or an explicit MCP config.
-- Always run `get_app_state` before using `element_index`; do not guess indexes across sessions or after large UI changes.
+- Use indexes returned by `get_app_state` or macOS `query` in the same native session; do not guess indexes across sessions or after large UI changes.
 - Prefer semantic actions and `set_value` for editable controls. Use coordinate `click`, `scroll`, and `drag` only when the element tree does not expose a safer target.
 - On macOS, do not enable `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` unless the user explicitly requested `click_method: "global"`, a `drag` that must drive a window-server drag session (window move, drag-select text, Finder drag-and-drop), or other diagnostic behavior that may move the real pointer. Without it `drag` reports `Drag delivered via app_post` and those operations have no effect; see `references/usage.md` for alternatives.
 - On Windows and Linux, confirm the command is running inside the logged-in desktop session before assuming GUI automation is available.

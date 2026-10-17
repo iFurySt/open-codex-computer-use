@@ -48,3 +48,24 @@
 ### 📌 Notes / 未覆盖
 - Windows（Go + PowerShell UIA）与 Linux（Go + AT-SPI2）runtime 仍是 9 个 tool，`select_text` 未实现；已在 `docs/ARCHITECTURE.md` / `docs/QUALITY_SCORE.md` 明确标注平台差异。
 - 未做版本 bump 与 release notes：本次是能力补齐，按仓库发版流程需要单独走 `docs/releases/RELEASE_GUIDE.md`。
+
+
+### 2026-10-17：基于当前 main 补齐 JS 入口
+
+用户要求同步最新 main、解决冲突、补齐 JS 调用、检查测试并推送原 PR。保留原贡献提交，合并最新主线并修正 query / select_text 的工具清单、测试及 skill 冲突。macOS 当前为 11 个 native tools，Linux / Windows 仍为 9 个。
+
+- 新增 `app.selectText(elementIndex, text, {prefix?, suffix?, selection?})`，校验索引、文本、选项及模式；支持快照和 query 索引，原生失败通过两种 JS 会话的异常返回。
+- 原 selectText 直接查旧 snapshot，无法使用 query 索引；改为现有 snapshotForAction 路径。定向索引解析前检查会话，原生读取、实际写入前及验证后继续检查会话 / 租约，取消不能继续写入或报告成功。
+- 写入前检查 AX range 可设置，使用只读 recovery 刷新结果；不激活 app、不增加键盘或真实指针 fallback。
+- 修复不可验证结果被当成成功：缺失或不匹配的实际 range 明确返回错误。即使关闭完整回读也验证文本未变和实际 range；JS 不再吞掉非错误的提示。测试覆盖写前 / 写后文本变化、租约撤销、缺失及拒绝选区。
+- 原 NSString 搜索会按规范等价字符匹配，但按请求字符串的 UTF-16 长度计算范围。实测原实现把两单元的分解字符匹配成长度 1；改为字面匹配，拒绝不同 Unicode 拼写。重叠匹配仍完整计数，扫描不再保存所有匹配范围。
+- fixture 导出实际 range，验证选区 / caret 后才返回；JS/native smoke 使用 UUID 隔离状态及通知，支持并行测试清理。同步 API、平台范围和功能说明。
+
+验证：
+
+- `swift test`：374 项、8 项跳过、0 失败；新增选择相关 22 项均通过，包含独立 AppKit NSTextView 的真实 AX UTF-16 选区及两种 caret 模式。
+- Node REPL / CLI / 配置：42 项通过，包含 Persistent 和 Worker 两种会话的参数转发、错误传播和无快照调用。
+- 原有工具 smoke（含 select_text）及 cursor idle smoke 通过。
+- Worker JS → native MCP → 独立 fixture 全链通过：重复 / 不存在文本报错、前缀消歧、中文选区、两种 caret 模式、只返回 ok 的 no-read-back，以及显式读取选区。
+- 额外用正常本机签名的临时 native executable 尝试真实窗口 query / selectText，返回本机 Locked Use 观察连接的 Broken pipe，未计入通过证据，也未绕过保护。完整真实服务 / query 索引联调仍受本机测试宿主准入限制；上文真实 AX 控件测试与 fixture 全链应分别理解。
+- 文档与 diff whitespace 检查通过。无版本 bump。

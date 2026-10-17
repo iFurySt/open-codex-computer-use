@@ -50,6 +50,8 @@ public struct FixtureAppState: Codable, Sendable {
     public let activationLossCount: Int?
     public let keyWindowLossCount: Int?
     public let selectedText: String?
+    public let selectedRangeLocation: Int?
+    public let selectedRangeLength: Int?
 
     public init(
         processIdentifier: pid_t? = nil,
@@ -61,7 +63,9 @@ public struct FixtureAppState: Codable, Sendable {
         isKeyWindow: Bool? = nil,
         activationLossCount: Int? = nil,
         keyWindowLossCount: Int? = nil,
-        selectedText: String? = nil
+        selectedText: String? = nil,
+        selectedRangeLocation: Int? = nil,
+        selectedRangeLength: Int? = nil
     ) {
         self.processIdentifier = processIdentifier
         self.windowTitle = windowTitle
@@ -73,6 +77,8 @@ public struct FixtureAppState: Codable, Sendable {
         self.activationLossCount = activationLossCount
         self.keyWindowLossCount = keyWindowLossCount
         self.selectedText = selectedText
+        self.selectedRangeLocation = selectedRangeLocation
+        self.selectedRangeLength = selectedRangeLength
     }
 }
 
@@ -121,11 +127,19 @@ public struct FixtureCommand: Codable, Sendable {
 
 public enum FixtureBridge {
     public static let appName = "OpenComputerUseFixture"
-    public static let distributedNotificationName = Notification.Name("dev.opencodex.opencomputeruse.fixture.command")
+    // Optional UUID isolates concurrent smoke sessions; ordinary fixture behavior is unchanged.
+    private static var testNamespace: String? {
+        ProcessInfo.processInfo.environment["OPEN_COMPUTER_USE_FIXTURE_NAMESPACE"]
+            .flatMap(UUID.init(uuidString:))?.uuidString
+    }
+
+    public static var distributedNotificationName: Notification.Name {
+        Notification.Name("dev.opencodex.opencomputeruse.fixture.command" + (testNamespace.map { "." + $0 } ?? ""))
+    }
 
     public static var stateFileURL: URL {
         URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("open-computer-use-fixture", isDirectory: true)
+            .appendingPathComponent("open-computer-use-fixture" + (testNamespace.map { "-" + $0 } ?? ""), isDirectory: true)
             .appendingPathComponent("state.json")
     }
 

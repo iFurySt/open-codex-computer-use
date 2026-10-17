@@ -47,6 +47,7 @@ The runtime exposes an asynchronous app-bound API:
 - \`await app.typeText(text, { keyMethod? })\`
 - \`await app.pressKey(key, { keyMethod? })\`
 - \`await app.setValue(elementIndex, value)\`
+- \`await app.selectText(elementIndex, text, { prefix?, suffix?, selection? })\`: macOS-only; selection is text (default), cursor_before or cursor_after. Ambiguous text and unverified selections throw.
 - \`await app.performSecondaryAction(elementIndex, action)\`
 
 After actions, call \`getAXState()\` in the same js invocation when the next decision depends on the updated UI. Re-derive element indexes from fresh state after navigation or layout changes. Prefer element indexes over coordinates. Open Computer Use keeps its existing local safety gates, including password-manager denial and explicit authorization for global pointer fallbacks.`;
@@ -348,6 +349,23 @@ export function createCuaApi(native, activeOutput) {
         await call("scroll", { app, element_index: target, direction, pages });
       },
       async setValue(elementIndex, value) { await call("set_value", { app, element_index: elementIndex, value }); },
+      async selectText(elementIndex, text, options = {}) {
+        const index = typeof elementIndex === "string" && /^(0|[1-9]\d*)$/u.test(elementIndex) ? Number(elementIndex) : elementIndex;
+        if (!Number.isSafeInteger(index) || index < 0) throw new Error("selectText requires a non-negative integer element index");
+        if (typeof text !== "string" || !text.length) throw new Error("selectText requires non-empty text");
+        if (!isPlainObject(options)) throw new Error("selectText expects an options object");
+        for (const key of Object.keys(options)) {
+          if (!["prefix", "suffix", "selection"].includes(key)) throw new Error(`Unknown selectText option: ${key}`);
+        }
+        for (const key of ["prefix", "suffix"]) {
+          if (options[key] !== undefined && typeof options[key] !== "string") throw new Error(`${key} must be a string`);
+        }
+        if (options.selection !== undefined && !["text", "cursor_before", "cursor_after"].includes(options.selection)) {
+          throw new Error("selection must be text, cursor_before or cursor_after");
+        }
+        await call("select_text", { app, element_index: elementIndex, text,
+          prefix: options.prefix, suffix: options.suffix, selection: options.selection });
+      },
       async typeText(text, options = {}) { await call("type_text", { app, text, ...optionsToKeyArgs(options) }); },
       async performSecondaryAction(elementIndex, action) { await call("perform_secondary_action", { app, element_index: elementIndex, action }); },
     });

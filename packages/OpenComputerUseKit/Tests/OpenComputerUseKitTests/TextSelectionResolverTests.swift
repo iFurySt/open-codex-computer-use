@@ -83,6 +83,21 @@ final class TextSelectionResolverTests: XCTestCase {
         XCTAssertEqual(target.length, 2)
     }
 
+    func testCanonicalEquivalenceDoesNotProduceAnIncorrectUTF16Range() throws {
+        XCTAssertThrowsError(try resolve(value: "e\u{301} target", text: "é")) {
+            XCTAssertEqual($0 as? TextSelectionResolverError, .notFound)
+        }
+        let target = try resolve(value: "é target; e\u{301} target", text: "target", prefix: "e\u{301} ")
+        XCTAssertEqual(target.location, 13)
+        XCTAssertEqual(target.length, 6)
+    }
+
+    func testManyOverlappingMatchesReportTheFullCount() {
+        XCTAssertThrowsError(try resolve(value: String(repeating: "a", count: 1000), text: "aa")) {
+            XCTAssertEqual($0 as? TextSelectionResolverError, .ambiguous(occurrenceCount: 999))
+        }
+    }
+
     func testSelectionModeRawValuesMatchTheToolSchema() {
         XCTAssertEqual(TextSelectionMode.allCases.map(\.rawValue), ["text", "cursor_before", "cursor_after"])
     }

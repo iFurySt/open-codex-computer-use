@@ -407,7 +407,9 @@ final class FixtureAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
             isKeyWindow: window.isKeyWindow,
             activationLossCount: activationLossCount,
             keyWindowLossCount: keyWindowLossCount,
-            selectedText: selectedTextInInputField
+            selectedText: selectedTextInInputField,
+            selectedRangeLocation: inputField.currentEditor()?.selectedRange.location,
+            selectedRangeLength: inputField.currentEditor()?.selectedRange.length
         )
 
         try? FixtureBridge.writeState(state)

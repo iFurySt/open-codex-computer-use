@@ -352,3 +352,43 @@ test("query returns truncation metadata and rejects malformed native responses",
   assert.equal(bad.isError, true);
   assert.match(bad.content.at(-1).text, /Invalid query response/);
 });
+
+
+for (const Session of [PersistentJavaScriptSession, WorkerJavaScriptSession]) {
+  test(`${Session.name}: selectText forwards all selection modes without a snapshot`, async t => {
+    const native = mockNative(), session = new Session({ native });
+    t.after(() => session.close?.());
+    let result = await session.run(`var selectionApp = await cua.getApp("Text", { initialState: false }); await selectionApp.selectText(1000001, "中文🙂", {prefix: "before ", suffix: " after"});`);
+    assert.equal(result.isError, false, result.content.at(-1).text);
+    assert.deepEqual(native.calls[0], { name: "select_text", arguments: { app: "Text", element_index: 1000001, text: "中文🙂", prefix: "before ", suffix: " after", selection: undefined } });
+    for (const mode of ["text", "cursor_before", "cursor_after"]) {
+      result = await session.run(`await selectionApp.selectText("5", "target", {selection: "${mode}"});`);
+      assert.equal(result.isError, false, result.content.at(-1).text);
+      assert.equal(native.calls.at(-1).arguments.selection, mode);
+    }
+    assert.equal(native.calls.some(call => call.name === "get_app_state"), false);
+  });
+
+  test(`${Session.name}: selectText rejects invalid inputs before native calls`, async t => {
+    const native = mockNative(), session = new Session({ native });
+    t.after(() => session.close?.());
+    await session.run(`var selectionApp = await cua.getApp("Text", { initialState: false });`);
+    for (const args of [`-1,"x"`, `1.5,"x"`, `true,"x"`, `"bad","x"`, `[],"x"`, `0,""`, `0,3`, `0,"x",null`, `0,"x",[]`, `0,"x",{prefix:2}`, `0,"x",{suffix:null}`, `0,"x",{selection:"after"}`, `0,"x",{selection:""}`, `0,"x",{typo:true}`]) {
+      const result = await session.run(`await selectionApp.selectText(${args});`);
+      assert.equal(result.isError, true, args);
+    }
+    assert.equal(native.calls.length, 0);
+  });
+
+  test(`${Session.name}: selectText preserves native verification and platform failures`, async t => {
+    const native = mockNative(), session = new Session({ native });
+    t.after(() => session.close?.());
+    await session.run(`var selectionApp = await cua.getApp("Text", { initialState: false });`);
+    for (const message of ["select_text could not verify the requested range", 'unsupportedTool("select_text")']) {
+      native.request = async () => textResult(message, true);
+      const result = await session.run(`await selectionApp.selectText(0,"target");`);
+      assert.equal(result.isError, true);
+      assert.ok(result.content.at(-1).text.includes(message), result.content.at(-1).text);
+    }
+  });
+}

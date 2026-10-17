@@ -2,7 +2,7 @@
 
 Open Computer Use ships a Node.js adapter for hosts that want a code-first
 Computer Use surface. The adapter exposes two model-facing MCP tools, `js` and
-`js_reset`, and keeps the existing native 9-tool MCP server behind it.
+`js_reset`, and keeps the native MCP server behind it (11 tools on macOS, 9 on Linux/Windows).
 
 ## Why this shape
 
@@ -49,9 +49,28 @@ drag([fromX, fromY], [toX, toY])
 pressKey(key, options?)
 scroll(elementIndex, direction, pages?)
 setValue(elementIndex, value)
+selectText(elementIndex, text, { prefix?, suffix?, selection? })  // macOS
 typeText(text, options?)
 performSecondaryAction(elementIndex, action)
 ```
+
+On macOS, `selectText` selects exact text inside a text element. `prefix` and `suffix`
+match the immediately adjacent text to disambiguate repeated occurrences. `selection`
+is `text` (default), `cursor_before` or `cursor_after`. Snapshot and `query` indexes
+both work in the same session. For example:
+
+```js
+var editor = await cua.getApp("TextEdit", { initialState: false });
+var fields = await editor.query({ role: "AXTextArea" });
+if (fields.matches.length !== 1) throw new Error("Choose the intended text area first");
+await editor.selectText(fields.matches[0].index, "target", { selection: "cursor_after" });
+await editor.getAXState();
+```
+
+Missing/ambiguous text, unsupported range selection, changed text and failed range
+verification throw through `js`. Verification still reads the applied range when full
+action read-back is disabled. The tool does not use keyboard/pointer fallback or
+activate the application. Linux/Windows report the native unsupported-tool error.
 
 Discovery is available through `await cua.getState()` and
 `await cua.listApps()`. `listApps()` normalizes the native human-readable app
@@ -98,15 +117,16 @@ explicitly, so it launches the native runtime with
 `OPEN_COMPUTER_USE_ACTION_READ_BACK=0`: actions return a short status with no
 settle and no snapshot, and one `getAXState()` at the end of a batch reads the
 outcome. On macOS a ten-click batch drops from several seconds to roughly one
-state read. Linux and Windows runtimes ignore the variable for now and keep
-reading back after each action.
+state read. Linux also honors this switch; Windows keeps reading back after each
+action. `selectText` still verifies the value and applied range, without taking a
+full snapshot.
 
 ## Entrypoints
 
 - The Codex plugin manifest uses the REPL launcher by default, so its advertised
   model-facing surface is `js` plus `js_reset`.
-- `open-computer-use mcp` remains the native 9-tool compatibility surface for
-  other MCP clients.
+- `open-computer-use mcp` remains the native compatibility surface for other MCP
+  clients (11 tools on macOS, 9 on Linux/Windows).
 - The npm CLI also exposes the same runtime directly:
 
 ```sh

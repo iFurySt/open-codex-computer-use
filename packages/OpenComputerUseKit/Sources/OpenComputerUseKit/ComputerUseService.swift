@@ -310,19 +310,8 @@ func selectTextUnreadableValueErrorMessage(elementIndex: String) -> String {
     return "element \(elementIndex) has no readable accessibility text value, so select_text cannot locate the requested text"
 }
 
-func selectTextVerificationNote(target: TextSelectionTarget, applied: CFRange) -> String {
-    return "select_text requested range (\(target.location), \(target.length)) but the element reported (\(applied.location), \(applied.length)); the app may not support accessibility range selection."
-}
-
 /// Inserts a verification note after the snapshot text and before any screenshot, matching
 /// `appendingDragDeliveryNote` so `primaryText` stays the snapshot for existing consumers.
-func appendingSelectionNote(_ note: String, to result: ToolCallResult) -> ToolCallResult {
-    var content = result.content
-    let insertIndex = content.firstIndex { $0.dictionary["type"] as? String == "image" } ?? content.endIndex
-    content.insert(.text(note), at: insertIndex)
-    return ToolCallResult(content: content, isError: result.isError)
-}
-
 func screenshotPixelScale(
     screenshotPixelSize: CGSize?,
     windowBounds: CGRect?
@@ -1033,103 +1022,75 @@ public final class ComputerUseService {
         suffix: String?,
         selection: TextSelectionMode
     ) throws -> ToolCallResult {
-        let snapshot = try currentSnapshot(for: query)
+        let snapshot = try snapshotForAction(app: query, elementIndex: elementIndex)
         let record = try lookupElement(snapshot: snapshot, index: elementIndex)
 
         if snapshot.mode == .fixture {
-            guard let identifier = record.identifier else {
-                throw ComputerUseError.invalidArguments("fixture select_text requires a known element identifier")
+            guard let identifier = record.identifier, identifier == "fixture-input",
+                  let state = try FixtureBridge.readState(),
+                  let value = state.elements.first(where: { $0.identifier == identifier })?.value else {
+                throw ComputerUseError.invalidArguments("fixture select_text requires a readable input element")
             }
-
+            let target = try resolveTextSelection(value: value, text: text, prefix: prefix, suffix: suffix,
+                                                 selection: selection, elementIndex: elementIndex)
             let cursorTarget = visualCursorTarget(for: record, snapshot: snapshot)
             moveVisualCursor(to: cursorTarget)
-            try FixtureBridge.post(
-                FixtureCommand(
-                    kind: "select_text",
-                    identifier: identifier,
-                    value: text,
-                    selection: selection.rawValue,
-                    prefix: prefix,
-                    suffix: suffix
-                )
-            )
-            Thread.sleep(forTimeInterval: 0.15)
-            settleVisualCursor(at: cursorTarget)
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+            defer { settleVisualCursor(at: cursorTarget) }
+            try FixtureBridge.post(FixtureCommand(kind: "select_text", identifier: identifier, value: text,
+                                                 selection: selection.rawValue, prefix: prefix, suffix: suffix))
+            let deadline = Date().addingTimeInterval(1)
+            while Date() < deadline {
+                if let applied = try FixtureBridge.readState(), applied.focusedIdentifier == identifier,
+                   applied.selectedRangeLocation == target.location, applied.selectedRangeLength == target.length,
+                   let current = applied.elements.first(where: { $0.identifier == identifier })?.value,
+                   current.utf16.elementsEqual(value.utf16) {
+                    return try actionResult(for: query, recoveryPolicy: .readOnly)
+                }
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+            throw ComputerUseError.message("select_text could not verify fixture selection")
         }
 
+        try requireUsableComputerUseSession()
         guard let element = record.element else {
             throw ComputerUseError.stateUnavailable("element \(elementIndex) has no backing accessibility object")
         }
-
         guard let value = stringValue(of: element, attribute: kAXValueAttribute) else {
             throw ComputerUseError.message(selectTextUnreadableValueErrorMessage(elementIndex: elementIndex))
         }
+        let target = try resolveTextSelection(value: value, text: text, prefix: prefix, suffix: suffix,
+                                             selection: selection, elementIndex: elementIndex)
+        var settable = DarwinBoolean(false)
+        guard AXUIElementIsAttributeSettable(element, kAXSelectedTextRangeAttribute as CFString, &settable) == .success,
+              settable.boolValue else {
+            throw ComputerUseError.message("element \(elementIndex) does not support setting an accessibility text range")
+        }
+        let cursorTarget = visualCursorTarget(for: record, snapshot: snapshot)
+        moveVisualCursor(to: cursorTarget)
+        defer { settleVisualCursor(at: cursorTarget) }
+        try applyVerifiedTextSelection(
+            target: target, originalValue: value,
+            validate: { try requireUsableComputerUseSession() },
+            readValue: { stringValue(of: element, attribute: kAXValueAttribute) },
+            writeRange: { try AccessibilityTextSelection.writeRange($0, to: element) },
+            readRange: { AccessibilityTextSelection.readRange(of: element) }
+        )
+        return try actionResult(for: query, recoveryPolicy: .readOnly)
+    }
 
-        let target: TextSelectionTarget
+    private func resolveTextSelection(value: String, text: String, prefix: String?, suffix: String?,
+                                      selection: TextSelectionMode, elementIndex: String) throws -> TextSelectionTarget {
         do {
-            target = try TextSelectionResolver.resolve(
-                value: value,
-                text: text,
-                prefix: prefix,
-                suffix: suffix,
-                selection: selection
-            )
+            return try TextSelectionResolver.resolve(value: value, text: text, prefix: prefix, suffix: suffix, selection: selection)
         } catch let error as TextSelectionResolverError {
             throw ComputerUseError.message(selectTextErrorMessage(error, elementIndex: elementIndex))
         }
-
-        var range = CFRange(location: target.location, length: target.length)
-        guard let rangeValue = AXValueCreate(.cfRange, &range) else {
-            throw ComputerUseError.message("failed to build an accessibility range value for select_text")
-        }
-
-        let cursorTarget = visualCursorTarget(for: record, snapshot: snapshot)
-        moveVisualCursor(to: cursorTarget)
-
-        do {
-            let result = AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, rangeValue)
-            guard result == .success else {
-                throw ComputerUseError.message("AXUIElementSetAttributeValue failed with \(result.rawValue)")
-            }
-
-            Thread.sleep(forTimeInterval: 0.1)
-        } catch {
-            settleVisualCursor(at: cursorTarget)
-            throw error
-        }
-
-        settleVisualCursor(at: cursorTarget)
-
-        let actionResult = snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
-        guard let applied = selectedTextRange(of: element),
-              applied.location != target.location || applied.length != target.length
-        else {
-            return actionResult
-        }
-
-        return appendingSelectionNote(selectTextVerificationNote(target: target, applied: applied), to: actionResult)
-    }
-
-    private func selectedTextRange(of element: AXUIElement) -> CFRange? {
-        var value: CFTypeRef?
-        let result = AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &value)
-        guard result == .success, let value, CFGetTypeID(value) == AXValueGetTypeID() else {
-            return nil
-        }
-
-        var range = CFRange()
-        guard AXValueGetValue(value as! AXValue, .cfRange, &range) else {
-            return nil
-        }
-
-        return range
     }
 
     /// Find controls in the app's current window by text and/or role, using the
     /// app's own accessibility search where it offers one. No tree render, no
     /// screenshot. Each result carries an `index` the existing element actions
-    /// (click, set_value, scroll, perform_secondary_action) accept.
+    /// (click, set_value, select_text, scroll, perform_secondary_action) accept.
     public func query(
         app query: String,
         text: String? = nil,
@@ -1185,6 +1146,7 @@ public final class ComputerUseService {
     /// the normal current snapshot.
     private func snapshotForAction(app query: String, elementIndex: String?) throws -> AppSnapshot {
         if let elementIndex, let index = Int(elementIndex), index > TargetedElementRegistry<TargetedElement>.indexBase {
+            try requireUsableComputerUseSession()
             let app = try AppDiscovery.resolveRunning(query)
             let target = try targetedElements.resolve(index, app: TargetedAppIdentity(app: app))
             do {
