@@ -23,7 +23,9 @@ GitHub 仓库规范地址是 `https://github.com/iFurySt/open-computer-use`。�
 
 npm staging 的 `repository.url` 必须与发布所在的 GitHub 仓库一致，否则 provenance / Trusted Publishing 可能失败。改名后应逐个核对 `open-computer-use`、`open-computer-use-mcp`、`open-codex-computer-use-mcp` 的 npm Trusted Publisher，workflow 文件仍为 `release.yml`。`npm publish --dry-run` 和 `npm whoami` 不能验证 GitHub OIDC；可在同一 workflow 文件的临时分支上，使用 GitHub OIDC 向 npm 官方 token-exchange API 验证三个包均返回 HTTP 201，不输出、保存或使用返回的 token，不执行 publish。该检查证明认证可用，完整构建 / provenance / 发布仍以实际发版为准。
 
-publisher 即使已绑定仓库不可变身份、页面仍显示 Valid，也不能据此推断改名后的认证可用：本次迁移的旧名称连接在真实 token exchange 中返回 HTTP 404。应以新仓库名新增连接，沿用原有权限，并验证真实认证；在新连接生效前保留旧连接，验证成功后再清理。创建连接需要账号所有者完成 npm 的安全密钥二步验证。参考 [npm 官方 Trusted Publishing 文档](https://docs.npmjs.com/trusted-publishers/)与 [npm Registry API](https://api-docs.npmjs.com/)。
+publisher 即使已绑定仓库不可变身份、页面仍显示 Valid，也不能据此推断改名后的认证可用：本次迁移的旧名称连接在真实 token exchange 中返回 HTTP 404。应以新仓库名新增连接，沿用原有权限，并验证真实认证。创建连接需要账号所有者逐包完成 npm 的安全密钥二步验证。旧名连接保留为迁移记录，下次正式发版成功后可按需清理；它们不能作为新仓库认证的 fallback。参考 [npm 官方 Trusted Publishing 文档](https://docs.npmjs.com/trusted-publishers/)与 [npm Registry API](https://api-docs.npmjs.com/)。
+
+2026-10-17 的迁移已通过 [真实认证复验](https://github.com/iFurySt/open-computer-use/actions/runs/39012120822)：三个包的 token exchange 均返回 HTTP 201，新连接随后从 Pending validation 变为 Valid。此次没有发布新版本或保存返回的 token；npm 现有版本仍为 1.1.1，新仓库元信息会随下一次正常发版进入 registry。
 
 - 本地 staging / 打 tgz：`./scripts/release-package.sh`
 - 本地重新封装 GitHub Release assets：`./scripts/package-github-release-assets.sh --version <version>`

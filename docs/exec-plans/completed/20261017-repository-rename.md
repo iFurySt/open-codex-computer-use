@@ -4,6 +4,10 @@
 
 将 GitHub 仓库从 `iFurySt/open-codex-computer-use` 改名为 `iFurySt/open-computer-use`，同步 npm、plugin、skill、发布校验和当前文档，保持现有安装与 App 身份兼容。
 
+## 完成状态
+
+2026-10-17 已完成：仓库代码通过 #107 合入 main，三个 npm 包的新 Trusted Publisher 已保存并完成真实 OIDC 验证，页面均显示 Valid。
+
 ## 范围与约束
 
 - 更新当前仓库引用、Go module 路径和本地 origin。
@@ -34,7 +38,9 @@
 - [x] 完成验证：40 个本地 Node 测试、Linux / Windows Go 测试、14 个 Linux Python 测试、DSH 安装回归、文档与 Action pinning 检查；三个 npm 包真实 staging / pack、签名组件和 App 身份检查通过。同步并发合入的 #100 后，在 GitHub Linux runner 上再次验证两个 Go runtime、14 个 Python 测试与 4 个 release-notes 测试。
 - [x] GitHub 改名并更新共享 origin；新旧 GitHub API 与 Git 地址对应同一仓库，旧 Release 下载返回 HTTP 200。
 - [x] 提交并推送改动，代码迁移通过 [PR #107](https://github.com/iFurySt/open-computer-use/pull/107) 交付。
-- [ ] 完成 npm Trusted Publisher 迁移；旧连接虽显示 Valid，真实 OIDC token exchange 三个包均返回 404，新连接保存正在等待用户完成 npm 安全密钥验证。
+- [x] 完成 npm Trusted Publisher 迁移：用户逐包完成安全密钥验证，新连接均使用 `iFurySt/open-computer-use` / `release.yml`，沿用原有 publish / stage 权限。
+- [x] 真实 OIDC 复验三个包均返回 HTTP 201，新连接均变为 Valid；没有发布新版本或保存返回的凭据。
+- [x] 清理临时验证分支与已合入的代码迁移分支。
 
 ## 验证边界
 
@@ -42,7 +48,9 @@
 - npm staging 复用 registry 已发布的 1.1.1 原生 runtime，验证本次包元信息与封装，没有重建或发布 App。
 - 首次真实 OIDC 检查：[Actions run 39011291883](https://github.com/iFurySt/open-computer-use/actions/runs/39011291883)，证明只检查页面状态不足以发现改名后的认证问题。
 - 同步 #100 后的 Linux 平台验证：[Actions run 39011557748](https://github.com/iFurySt/open-computer-use/actions/runs/39011557748) 的 platform tests step 通过；该 run 后续仍因尚未完成 npm 账号迁移而失败。新增 bridge 测试要求 Linux，不能以 macOS 本地执行结果替代。
+- 最终复验：[Actions run 39012120822](https://github.com/iFurySt/open-computer-use/actions/runs/39012120822) 全部通过，包括两个 Go runtime、14 个 Python 测试、4 个 release-notes 测试及三个包的真实 OIDC token exchange；浏览器随后确认三个新连接均为 Valid。
 
 ## 决策记录
 
 - 2026-10-17：仓库名采用全小写 open-computer-use；现有产品与包身份保持稳定。保留历史原文，避免改写已发布记录。
+- 2026-10-17：真实 token exchange 已使三个新连接完成 validation，无需为了迁移验证而公开发布新版本。旧名失效连接保留为迁移记录，可在下一次正式发版后按需清理。
