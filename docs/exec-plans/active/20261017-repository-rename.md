@@ -31,9 +31,9 @@
 - [x] 已同步远端，基于最新 main 建立独立工作目录，确认 GitHub ADMIN 权限。
 - [x] 确认当前项目没有 Homebrew formula/cask，现有 npm 直接内置 runtime。
 - [x] 完成当前引用和发布校验迁移。
-- [x] 完成本地验证：40 个 Node 测试、Linux / Windows Go 测试、10 个 Linux Python 测试、DSH 安装回归、文档与 Action pinning 检查；三个 npm 包真实 staging / pack、签名组件和 App 身份检查通过。
+- [x] 完成验证：40 个本地 Node 测试、Linux / Windows Go 测试、14 个 Linux Python 测试、DSH 安装回归、文档与 Action pinning 检查；三个 npm 包真实 staging / pack、签名组件和 App 身份检查通过。同步并发合入的 #100 后，在 GitHub Linux runner 上再次验证两个 Go runtime、14 个 Python 测试与 4 个 release-notes 测试。
 - [x] GitHub 改名并更新共享 origin；新旧 GitHub API 与 Git 地址对应同一仓库，旧 Release 下载返回 HTTP 200。
-- [ ] 提交并推送改动。
+- [x] 提交并推送改动，代码迁移通过 [PR #107](https://github.com/iFurySt/open-computer-use/pull/107) 交付。
 - [ ] 完成 npm Trusted Publisher 迁移；旧连接虽显示 Valid，真实 OIDC token exchange 三个包均返回 404，新连接保存正在等待用户完成 npm 安全密钥验证。
 
 ## 验证边界
@@ -41,6 +41,7 @@
 - 基础 `scripts/ci.sh` 被 main 已有的 repo-hygiene 检查阻断：缺少模板要求的 11 个文件，包括 `.editorconfig` 与旧 CI workflows。没有为改名任务补回这些无关模板；相关测试已分别执行。
 - npm staging 复用 registry 已发布的 1.1.1 原生 runtime，验证本次包元信息与封装，没有重建或发布 App。
 - 首次真实 OIDC 检查：[Actions run 39011291883](https://github.com/iFurySt/open-computer-use/actions/runs/39011291883)，证明只检查页面状态不足以发现改名后的认证问题。
+- 同步 #100 后的 Linux 平台验证：[Actions run 39011557748](https://github.com/iFurySt/open-computer-use/actions/runs/39011557748) 的 platform tests step 通过；该 run 后续仍因尚未完成 npm 账号迁移而失败。新增 bridge 测试要求 Linux，不能以 macOS 本地执行结果替代。
 
 ## 决策记录
 

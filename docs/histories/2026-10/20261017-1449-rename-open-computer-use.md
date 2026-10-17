@@ -25,7 +25,7 @@
 ### Validation
 
 - Node REPL / CLI / release notes：40 tests passed。
-- Linux / Windows Go runtime：`go test ./...` passed；Linux Python：10 tests passed；DSH 安装回归 passed。
+- Linux / Windows Go runtime：`go test ./...` passed；Linux Python：14 tests passed；DSH 安装回归 passed。同步并发合入的 #100 后，在真实 GitHub Linux runner 上补跑两个 Go runtime、14 个 Python 测试与 4 个 release-notes 测试，platform tests step 全部通过（run 39011557748）；本机 macOS 不满足新增 bridge 测试的 Linux 平台要求。
 - `make check-docs`、Action SHA pinning、shell syntax 与 `git diff --check` passed。
 - 基于已发布 1.1.1 runtime 生成并 pack 三个 npm 包，规范 repository / homepage / bugs 地址与四个 CLI 入口检查通过；universal App 的四个 Locked Use 组件签名验证通过，App 身份保持不变；`ocu capabilities --json` 全部可用。
 - 新旧 GitHub API / Git 地址指向同一仓库；已有 macOS Release 下载返回 HTTP 200。
