@@ -6,8 +6,8 @@
     "name": "Leo",
     "url": "https://github.com/iFurySt"
   },
-  "homepage": "https://github.com/iFurySt/open-codex-computer-use",
-  "repository": "https://github.com/iFurySt/open-codex-computer-use",
+  "homepage": "https://github.com/iFurySt/open-computer-use",
+  "repository": "https://github.com/iFurySt/open-computer-use",
   "license": "MIT",
   "keywords": [
     "computer-use",
@@ -28,9 +28,9 @@
       "Read",
       "Write"
     ],
-    "websiteURL": "https://github.com/iFurySt/open-codex-computer-use",
-    "privacyPolicyURL": "https://github.com/iFurySt/open-codex-computer-use/blob/main/SECURITY.md",
-    "termsOfServiceURL": "https://github.com/iFurySt/open-codex-computer-use/blob/main/LICENSE",
+    "websiteURL": "https://github.com/iFurySt/open-computer-use",
+    "privacyPolicyURL": "https://github.com/iFurySt/open-computer-use/blob/main/SECURITY.md",
+    "termsOfServiceURL": "https://github.com/iFurySt/open-computer-use/blob/main/LICENSE",
     "defaultPrompt": [
       "Inspect the current UI state of this desktop app without stealing focus when possible",
       "Open a new local document with keyboard shortcuts first, then type content without moving my real pointer unless required",

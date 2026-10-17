@@ -5,7 +5,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const repositoryURL = "https://github.com/iFurySt/open-codex-computer-use";
+const repositoryURL = "https://github.com/iFurySt/open-computer-use";
+// Published notes retain their original URLs across the repository rename.
+const legacyRepositoryURL = "https://github.com/iFurySt/open-codex-computer-use";
 const tagPattern = /^v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/;
 const cjkPattern = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/u;
 
@@ -72,14 +74,16 @@ function validateNotes({ notesPath, tag }) {
     fail("What's Changed must contain 1 to 3 user-visible bullet items");
   }
 
-  const changelogPrefix = `**Full Changelog**: ${repositoryURL}/compare/`;
   const changelogLines = lines.filter((line) => line.startsWith("**Full Changelog**:"));
   if (changelogLines.length !== 1) {
     fail("Release notes must contain exactly one Full Changelog line");
   }
 
   const changelogLine = changelogLines[0];
-  if (!changelogLine.startsWith(changelogPrefix) || !changelogLine.endsWith(`...${tag}`)) {
+  const changelogPrefix = [repositoryURL, legacyRepositoryURL]
+    .map((url) => `**Full Changelog**: ${url}/compare/`)
+    .find((prefix) => changelogLine.startsWith(prefix));
+  if (!changelogPrefix || !changelogLine.endsWith(`...${tag}`)) {
     fail(`Full Changelog must use ${repositoryURL}/compare/<previous-tag>...${tag}`);
   }
 

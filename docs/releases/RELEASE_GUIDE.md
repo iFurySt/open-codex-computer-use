@@ -19,6 +19,12 @@
 
 ## 当前 release 入口
 
+GitHub 仓库规范地址是 `https://github.com/iFurySt/open-computer-use`。仓库改名不改变三个既有 npm 包名、CLI 别名、App Bundle ID 或签名团队。新 release notes 使用当前地址；校验器仍接受已发布 notes 的旧仓库链接，历史正文不批量改写。兼容性回归可运行 `node --test scripts/tests/release-notes.test.mjs`。
+
+npm staging 的 `repository.url` 必须与发布所在的 GitHub 仓库一致，否则 provenance / Trusted Publishing 可能失败。改名后应逐个核对 `open-computer-use`、`open-computer-use-mcp`、`open-codex-computer-use-mcp` 的 npm Trusted Publisher，workflow 文件仍为 `release.yml`。`npm publish --dry-run` 和 `npm whoami` 不能验证 GitHub OIDC；可在同一 workflow 文件的临时分支上，使用 GitHub OIDC 向 npm 官方 token-exchange API 验证三个包均返回 HTTP 201，不输出、保存或使用返回的 token，不执行 publish。该检查证明认证可用，完整构建 / provenance / 发布仍以实际发版为准。
+
+publisher 即使已绑定仓库不可变身份、页面仍显示 Valid，也不能据此推断改名后的认证可用：本次迁移的旧名称连接在真实 token exchange 中返回 HTTP 404。应以新仓库名新增连接，沿用原有权限，并验证真实认证；在新连接生效前保留旧连接，验证成功后再清理。创建连接需要账号所有者完成 npm 的安全密钥二步验证。参考 [npm 官方 Trusted Publishing 文档](https://docs.npmjs.com/trusted-publishers/)与 [npm Registry API](https://api-docs.npmjs.com/)。
+
 - 本地 staging / 打 tgz：`./scripts/release-package.sh`
 - 本地重新封装 GitHub Release assets：`./scripts/package-github-release-assets.sh --version <version>`
 - 本地构建 Cursor Motion DMG：`./scripts/build-cursor-motion-dmg.sh --configuration release --arch universal --version <version>`
@@ -157,8 +163,8 @@ workflow 会使用 `docs/releases/github/<tag>.md` 创建新 Release；如果 Re
 ### 1. 先看最新 run
 
 ```bash
-gh run list -R iFurySt/open-codex-computer-use --limit 10
-gh run view -R iFurySt/open-codex-computer-use <run-id> --log-failed
+gh run list -R iFurySt/open-computer-use --limit 10
+gh run view -R iFurySt/open-computer-use <run-id> --log-failed
 ```
 
 ### 2. 重点看哪一类错误
