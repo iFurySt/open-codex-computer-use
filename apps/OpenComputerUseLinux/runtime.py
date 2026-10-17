@@ -874,6 +874,9 @@ def perform_operation(operation):
     else:
         raise RuntimeError('unsupportedTool("{}")'.format(tool))
 
+    if operation.get("skip_read_back", False):
+        return {"ok": True}
+
     time.sleep(0.12)
     return {"ok": True, "snapshot": build_snapshot(operation.get("app", ""))}
 

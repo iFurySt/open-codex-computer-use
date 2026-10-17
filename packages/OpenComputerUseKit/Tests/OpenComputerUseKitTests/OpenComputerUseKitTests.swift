@@ -27,6 +27,33 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["--version"]), .version)
     }
 
+    func testDoctorJSONContract() throws {
+        XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["doctor"]), .doctor())
+        XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["doctor", "--json"]), .doctor(json: true))
+        XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["doctor", "--json", "--json"]))
+        XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["doctor", "--unknown"]))
+        XCTAssertTrue(shouldUseMacOSAppAgentProxy(
+            command: .doctor(json: true), proxyDisabled: false,
+            appBundleAvailable: true, runningFromLaunchServicesAppInstance: false
+        ))
+        for accessibility in [false, true] {
+            for screenCapture in [false, true] {
+                let diagnostics = PermissionDiagnostics(
+                    accessibilityTrusted: accessibility, screenCaptureGranted: screenCapture
+                )
+                let payload = try XCTUnwrap(JSONSerialization.jsonObject(
+                    with: Data(try diagnostics.jsonText().utf8)
+                ) as? [String: Any])
+                XCTAssertEqual(payload["platform"] as? String, "macos")
+                XCTAssertEqual(payload["accessibilityTrusted"] as? Bool, accessibility)
+                XCTAssertEqual(payload["screenCaptureGranted"] as? Bool, screenCapture)
+                XCTAssertEqual(payload["allGranted"] as? Bool, accessibility && screenCapture)
+                XCTAssertEqual(payload["missingPermissions"] as? [String],
+                               diagnostics.missingPermissions.map(\.rawValue))
+            }
+        }
+    }
+
     func testCLIRecognizesCommandSpecificHelp() throws {
         XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["help", "snapshot"]), .help(command: "snapshot"))
         XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["snapshot", "--help"]), .help(command: "snapshot"))
@@ -252,7 +279,7 @@ final class OpenComputerUseKitTests: XCTestCase {
     }
 
     func testToolDefinitionCount() {
-        XCTAssertEqual(ToolDefinitions.all.count, 10)
+        XCTAssertEqual(ToolDefinitions.all.count, 11)
         XCTAssertEqual(
             ToolDefinitions.all.map(\.name).sorted(),
             [
@@ -262,6 +289,7 @@ final class OpenComputerUseKitTests: XCTestCase {
                 "list_apps",
                 "perform_secondary_action",
                 "press_key",
+                "query",
                 "scroll",
                 "select_text",
                 "set_value",
@@ -361,7 +389,7 @@ final class OpenComputerUseKitTests: XCTestCase {
     func testMacOSAppAgentProxyDecisionRoutesAutomationCommandsThroughAppBundle() {
         for command in [
             OpenComputerUseCLICommand.mcp,
-            .doctor,
+            .doctor(),
             .listApps,
             .snapshot(app: "TextEdit"),
             .call(.single(toolName: "list_apps", argumentsJSON: nil, argumentsFile: nil)),
@@ -427,13 +455,13 @@ final class OpenComputerUseKitTests: XCTestCase {
 
     func testMacOSAppAgentProxyDecisionHonorsDisableAndMissingBundle() {
         XCTAssertFalse(shouldUseMacOSAppAgentProxy(
-            command: .doctor,
+            command: .doctor(),
             proxyDisabled: true,
             appBundleAvailable: true,
             runningFromLaunchServicesAppInstance: false
         ))
         XCTAssertFalse(shouldUseMacOSAppAgentProxy(
-            command: .doctor,
+            command: .doctor(),
             proxyDisabled: false,
             appBundleAvailable: false,
             runningFromLaunchServicesAppInstance: false
@@ -618,7 +646,7 @@ final class OpenComputerUseKitTests: XCTestCase {
 
     func testInitializeResponseContainsToolsCapability() throws {
         let server = StdioMCPServer(service: ComputerUseService())
-        let response = server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"1.0.0"},"capabilities":{}}}"#)
+        let response = server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"1.1.1"},"capabilities":{}}}"#)
         XCTAssertNotNil(response)
         XCTAssertTrue(response!.contains(#""name":"open-computer-use""#))
         XCTAssertTrue(response!.contains(#""tools":{"listChanged":false}"#))
@@ -627,7 +655,7 @@ final class OpenComputerUseKitTests: XCTestCase {
     func testInitializeResponseContainsComputerUseInstructions() throws {
         let server = StdioMCPServer(service: ComputerUseService())
         let response = try XCTUnwrap(
-            server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"1.0.0"},"capabilities":{}}}"#)
+            server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"1.1.1"},"capabilities":{}}}"#)
         )
         let data = try XCTUnwrap(response.data(using: .utf8))
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -2034,11 +2062,20 @@ final class OpenComputerUseKitTests: XCTestCase {
             screenMappings: screenMappings
         )
 
+        // The target also carries the anchor: the element centre relative to
+        // the window frame it was derived from, which is what lets the overlay
+        // follow the window if it moves before the action lands.
         XCTAssertEqual(
             target,
             VisualCursorTarget(
                 point: CGPoint(x: 484, y: 724),
-                window: CursorTargetWindow(windowID: 321, layer: 8)
+                window: CursorTargetWindow(windowID: 321, layer: 8),
+                anchor: CursorRestingAnchor(
+                    windowID: 321,
+                    layer: 8,
+                    windowLocalPoint: CGPoint(x: 84, y: 56),
+                    windowBounds: CGRect(x: 400, y: 220, width: 900, height: 640)
+                )
             )
         )
     }

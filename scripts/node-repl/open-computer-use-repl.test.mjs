@@ -245,3 +245,110 @@ test("worker session serializes concurrent callers", async () => {
   assert.equal((await second).content.at(-1).text, "first,second");
   await session.close();
 });
+
+test("native session end rejects pending work and initializes a fresh child without replay", async () => {
+  const source = `
+    let buffer = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', chunk => {
+      buffer += chunk;
+      for (;;) {
+        const end = buffer.indexOf('\\n'); if (end < 0) break;
+        const request = JSON.parse(buffer.slice(0, end)); buffer = buffer.slice(end + 1);
+        if (request.id === undefined || request.method === 'stall') continue;
+        process.stdout.write(JSON.stringify({jsonrpc:'2.0', id:request.id, result:{pid:process.pid}}) + '\\n');
+      }
+    });
+  `;
+  const peer = new JsonLinePeer({ command: process.execPath, args: ["--input-type=module", "-e", source] });
+  try {
+    const first = await peer.initialize();
+    const old = peer.child;
+    const pending = peer.request("stall", {}, 5_000);
+    const rejected = assert.rejects(pending, /session ended/);
+    peer.endSession();
+    await rejected;
+    const next = await peer.request("ping", {}, 5_000);
+    assert.notEqual(next.pid, first.pid);
+    old.emit("exit", 1, null);
+    assert.equal(peer.closed, false);
+    await assert.rejects(peer.request("stall", {}, 20), /timed out/);
+    assert.equal(peer.closed, true);
+    const recovered = await peer.request("ping", {}, 5_000);
+    assert.notEqual(recovered.pid, next.pid);
+  } finally { peer.close(); }
+});
+
+test("worker reset and timeout end the native GUI lease", async () => {
+  const native = mockNative();
+  let ended = 0;
+  native.endSession = () => { ended += 1; };
+  const session = new WorkerJavaScriptSession({ native });
+  try {
+    await session.reset();
+    assert.equal(ended, 1);
+    const result = await session.run("while (true) {}", 100);
+    assert.equal(result.isError, true);
+    assert.equal(ended, 2);
+  } finally { await session.close(); }
+});
+
+
+test("reset drops old worker native requests before a replacement kernel starts", async () => {
+  const native = mockNative();
+  const session = new WorkerJavaScriptSession({ native });
+  try {
+    const old = session.worker;
+    const resetting = session.reset();
+    old.emit("message", { type: "native_request", id: 1, method: "tools/call", params: { name: "click", arguments: {} } });
+    await resetting;
+    assert.equal(native.calls.length, 0);
+    old.emit("message", { type: "native_request", id: 2, method: "tools/call", params: { name: "click", arguments: {} } });
+    assert.equal(native.calls.length, 0);
+  } finally { await session.close(); }
+});
+
+test("lightweight app binding queries and acts across persistent JS calls without a snapshot", async () => {
+  const native = mockNative();
+  const request = native.request;
+  native.request = async (method, params) => {
+    if (params.name !== "query") return request(method, params);
+    native.calls.push(params);
+    return textResult(JSON.stringify({ matches: [{ index: 1000001, title: "Send" }], truncated: false, stop_reason: "complete", visited_nodes: 3, window_id: 12 }));
+  };
+  const session = new PersistentJavaScriptSession({ native });
+  let result = await session.run(`var queriedApp = await cua.getApp("Text", { initialState: false }); var found = await queriedApp.query({ text: "Send", role: "button", exact: true, maxNodes: 50, windowId: 12 }); nodeRepl.write(found);`);
+  assert.equal(result.isError, false, result.content.at(-1).text);
+  assert.deepEqual(native.calls.map(c => c.name), ["query"]);
+  assert.deepEqual(native.calls[0].arguments, { app: "Text", text: "Send", role: "button", exact: true, limit: undefined, max_nodes: 50, window_id: 12 });
+  result = await session.run(`await queriedApp.click(found.matches[0].index);`);
+  assert.equal(result.isError, false);
+  assert.equal(native.calls.at(-1).arguments.element_index, 1000001);
+  assert.equal(native.calls.some(c => c.name === "get_app_state"), false);
+});
+
+test("query rejects invalid options and preserves native errors", async () => {
+  const native = mockNative(), session = new PersistentJavaScriptSession({ native });
+  await session.run(`var queriedApp = await cua.getApp("Text", { initialState: false });`);
+  for (const options of [`{}`, `{text: "Send", windowId: -1}`, `{text: "Send", windowId: 4294967296}`, `{text: "Send", exact: 1}`, `{text: 3}`, `{role: "button", maxNodes: 1.5}`, `{text: "Send", typo: true}`]) {
+    const result = await session.run(`await queriedApp.query(${options});`);
+    assert.equal(result.isError, true, options);
+  }
+  assert.equal(native.calls.length, 0);
+  native.request = async () => textResult("query is unavailable on this platform", true);
+  const result = await session.run(`await queriedApp.query({text: "Send"});`);
+  assert.equal(result.isError, true);
+  assert.match(result.content.at(-1).text, /unavailable on this platform/);
+});
+
+test("query returns truncation metadata and rejects malformed native responses", async () => {
+  const native = mockNative(), session = new PersistentJavaScriptSession({ native });
+  native.request = async () => textResult(JSON.stringify({ matches: [], truncated: true, stop_reason: "timeout" }));
+  const result = await session.run(`var queriedApp = await cua.getApp("Text", { initialState: false }); nodeRepl.write(JSON.stringify(await queriedApp.query({role: "button"})));`);
+  assert.equal(result.isError, false);
+  assert.equal(JSON.parse(result.content.at(-1).text).stop_reason, "timeout");
+  native.request = async () => textResult("[]");
+  const bad = await session.run(`await queriedApp.query({role: "button"});`);
+  assert.equal(bad.isError, true);
+  assert.match(bad.content.at(-1).text, /Invalid query response/);
+});

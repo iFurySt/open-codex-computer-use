@@ -13,6 +13,15 @@
 
 ## 当前目录
 
+- `macos-locked-use-auth-transaction-timing-review.md`
+  - 认证时序、build 1001365 空字符串 / 合成点击证据、诊断采集边界和隔离测试要求。
+
+- `macos-locked-use-solution-review.md`
+  - 用户提供锁屏自动化参考的逐项核对、固定 AXValue 探测边界和真实验证顺序。
+
+- `macos-locked-use-authentication.md`
+  - macOS Locked Use 的认证事务 ID / audit session 区别、保留现有 fallback 与离线安装规划边界。
+
 - `codex-computer-use-reverse-engineering/`
   - 官方 `Codex Computer Use.app` / `SkyComputerUseClient` 的持续逆向分析资料；大体积一次性分析产物默认在本地 `research/` 下重新生成，不提交进仓库。
 - `codex-network-capture.md`

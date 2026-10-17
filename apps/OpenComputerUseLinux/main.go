@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-var version = "1.0.0"
+var version = "1.1.1"
 
 var clickMethodValues = []string{"auto", "accessibility", "app_post", "sky_click", "global"}
 
@@ -161,6 +161,7 @@ type linuxRequest struct {
 	TextLimit    any            `json:"text_limit,omitempty"`
 	MaxTreeNodes int            `json:"max_tree_nodes,omitempty"`
 	MaxTreeDepth int            `json:"max_tree_depth,omitempty"`
+	SkipReadBack bool           `json:"skip_read_back,omitempty"`
 }
 
 type textLimit struct {
@@ -467,11 +468,33 @@ func (s *service) setValue(app, elementIndex, value string) toolCallResult {
 }
 
 func (s *service) actionResult(app string, request linuxRequest) toolCallResult {
+	if !actionReadBackEnabled() {
+		request.SkipReadBack = true
+		response, err := runPython(request)
+		if err != nil {
+			return textResult(err.Error(), true)
+		}
+		if !response.OK {
+			return textResult(response.Error, true)
+		}
+		// Keep the last explicitly observed indexes until get_app_state refreshes them.
+		return textResult("ok", false)
+	}
 	snapshot, result := s.refreshSnapshot(app, request)
 	if result.IsError {
 		return result
 	}
 	return snapshot.result()
+}
+
+// Match the macOS runtime: only explicit false values disable action read-back.
+func actionReadBackEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("OPEN_COMPUTER_USE_ACTION_READ_BACK"))) {
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
 }
 
 func (s *service) currentSnapshot(app string) *appSnapshot {
@@ -1366,6 +1389,9 @@ func runCLI(args []string, stdout io.Writer) error {
 	case "mcp":
 		return runMCP(os.Stdin, stdout)
 	case "doctor":
+		if len(args) > 1 && args[1] == "--json" {
+			return errors.New("doctor --json permission diagnostics are only supported on macOS")
+		}
 		fmt.Fprintln(stdout, "Linux runtime: AT-SPI2 and GDK run against the signed-in desktop user's accessibility session. When Codex starts without XDG_RUNTIME_DIR, DBUS_SESSION_BUS_ADDRESS, or display variables, open-computer-use tries to discover the same user's session from /run/user/<uid> and desktop processes.")
 		return nil
 	case "list-apps":

@@ -96,6 +96,7 @@ if [[ " ${app_archs} " != *" arm64 "* || " ${app_archs} " != *" x86_64 "* ]]; th
   exit 1
 fi
 codesign --verify --deep --strict "${app_path}"
+"${repo_root}/scripts/verify-locked-use-bundle.sh" "${app_path}"
 
 rm -rf "${output_dir}"
 mkdir -p "${output_dir}"

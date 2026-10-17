@@ -21,6 +21,9 @@ element or places the text cursor before / after it (`selection`: `text`, `curso
 `suffix` when it is not unique; an ambiguous target fails closed instead of silently selecting the
 first match. Windows and Linux runtimes do not implement this tool yet.
 
+macOS additionally exposes `query`: a targeted accessibility lookup that finds
+controls by text and/or role without rendering a tree or taking a screenshot.
+
 ## Core Workflow
 
 1. On macOS, run `sw_vers -productVersion` before invoking the CLI and require macOS 14.0 or later. On older versions, explain that the runtime cannot launch; do not recommend `doctor` or permission changes as a fix for binary incompatibility.

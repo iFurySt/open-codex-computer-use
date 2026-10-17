@@ -10,7 +10,7 @@ fi
 project_name="$1"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-perl -0pi -e "s/open-codex-computer-use/${project_name}/g; s/harness-template/${project_name}/g" \
+perl -0pi -e "s/open-(?:codex-)?computer-use/${project_name}/g; s/harness-template/${project_name}/g" \
   "${repo_root}/README.md" \
   "${repo_root}/AGENTS.md"
 

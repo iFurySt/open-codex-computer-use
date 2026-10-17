@@ -42,7 +42,7 @@ set_value
 select_text   (macOS runtime only)
 ```
 
-This remains the native compatibility surface. The bundled Codex plugin uses a
+macOS also exposes `query` for targeted AX lookup. These nine core tools remain the cross-platform compatibility surface. The bundled Codex plugin uses a
 code-first adapter instead and advertises only `js` and `js_reset`. In that
 surface, bind an app and compose actions with asynchronous JavaScript:
 
@@ -79,7 +79,7 @@ ocu repl
 session and top-level bindings for the current terminal until `.exit`, Ctrl-D,
 or termination; `.editor` / `.end` accepts multiline input and `.reset`
 discards JavaScript bindings. Use `nodeRepl.write(value)` for explicit output.
-The native `ocu mcp` surface remains the nine tools listed above. Run
+The native `ocu mcp` surface exposes the nine core tools above, plus `query` on macOS. Run
 `ocu capabilities --json` to inspect component availability instead of
 inferring support from a command being present in help.
 
@@ -146,6 +146,15 @@ open-computer-use snapshot --max-tree-nodes 3000 --max-tree-depth 96 "Google Chr
 - Run `get_app_state` immediately before element-targeted actions.
 - Re-run `get_app_state` after navigation, modal changes, page reloads, or failed actions.
 - Use coordinate actions only when the rendered tree does not expose the target as an element.
+- On macOS, use `app.query` when you know the control's text or role. Bind with
+  `await cua.getApp("Safari", { initialState: false })` to skip the initial snapshot.
+  Query returns `{ matches, truncated, stop_reason, visited_nodes, window_id, limit, max_nodes }`.
+  An empty result only means no matching exposed control was found when `truncated` is false.
+  `exact: true` never retries substring matching. Query does not launch or activate the app.
+- Query indexes last up to 120 seconds in the same native session (5000 retained handles).
+  Use persistent MCP or `ocu repl` for query then action; separate CLI calls cannot share indexes.
+  Actions revalidate the process/window/control and current geometry. On failure, query again.
+  See [targeted query](../../../docs/targeted-query.md) for options and examples.
 
 ## Choosing a Click Method
 
@@ -219,6 +228,21 @@ open-computer-use call --calls '[
 Every non-fixture `drag` result includes a text item that begins `Drag delivered via app_post` or `Drag delivered via global pointer path`, so a default drag that did nothing is legible instead of looking like success. For an MCP server the variable belongs in the server entry's `env`, not in the calling shell, and the server must be restarted afterwards.
 
 When the gate is not enabled, treat window-server drags as unavailable and reach the same outcome another way: copy or move files with a shell command instead of a Finder drag, use `set_value` or keyboard selection instead of drag-selecting text, and use the app's own window controls instead of dragging a title bar.
+
+## Software Cursor
+
+The software cursor keeps a window-relative anchor for its target point. During travel, settle, click
+feedback and idle, it follows changes to the target window's frame. If the window moves during travel,
+the visible tip lands at the new position immediately, without continuing toward the old position.
+
+Window frames are read on a background worker at up to 30 Hz, with at most one read in flight. Rendering
+uses the latest cached frame, so a slow Accessibility response does not block the cursor. The snapshot's
+AX window element is preferred; `CGWindowListCopyWindowInfo` is used only when no AX element is available,
+because it can report an old origin after a move. A failed read keeps the last usable frame. Tracking is
+released when the cursor is cleared or its idle timeout expires.
+
+This follows the window's position, not layout changes inside it. Refresh app state after a layout change
+before choosing another target. Input delivery continues to use the existing action paths.
 
 ## Platform Notes
 

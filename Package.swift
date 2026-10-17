@@ -8,6 +8,9 @@ let package = Package(
         .macOS(.v14),
     ],
     products: [
+        .executable(name: "OCULockInstaller", targets: ["OCULockInstaller"]),
+        .executable(name: "OCULockService", targets: ["OCULockService"]),
+        .executable(name: "OCUGuardian", targets: ["OCUGuardian"]),
         .library(
             name: "OpenComputerUseKit",
             targets: ["OpenComputerUseKit"]
@@ -46,8 +49,29 @@ let package = Package(
             ]
         ),
         .target(
+            name: "LockedUseNative",
+            path: "packages/LockedUseNative",
+            publicHeadersPath: "include",
+            linkerSettings: [.linkedLibrary("bsm")]
+        ),
+        .executableTarget(
+            name: "OCULockInstaller",
+            dependencies: ["OpenComputerUseKit", "LockedUseNative"],
+            path: "experiments/LockedUse/Sources/Installer"
+        ),
+        .executableTarget(
+            name: "OCULockService",
+            dependencies: ["OpenComputerUseKit", "LockedUseNative"],
+            path: "experiments/LockedUse/Sources/Broker"
+        ),
+        .executableTarget(
+            name: "OCUGuardian",
+            dependencies: ["OpenComputerUseKit"],
+            path: "experiments/LockedUse/Sources/Guardian"
+        ),
+        .target(
             name: "OpenComputerUseKit",
-            dependencies: ["OpenComputerUseVirtualDisplayShim", .product(name: "libwebp", package: "libwebp-Xcode")],
+            dependencies: ["OpenComputerUseVirtualDisplayShim", "LockedUseNative", .product(name: "libwebp", package: "libwebp-Xcode")],
             path: "packages/OpenComputerUseKit/Sources/OpenComputerUseKit"
         ),
         .executableTarget(

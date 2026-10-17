@@ -84,7 +84,7 @@
 - [x] 在 Ubuntu VM 中验证 8-tool sequence：`get_app_state`、`set_value`、`type_text`、`press_key`、`perform_secondary_action`、`click`、`scroll`、`drag` 均 `isError=false`。
 - [x] 在 Ubuntu VM 中验证 `0.1.36` 预发布二进制可在 `leo` 用户 `env -i` 下自动发现 session env，并跑通 MCP `tools/list`、`tools/call(list_apps)` 和 9-tool sequence。
 - [x] 在 Ubuntu VM 中验证 `npm i -g open-computer-use@0.1.36` 后，npm launcher 选择 Linux arm64 binary，`codex mcp list` 显示 `open-computer-use mcp` enabled，raw MCP `tools/list` 返回 9 个 tools，`call list_apps` 返回 `isError=false`。
-- [ ] 增加 Linux fixture 和可重复 smoke runner。
+- [ ] 扩展 Linux fixture 和可重复 smoke runner 到完整 9-tool sequence（已有动作回读的隔离 GTK / Xvfb smoke，见 `docs/linux-action-read-back.md`）。
 - [ ] 评估 xdg-desktop-portal / compositor-specific screenshot 路径，补非黑图 capture。
 - [x] 将 Linux artifact 接入 npm release packaging，作为既有 npm root/alias packages 的 bundled artifacts 分发。
 - [ ] 评估用原生 Go D-Bus/libatspi 替换 Python GI bridge 的收益和风险。

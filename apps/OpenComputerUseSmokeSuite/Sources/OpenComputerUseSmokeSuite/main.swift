@@ -35,7 +35,7 @@ final class MCPClient {
         _ = try request(method: "initialize", params: [
             "clientInfo": [
                 "name": "OpenComputerUseSmokeSuite",
-                "version": "1.0.0",
+                "version": "1.1.1",
             ],
             "capabilities": [:],
             "protocolVersion": "2025-03-26",
@@ -196,8 +196,13 @@ enum OpenComputerUseSmokeSuite {
         try client.initialize()
 
         let tools = try client.listTools()
-        guard tools.count == 10 else {
-            throw SmokeError.message("Expected 10 tools, got \(tools.count)")
+        let expectedTools: Set<String> = [
+            "list_apps", "get_app_state", "query", "click", "perform_secondary_action",
+            "scroll", "drag", "type_text", "press_key", "set_value", "select_text",
+        ]
+        let toolNames = Set(tools.compactMap { $0["name"] as? String })
+        guard tools.count == expectedTools.count, toolNames == expectedTools else {
+            throw SmokeError.message("Expected tools \(expectedTools.sorted()), got \(toolNames.sorted())")
         }
 
         print("1. list_apps")

@@ -18,6 +18,7 @@ Examples:
   ./scripts/build-open-computer-use-app.sh --configuration release --arch universal
 
 Environment:
+  OPEN_COMPUTER_USE_APP_OUTPUT_DIR=/path/to/isolated/output
   OPEN_COMPUTER_USE_CODESIGN_MODE=auto|identity|adhoc|none
   OPEN_COMPUTER_USE_CODESIGN_IDENTITY="Developer ID Application: Example, Inc. (TEAMID)"
   OPEN_COMPUTER_USE_CODESIGN_KEYCHAIN=/path/to/signing.keychain-db
@@ -211,14 +212,24 @@ codesign_app_bundle() {
     return
   fi
 
-  local -a args=(--force --deep --sign "${identity}")
+  local -a args=(--force --sign "${identity}")
 
   if [[ -n "${codesign_keychain}" && "${identity}" != "-" ]]; then
     args+=(--keychain "${codesign_keychain}")
   fi
 
   if [[ "${identity}" != "-" ]]; then
-    args+=(--options runtime)
+    args+=(--options runtime,library)
+  fi
+  if [[ -n "${OPEN_COMPUTER_USE_PROVISIONING_PROFILE:-}" ]]; then
+    if [[ "${identity}" == "-" ]]; then
+      echo 'Keychain provisioning requires an Apple signing identity.' >&2
+      exit 1
+    fi
+    profile_entitlements="${icon_work_dir}/keychain-entitlements.plist"
+    python3 "${repo_root}/scripts/prepare-macos-keychain-profile.py" "${OPEN_COMPUTER_USE_PROVISIONING_PROFILE}" "${bundle_identifier}" "${profile_entitlements}"
+    cp "${OPEN_COMPUTER_USE_PROVISIONING_PROFILE}" "${contents_dir}/embedded.provisionprofile"
+    args+=(--entitlements "${profile_entitlements}")
   fi
 
   run_with_codesign_keychain "${codesign_keychain}" \
@@ -255,10 +266,11 @@ if [[ "${configuration}" != "release" ]]; then
   app_bundle_name="${development_app_bundle_name}"
 fi
 
-app_root="${repo_root}/dist/${app_bundle_name}"
-release_app_root="${repo_root}/dist/${release_app_bundle_name}"
-development_app_root="${repo_root}/dist/${development_app_bundle_name}"
-legacy_app_root="${repo_root}/dist/${legacy_app_bundle_name}"
+app_output_dir="${OPEN_COMPUTER_USE_APP_OUTPUT_DIR:-${repo_root}/dist}"
+app_root="${app_output_dir}/${app_bundle_name}"
+release_app_root="${app_output_dir}/${release_app_bundle_name}"
+development_app_root="${app_output_dir}/${development_app_bundle_name}"
+legacy_app_root="${app_output_dir}/${legacy_app_bundle_name}"
 contents_dir="${app_root}/Contents"
 macos_dir="${contents_dir}/MacOS"
 resources_dir="${contents_dir}/Resources"
@@ -319,6 +331,7 @@ iconutil -c icns "${iconset_dir}" -o "${resources_dir}/${bundle_icon_name}"
 cp "${cursor_reference_source}" "${resources_dir}/official-software-cursor-window-252.png"
 cp "${repo_root}/THIRD_PARTY_NOTICES.md" "${resources_dir}/THIRD_PARTY_NOTICES.md"
 
+bundle_build_identifier="$(uuidgen)"
 cat > "${contents_dir}/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -338,6 +351,8 @@ cat > "${contents_dir}/Info.plist" <<PLIST
   <string>${bundle_display_name}</string>
   <key>CFBundleDisplayName</key>
   <string>${bundle_display_name}</string>
+  <key>OpenComputerUseBuildIdentifier</key>
+  <string>${bundle_build_identifier}</string>
   <key>OpenComputerUseAppVariant</key>
   <string>${app_variant}</string>
   <key>CFBundlePackageType</key>
@@ -358,7 +373,38 @@ cat > "${contents_dir}/Info.plist" <<PLIST
 </plist>
 PLIST
 
+locked_use_requested="${OPEN_COMPUTER_USE_INCLUDE_LOCKED_USE:-auto}"
+locked_use_identity="$(resolve_codesign_identity || true)"
+if [[ "$locked_use_requested" == auto ]]; then
+  locked_use_requested=0
+  if [[ "$configuration" == release && -n "$locked_use_identity" && "$locked_use_identity" != - ]]; then
+    locked_use_requested=1
+  fi
+fi
+if [[ "$locked_use_requested" == 1 ]]; then
+  if [[ -z "$locked_use_identity" || "$locked_use_identity" == - ]]; then
+    echo 'Locked Use requires an Apple signing identity; refusing an incomplete release.' >&2
+    exit 1
+  fi
+  scripts/build-locked-use-components.sh --configuration "$configuration" --arch "$arch_mode" --identity "$locked_use_identity"
+  locked_use_components="${repo_root}/.build/locked-use/components"
+  guardian_component="OCU Guardian (Dev).app"
+  if [[ "${app_variant}" == release ]]; then
+    locked_use_components="${repo_root}/.build/locked-use/components-release"
+    guardian_component="OCU Guardian.app"
+  fi
+  if [[ "$arch_mode" != native ]]; then locked_use_components="$locked_use_components-$arch_mode"; fi
+  mkdir -p "${resources_dir}/LockedUse"
+  for component in OCULockService OCULockInstaller OCULockAuth.bundle; do
+    ditto "${locked_use_components}/${component}" "${resources_dir}/LockedUse/${component}"
+  done
+  ditto "${locked_use_components}/${guardian_component}" "${resources_dir}/LockedUse/OCU Guardian.app"
+fi
+
 plutil -lint "${contents_dir}/Info.plist" >/dev/null
 codesign_app_bundle "${app_root}"
+if [[ "$locked_use_requested" == 1 ]]; then
+  scripts/verify-locked-use-bundle.sh "$app_root"
+fi
 
 echo "Built ${app_root} (${arch_mode}, ${configuration})"

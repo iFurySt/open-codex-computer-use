@@ -1,4 +1,4 @@
-# open-codex-computer-use
+# open-computer-use
 
 这个仓库是一个面向 Agent 协作开发的基础模板。
 
